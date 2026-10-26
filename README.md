@@ -1,78 +1,92 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/lh_banner_dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/lh_banner_light.png">
-    <img src="docs/assets/lh_banner_light.png" alt="LearnHarness" width="640">
-  </picture>
-</p>
+# Cairn
 
-<p align="center"><strong>An agent harness for learning.</strong></p>
+**An AI tutor that runs on your GitHub Copilot subscription, with optional Azure-powered voice.**
 
-<p align="center">
-  <a href="https://learnharness.ai">Download</a> ·
-  <a href="#how-it-works">How it works</a> ·
-  <a href="docs/development.md">Documentation</a> ·
-  <a href="https://github.com/amosblomqvist/learnharness/issues">Issues</a>
-</p>
+Cairn finds out what you already understand, plans a path to your goal and teaches one reasoning step at a time. Like stones in a cairn, each new idea rests on one you already have, and a persistent knowledge graph carries the path from one session to the next.
 
-LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
+> [!IMPORTANT]
+> **Early stage.** This repository currently contains [LearnHarness](https://github.com/amosblomqvist/learnharness) 0.3.8 unchanged. The Cairn changes below are planned and haven't been built yet.
 
-Instead of just giving you an explanation, it uses your answers and thinking to decide what you need next. Teaching builds understanding one reasoning step at a time. Practice makes it usable. A persistent knowledge graph carries it across sessions.
+## Built on LearnHarness
 
-![LearnHarness teaching session](docs/assets/teaching-session.png)
+Cairn is a fork of **[LearnHarness](https://github.com/amosblomqvist/learnharness)** by **[Amos Blomqvist](https://github.com/amosblomqvist)**, licensed under [AGPL-3.0](LICENSE). The teaching method and nearly all of the app are his work:
+
+- the Measure → Plan → Teach → Practice loop
+- the persistent knowledge graph and its extraction pipeline
+- the background researcher, visual explanations and interactive demos
+- the desktop shell
+
+Cairn keeps the full upstream git history.
+
+Cairn adapts LearnHarness for people and companies that already use GitHub Copilot and, optionally, Azure. If you'd rather use your own model API keys from 30+ providers, use LearnHarness itself at [learnharness.ai](https://learnharness.ai). Its original README is in the [upstream repository](https://github.com/amosblomqvist/learnharness#readme).
+
+> Cairn is an independent project. It is not affiliated with or endorsed by the LearnHarness author, GitHub or Microsoft.
 
 ## How it works
 
-1. **Measure.** Before teaching, the agent finds where your understanding ends on each part the lesson depends on. Your answers, confidence, and thinking show it where to start.
-2. **Plan.** It works out a dependency map from that starting point to your goal. You can see the plan, and the lesson adapts when your understanding turns out different.
-3. **Teach.** Each step builds on something you already understand. You predict, get an explanation, and check your understanding. Confusions are repaired before anything is built on them. The aim is for the goal to feel obviously true, not merely familiar.
-4. **Practice.** Separate sessions pose varied problems that require the right knowledge to come to mind without being named first. Problems and hints adapt to your reasoning.
+The learning loop comes from LearnHarness and is unchanged:
 
-**Think out loud.** The thinking fields let you explain your reasoning, uncertainties, and reactions in your own words. This is how the agent gets a detailed picture rather than just a record of right and wrong answers. You can type or use dictation.
+1. **Measure.** Before teaching, Cairn finds where your understanding ends on each part your goal depends on.
+2. **Plan.** It maps the dependencies from that starting point to your goal, and adapts when your understanding turns out different.
+3. **Teach.** Each step builds on something you already understand: you predict, get an explanation and check your understanding. Confusions are fixed before anything is built on them.
+4. **Practice.** Separate sessions pose varied problems that need the right knowledge to come to mind without a prompt.
 
-The agent can also research questions in the background, create visual explanations, and build interactive demonstrations.
+What you learn builds up as propositions and reasoning chains in a knowledge graph, which later sessions build on.
 
-## Knowledge that carries forward
+## What Cairn changes
 
-What you are taught accumulates as propositions and reasoning chains: individual claims and the premises that lead to them. The graph shows this structure, with links back to the source sessions. You can also import notes.
+| | LearnHarness | Cairn (planned) |
+| --- | --- | --- |
+| **Models** | Your own API keys (30+ providers) or a subscription sign-in | Your **GitHub Copilot** plan, through the official [GitHub Copilot SDK](https://github.com/github/copilot-sdk). No model keys. |
+| **Talk** | Dictation through Deepgram | Dictation through **Azure Speech**, then a hands-free **voice mode** (speech-to-text → Copilot teacher → neural voice) |
+| **Web research** | Tavily or Brave | **Copilot's built-in web search**, with Tavily, Brave or Grounding with Bing Search as fallbacks |
+| **Azure** | Not used | Optional. `azd up` deploys into **your own** subscription, and Cairn signs in with your `az login` (Microsoft Entra ID), so no Azure keys are stored |
+| **Install** | Desktop downloads | A local web app started with one `npx` command; a desktop app later |
+| **Later** | | Opt-in suggestions for what to learn from Microsoft 365 work context (Work IQ), search over company docs (Azure AI Search), a shared team gateway |
 
-Future teaching sessions can read the graph instead of starting from scratch. Practice sessions can draw their material from it. It stores the ideas and their connections, not ratings of your ability.
+## Requirements (planned)
 
-![LearnHarness knowledge graph](docs/assets/knowledge-graph.png)
+- A GitHub account with **GitHub Copilot**. Copilot Free works, with limited usage. On Copilot Business or Enterprise, your admin may need to allow Copilot CLI/SDK use.
+- **Node.js 22+**
+- *Optional, for voice:* an Azure subscription, the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) and the [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
 
-## Download and get started
+Without Azure, Cairn still teaches by text.
 
-**[Download from learnharness.ai](https://learnharness.ai)** · [GitHub Releases](https://github.com/amosblomqvist/learnharness/releases)
+## Your data
 
-- **macOS (Apple Silicon):** signed and notarized DMG. Drag the app to Applications.
-- **Windows (x64):** run the installer. It is currently unsigned; Windows may show an “unknown publisher” or SmartScreen warning.
-- **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
+- Chats, the knowledge graph and settings stay on your machine as plain files you can inspect.
+- Model requests go to GitHub Copilot under your account and your organization's Copilot policies.
+- Speech goes to your own Azure Speech resource. Research queries go to the search provider you've configured.
+- Cairn runs no servers of its own and includes no analytics.
 
-Add your provider API key and choose your models, then start a session with what you want to understand. LearnHarness supports 30+ provider options, including OpenAI, Anthropic, Google, DeepSeek, and OpenRouter. Optional dictation and web search use separate service keys.
+## Development
 
-All three platforms support in-app updates.
-
-## Your keys, your data
-
-- **Your keys and models.** No LearnHarness subscription or markup. You pay your providers for usage; a live cost meter shows model costs.
-- **Local storage.** Your chats, graph, settings, and API keys live on your machine. Learning records are plain files you can inspect.
-- **External services.** Models run through your configured providers. Model requests send the context needed for the task; web research and dictation also contact external services. Local storage does not mean offline processing.
-- **Inspectable behavior.** System prompts are visible and editable. The app is open source under the AGPL-3.0 license.
-
-## Development and support
+For now, development works exactly as it does for LearnHarness:
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
-npm test           # deterministic, no LLM, no network
+npm run dev          # http://localhost:3000
+npm test             # deterministic: no LLM, no network
+npm run lint && npm run typecheck
 ```
 
-See the [development guide](docs/development.md), [architecture](docs/architecture.md), and [desktop release guide](docs/desktop-release.md).
+Architecture and conventions: [docs/architecture.md](docs/architecture.md) and [docs/development.md](docs/development.md).
 
-Questions, bug reports, and feature requests: [GitHub Issues](https://github.com/amosblomqvist/learnharness/issues).
+### Syncing with upstream
 
-## License
+```bash
+git remote add upstream https://github.com/amosblomqvist/learnharness.git   # once
+git fetch upstream
+git merge upstream/main   # on conflicts, README.md keeps Cairn's version
+```
 
-[AGPL-3.0](LICENSE)
+## License and attribution
 
-The app is free and open forever. If we ever charge for anything, it will be for convenience — managed keys, hosting — never for features you can run locally.
+Cairn is free software under the **GNU Affero General Public License v3.0 only** (see [LICENSE](LICENSE)), the same license as LearnHarness.
+
+- LearnHarness © Amos Blomqvist and LearnHarness contributors.
+- Cairn modifications © 2026 [@Bakar404](https://github.com/Bakar404).
+- **Modification notice (AGPL-3.0 §5(a)):** Cairn is a modified version of LearnHarness 0.3.8 (upstream commit `3dc8847`). Modifications began on 2026-10-26, and the git history records each change.
+- If you run a modified Cairn as a network service for other people, AGPL-3.0 §13 requires you to offer them its source code.
+
+GitHub, GitHub Copilot, Microsoft, Azure and Work IQ are trademarks of their respective owners.
