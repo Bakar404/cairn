@@ -1,5 +1,7 @@
 # The pi engine swap — design record
 
+> **Cairn note:** this upstream record predates Cairn. In Cairn, pi still runs the agent loop, but every model call goes through the GitHub Copilot SDK; OpenRouter and the other providers below are no longer model routes. See [architecture §8.1](architecture.md#81-github-copilot-connection-boundary).
+
 Date: 2026-09-12. Status: PLANNED (facts verified, awaiting go).
 
 Decision (user, 2026-09-12): swap the server agent engine (Band B) and the

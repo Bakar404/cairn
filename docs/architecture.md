@@ -30,7 +30,7 @@ Hold the architecture along two orthogonal axes:
 | **Library** — world model | `data/graph/*` ledgers | extraction pipeline (sole graph writer), derivation, birth-session clusters |
 | **Practice** — problem sets | `data/practice/*.json` | partitioner→generator→grader pipeline, self-contained sets (§7) |
 | **Stage** — presentation shell | nothing server-side | components/, graph canvas, docks — pure consumer via `/api/*` |
-| **Machine room** — host | process + config | Electron main, standalone Next server, `config.ts`, data-dir seam, BYOK keys |
+| **Machine room** — host | process + config | Electron main, standalone Next server, `config.ts`, data-dir seam, tool keys, the GitHub Copilot runtime |
 
 **The unifying law** (generates everything else): **imports point inward, writes point to append-only evidence, and everything else is derived.** Dependency flows toward purity; data flows toward evidence; no state is stored where it can be recomputed.
 
@@ -108,7 +108,7 @@ flowchart TB
         PORTLESS["render-settings.ts (portless)"]
     end
 
-    CFG["config.ts — leaf facts: PATHS · LEDGER_FILES · engine-construction facts (no models — BYOK slots own those)"]
+    CFG["config.ts — leaf facts: PATHS · LEDGER_FILES · engine-construction facts (no models — the settings model slots own those)"]
 
     COMP -->|"lint zone: @/src/core only"| CBAR
     APP -->|"lint zone: @/src/core + @/src/server"| CBAR
@@ -166,7 +166,7 @@ Storage is **per-entity semantic ports**, never one generic interface: `ChatStor
 - **`src/server/chat-handler.ts` is THE composition root for a turn**: it wires the stores, the job runner, the extraction pipeline, the practice pipeline, and the pi engine into the stream response (`setTurnRunner`/`setJobRespawn` register its seams for the wake pipeline). All logic lives behind the seams it calls.
 - The agent layer is dependency-inverted throughout: `createJobRunner({ chatStore, jobStore, deliver })`, `createExtractionPipeline({ chatStore, graphStore, extractor?, auditor?, embedder })`, `createTeacherTools({ chatId, chatStore, jobStore, spawn })`, `createProberAgent`/`createTeacherAgent(engine?, tools?, …)`. Tests inject the same ports production wires — or swap an in-memory port.
 
-The engine side is adapted too: `src/agent/models.ts` (`piEngineFor`) resolves each role's engine from the user's **model slots** (BYOK: `settings.json` `models` section — strong/cheap/vision; a chain that ends empty refuses honestly with 503 `models_not_configured`) — and the teacher/prober conversation runs the **SESSION'S OWN record**: `POST /api/chats` stamps every newborn verbatim from the strong slot (the new-session default, chosen in setup), in-session picks write the session's record (`PUT /api/chats/:id/settings`), and the strong slot never reaches an existing session again (legacy unstamped records fall back to it at resolve time) — per-session models, owner 2026-09-28. Beyond the conversation, `src/server/pi/` bridges the two SDK worlds: `record-adapter.ts` (persisted UIMessage record → stateless pi `Message[]`, dangling tool calls get synthesized INTERRUPTED results) and `ui-stream.ts` (pi agent events → AI-SDK UIMessage SSE).
+The engine side is adapted too: `src/agent/models.ts` (`piEngineFor`) resolves each role's engine from the user's **model slots** (`settings.json` `models` section — strong/cheap/vision, picked from the GitHub Copilot catalog; a chain that ends empty refuses honestly with 503 `models_not_configured`) — and the teacher/prober conversation runs the **SESSION'S OWN record**: `POST /api/chats` stamps every newborn verbatim from the strong slot (the new-session default, chosen in setup), in-session picks write the session's record (`PUT /api/chats/:id/settings`), and the strong slot never reaches an existing session again (legacy unstamped records fall back to it at resolve time) — per-session models, owner 2026-09-28. Beyond the conversation, `src/server/pi/` bridges the two SDK worlds: `record-adapter.ts` (persisted UIMessage record → stateless pi `Message[]`, dangling tool calls get synthesized INTERRUPTED results) and `ui-stream.ts` (pi agent events → AI-SDK UIMessage SSE).
 
 ```mermaid
 flowchart LR
@@ -174,7 +174,7 @@ flowchart LR
         BROWSER["Browser UI — components/: question dock (addToolOutput) · graph canvas · docks"]
         HTTP["HTTP transport — app/api/*: 28 route handlers"]
         NOTES["Notes front door — POST /api/graph/import"]
-        ELEC["Electron main — thin launcher, spawns server, LH_DATA_DIR + BYOK env"]
+        ELEC["Electron main — thin launcher, spawns server, LH_DATA_DIR + tool-key env"]
     end
 
     subgraph HEXCORE["THE CORE — src/core (pure domain)"]
@@ -186,10 +186,10 @@ flowchart LR
 
     subgraph DRIVEN["DRIVEN ADAPTERS — outbound"]
         FS["fs stores — src/store (data/)"]
-        LLM["LLM engines — pi-ai/OpenRouter via piEngineFor"]
+        LLM["LLM engines — GitHub Copilot SDK runtime via piEngineFor"]
         HEAD["headless Chrome — demo verify · SVG render"]
         DEEP["Deepgram STT — token-minting route, browser-side WebSocket"]
-        WEB["web tools — Google CSE + Readability/Jina (researcher)"]
+        WEB["web tools — Tavily/Brave + Readability/Jina (researcher)"]
     end
 
     BROWSER --> HTTP
@@ -245,7 +245,7 @@ flowchart TB
     end
 
     subgraph ROOM["MACHINE ROOM — host"]
-        HOST["Electron main → standalone Next server · config.ts · LH_DATA_DIR · BYOK"]
+        HOST["Electron main → standalone Next server · config.ts · LH_DATA_DIR · tool keys"]
     end
 
     LEARNER -->|"text · answers [transport adapter]"| UI
@@ -407,37 +407,35 @@ Practice turns the graph into problem sets the learner reasons through out loud.
 ```mermaid
 flowchart LR
     subgraph DESKTOP["Electron app (production)"]
-        MAIN["Electron main (electron/main.cjs)<br/>launcher + credential/security owner<br/>origin-pinned controls · private child IPC"] -->|"spawn: ELECTRON_RUN_AS_NODE,<br/>loopback port, LH_DATA_DIR=userData/data"| NEXT["standalone Next server (child)<br/>ALL app logic: turns · extraction · jobs · graph"]
+        MAIN["Electron main (electron/main.cjs)<br/>launcher + security guard<br/>origin-pinned navigation · sandboxed renderer"] -->|"spawn: ELECTRON_RUN_AS_NODE,<br/>loopback port, LH_DATA_DIR=userData/data"| NEXT["standalone Next server (child)<br/>ALL app logic: turns · extraction · jobs · graph"]
         MAIN -->|"loadURL, sandboxed renderer"| REND["Browser renderer (components/)<br/>fetch/WebSocket to own origin only"]
     end
     subgraph OUTSIDE["outside the process"]
-        OR["OpenRouter (BYOK key from auth.json, env-injected — never argv)"]
+        CP["GitHub Copilot (SDK runtime child of the server; gh / Copilot CLI sign-in or COPILOT_GITHUB_TOKEN)"]
         DG["Deepgram STT (browser-direct WebSocket)"]
-        GCSE["Google CSE / Jina (researcher tools)"]
+        WEBT["Tavily / Brave / Jina (researcher tools)"]
         CHROME["system Chrome (headless: demo verify · SVG render)"]
         DISK["data/ ledgers (via LH_DATA_DIR seam)"]
     end
-    NEXT --> OR
-    NEXT --> GCSE
+    NEXT --> CP
+    NEXT --> WEBT
     NEXT --> CHROME
     NEXT --> DISK
     REND --> DG
     REND -->|"fetch /api/*"| NEXT
 ```
 
-The Electron main is a launcher + credential/security guard, never a host for teaching or inference logic: single-instance lock, deny-by-default permissions, origin-pinned navigation, sandboxed renderer. All Next.js code runs unchanged in a child process (`output: "standalone"`), relocated by the `LH_DATA_DIR` seam (also the test seam — `data-dir-seam.test.ts` covers it, including a fresh-child-process case). The build hard-fails if repo `data/` would leak into the bundle or if prompt assets fall out of the trace (`scripts/build-server.mjs`).
+The Electron main is a launcher + security guard, never a host for teaching or inference logic: single-instance lock, deny-by-default permissions, origin-pinned navigation, sandboxed renderer. All Next.js code runs unchanged in a child process (`output: "standalone"`), relocated by the `LH_DATA_DIR` seam (also the test seam — `data-dir-seam.test.ts` covers it, including a fresh-child-process case). The build hard-fails if repo `data/` would leak into the bundle or if prompt assets fall out of the trace (`scripts/build-server.mjs`).
 
 ---
 
-### 8.1 Subscription connection boundary
+### 8.1 GitHub Copilot connection boundary
 
-`electron/chatgpt.cjs` retains the existing verified-account ChatGPT authentication, storage and revocation behavior. `electron/subscriptions.cjs` delegates GitHub Copilot/Grok login and refresh to the installed Pi SDK through its public provider/Models interfaces. Their single saved connections live independently in owner-only, atomically written `github-copilot-credentials.json` / `xai-credentials.json` beside the existing app credential files. In packaged desktop mode Electron main alone owns durable OAuth credentials and serialized refresh; no global Pi files or API-key credential precedence are involved.
+Models have one route: `copilot`. `src/agent/copilot/` runs the official GitHub Copilot SDK's bundled runtime as a child of the Next server and adapts it to pi. The runtime module owns the lifecycle (signed-in status, the model catalog, the idle-session sweep). Each pi session binds to one Copilot session; tool calls are answered by Cairn's own tools (the runtime runs with no built-in tools), new learner messages are sent as prompts, and any other transcript change rebuilds the Copilot session from a replay.
 
-The packaged desktop renderer gets projected status, public device user codes, prompts and controls over origin-pinned IPC. The privately launched server child receives credential-free catalogs and scoped request auth (including native headers/account endpoints), never refresh tokens. `src/agent/subscription-bridge.ts` rejects framework-only IPC and invalidates stale connection/catalog scopes. `subscription-stream.ts` dispatches directly through native providers, retaining native protocol identity on the wire and restoring logical app identity in assistant history. Persisted routes `chatgpt`, `github-copilot-subscription` and `xai-subscription` are distinct from ordinary API routes and never fall back to them.
+Cairn stores no Copilot credentials and starts the runtime without `GITHUB_TOKEN`, `GH_TOKEN` or any `*_API_KEY`; auth is the SDK's own (`COPILOT_GITHUB_TOKEN`, else the GitHub CLI / Copilot CLI sign-in). `/api/copilot` reports the connection to Settings → Providers. In the desktop app the same code runs inside the standalone server child; Electron main holds no credentials.
 
-For ordinary Next web/dev, `src/server/web-subscriptions.ts` composes these same plain-Node controllers into one lazy process-global credential owner beside configured `AUTH_FILE`. The server injects the private transport through `src/agent/subscription-runtime.ts`; the agent layer never imports the server layer. Existing scoped leases, authority revisions and foreground/background abort listeners work through that transport, without exposing an HTTP token/lease operation. `src/server/web-subscription-http.ts` exposes only same-origin status/control operations. Generic `subscriptions-changed` notifications use the existing SSE notify→fetch channel; opaque one-use browser actions redirect to provider pages without putting authorization URLs in app JSON. Browser adapters preserve the UI bridge contracts; Electron dev uses the web owner with a narrow system-browser opener. Desktop markers fail closed rather than falling back to web credentials. This is the existing shared developer-server trust model, not user authentication or DNS-rebinding protection; LAN behavior is unchanged. Only one server process may own an auth directory. See [development](development.md#subscription-connections-in-webdev) for storage, browser locality and access limitations.
-
-`subscription-request-cycle.ts` is the shared admission/automatic-input recovery state machine; the old ChatGPT module is its compatibility export. Background consent is independent per provider, default ON, with foreground-preserving cancellation and queue ownership retained on no-dispatch. Native usage rejected before dispatch is transiently excluded from helper usage collectors, without adding persisted provenance fields. Catalogs and read-time pricing preserve the selected connection: subscription use displays compact provider labels, API dollars remain dollars, and mixed usage joins both without estimating subscription dollars or claiming detected tiers/allowances.
+Slots or sessions pinned to any other provider are refused before dispatch with a pointer to Settings, and older model keys in `auth.json` are surfaced read-only and never used. Copilot calls are recorded as subscription usage, with no dollar estimate; historical calls from other providers keep their read-time prices from pi's static catalog. The server is a trusted single-user host, with no user authentication or DNS-rebinding protection. See [development](development.md#github-copilot-connection).
 
 ## 9. The foundational invariants — what ALWAYS holds
 
