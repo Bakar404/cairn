@@ -1,21 +1,23 @@
-// Regenerate the Windows/Linux icon set from the flat design source
-// (build/icon-flat.svg — the owner's Affinity export, rounded squircle
-// with baked transparency, owner ruling 2026-10-13).
+// Regenerate the icon set from the flat design source
+// (build/icon-flat.svg — the Cairn stacked-stones mark on a rounded
+// squircle with baked transparency).
 //
 //   build/icon.ico  — Windows (.ico with 16/24/32/48/64/128/256 PNG entries)
 //   build/icon.png  — Linux (512×512; AppImage/deb/desktop entry)
+//   build/icon.icns — pre-Tahoe macOS fallback (16→1024), macOS hosts only
 //
-// macOS does NOT come from here: build/icon.icon (the Icon Composer
-// document) is the mac source of truth, compiled by actool at package
-// time into Assets.car (macOS 26 Liquid Glass) + a fallback icns; the
-// hand-packed build/icon.icns replaces that fallback's 256px cap via
-// scripts/after-pack.cjs (pre-Tahoe keeps full-res).
+// The macOS 26 icon does NOT come from here: build/icon.icon (the Icon
+// Composer document, one stone per layer) is compiled by actool at package
+// time into Assets.car (Liquid Glass) + a fallback icns capped at 256px,
+// which scripts/after-pack.cjs swaps for the full-res build/icon.icns.
 //
 // Renders each size DIRECTLY from the SVG (resvg) — sharper squircle
 // edges than downsampling a raster. Committed outputs; rerun only when
 // the design changes: `node scripts/make-icons.mjs`.
 import { Resvg } from "@resvg/resvg-js";
-import { readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -53,3 +55,23 @@ console.log(`build/icon.ico  ${ICO_SIZES.join("/")} — ${(ico.length / 1024).to
 const png512 = render(512);
 writeFileSync(path.join(root, "build", "icon.png"), png512);
 console.log(`build/icon.png  512×512 — ${(png512.length / 1024).toFixed(1)} KB`);
+
+// ---- build/icon.icns: pre-Tahoe macOS (all 10 iconset entries) ----------
+if (process.platform === "darwin") {
+	const dir = mkdtempSync(path.join(tmpdir(), "cairn-icon-"));
+	const iconset = path.join(dir, "icon.iconset");
+	mkdirSync(iconset);
+	try {
+		for (const size of [16, 32, 128, 256, 512]) {
+			writeFileSync(path.join(iconset, `icon_${size}x${size}.png`), render(size));
+			writeFileSync(path.join(iconset, `icon_${size}x${size}@2x.png`), render(size * 2));
+		}
+		const icns = path.join(root, "build", "icon.icns");
+		execFileSync("iconutil", ["-c", "icns", "-o", icns, iconset]);
+		console.log(`build/icon.icns 16→1024 — ${(readFileSync(icns).length / 1024).toFixed(1)} KB`);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+} else {
+	console.log("build/icon.icns skipped — iconutil needs a macOS host");
+}

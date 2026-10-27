@@ -1,4 +1,4 @@
-# electron-builder config — LearnHarness desktop (macOS arm64; Windows/Linux x64).
+# electron-builder config — Cairn desktop (macOS arm64; Windows/Linux x64).
 #
 # Shape (fact-checked 2026-09-17):
 #   - the app's real server (.next/standalone, curated by
@@ -6,11 +6,12 @@
 #     because native .node/dylib can't dlopen from a read-only archive and
 #     server.js process.chdir()s into its own dir;
 #   - the asar holds only the shell (electron/main.cjs + package.json);
-#   - signed + notarized since 2026-10-08 (Developer ID Application cert in
-#     the login keychain; notary credentials in the LH_NOTARY keychain
-#     profile; the profile + team env vars are baked into desktop:dist).
-appId: com.learnharness.LearnHarness
-productName: LearnHarness
+#   - signed + notarized when credentials are present (Developer ID
+#     Application cert in the login keychain; notary credentials from
+#     APPLE_KEYCHAIN_PROFILE + APPLE_TEAM_ID in the environment). Without
+#     them electron-builder warns and skips signing/notarization.
+appId: io.github.bakar404.cairn
+productName: Cairn
 directories:
   output: dist
 # Icons (owner ruling, 2026-10-13) — per-platform sources in build/:
@@ -18,7 +19,7 @@ directories:
 #         Glass); actool (Xcode 26+) compiles Assets.car (CFBundleIconName,
 #         macOS 26+ renders the true layered icon) + an actool fallback icns
 #         capped at 256px, which scripts/after-pack.cjs swaps for the
-#         hand-packed full-res build/icon.icns (pre-Tahoe keeps 16→1024).
+#         full-res build/icon.icns (16→1024, from scripts/make-icons.mjs).
 #         Requires actool ≥ 26: desktop:dist injects DEVELOPER_DIR locally;
 #         the release workflow's mac job runs setup-xcode.
 #   win   build/icon.ico  — generated (16→256) from the flat design by
@@ -125,14 +126,14 @@ mac:
   # Laid for the STT milestone (researcher-verified): the TCC mic prompt
   # reads this string; macOS asks regardless of Electron's own handlers.
   extendInfo:
-    NSMicrophoneUsageDescription: "LearnHarness uses the microphone only for speech-to-text input into your sessions."
+    NSMicrophoneUsageDescription: "Cairn uses the microphone only for speech-to-text input into your sessions."
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   # Signing + notarization (flipped 2026-10-08): identity auto-detects the
   # Developer ID Application certificate from the login keychain;
   # notarize: true makes electron-builder sign → submit to Apple's notary
   # service → staple the ticket, all inside this one build (credentials
-  # via the LH_NOTARY keychain profile, env baked into desktop:dist).
+  # from APPLE_KEYCHAIN_PROFILE + APPLE_TEAM_ID in the environment).
   # Adds minutes per build (Apple's scan queue). Verification battery:
   # codesign --verify --deep / spctl --assess / stapler validate.
   notarize: true
@@ -188,7 +189,7 @@ publish:
   # would be a leak. desktop:dist passes no --publish flag, so builds never
   # upload; publishing happens at release time (GH_TOKEN + --publish).
   - provider: github
-    owner: amosblomqvist
-    repo: learnharness
+    owner: Bakar404
+    repo: cairn
     # All three CI jobs contribute assets; only the owner publishes it.
     releaseType: draft
