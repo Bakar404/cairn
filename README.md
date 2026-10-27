@@ -39,7 +39,7 @@ What you learn builds up as propositions and reasoning chains in a knowledge gra
 | --- | --- | --- |
 | **Models** | Your own API keys (30+ providers) or a subscription sign-in | Your **GitHub Copilot** plan, through the official [GitHub Copilot SDK](https://github.com/github/copilot-sdk). No model keys. |
 | **Talk** | Dictation through Deepgram | Dictation through **Azure Speech**, then a hands-free **voice mode** (speech-to-text → Copilot teacher → neural voice) |
-| **Web research** | Tavily or Brave | **Copilot's built-in web search**, with Tavily, Brave or Grounding with Bing Search as fallbacks |
+| **Web research** | Tavily or Brave | **Copilot's built-in web search**, with Tavily or Brave as fallbacks |
 | **Azure** | Not used | Optional. `azd up` deploys into **your own** subscription, and Cairn signs in with your `az login` (Microsoft Entra ID), so no Azure keys are stored |
 | **Install** | Desktop downloads | A local web app started with one `npx` command; a desktop app later |
 | **Later** | | Opt-in suggestions for what to learn from Microsoft 365 work context (Work IQ), search over company docs (Azure AI Search), a shared team gateway |
@@ -56,7 +56,7 @@ Without Azure, Cairn still teaches by text.
 
 - Chats, the knowledge graph and settings stay on your machine as plain files you can inspect.
 - Model requests go to GitHub Copilot under your account and your organization's Copilot policies.
-- Speech goes to your own Azure Speech resource. Research queries go to the search provider you've configured.
+- Speech goes to your own Azure Speech resource. Research queries go to Copilot's web search, or to Tavily or Brave if you set one up.
 - Cairn runs no servers of its own and includes no analytics.
 
 ## Development
