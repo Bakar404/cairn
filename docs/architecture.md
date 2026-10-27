@@ -189,7 +189,7 @@ flowchart LR
         LLM["LLM engines — GitHub Copilot SDK runtime via piEngineFor"]
         HEAD["headless Chrome — demo verify · SVG render"]
         DEEP["Deepgram STT — token-minting route, browser-side WebSocket"]
-        WEB["web tools — Tavily/Brave + Readability/Jina (researcher)"]
+        WEB["web tools — Copilot web search · Tavily/Brave + Readability/Jina (researcher)"]
     end
 
     BROWSER --> HTTP
@@ -411,7 +411,7 @@ flowchart LR
         MAIN -->|"loadURL, sandboxed renderer"| REND["Browser renderer (components/)<br/>fetch/WebSocket to own origin only"]
     end
     subgraph OUTSIDE["outside the process"]
-        CP["GitHub Copilot (SDK runtime child of the server; gh / Copilot CLI sign-in or COPILOT_GITHUB_TOKEN)"]
+        CP["GitHub Copilot (SDK runtime child of the server; gh / Copilot CLI sign-in or COPILOT_GITHUB_TOKEN) — models + hosted web search"]
         DG["Deepgram STT (browser-direct WebSocket)"]
         WEBT["Tavily / Brave / Jina (researcher tools)"]
         CHROME["system Chrome (headless: demo verify · SVG render)"]
@@ -432,6 +432,8 @@ The Electron main is a launcher + security guard, never a host for teaching or i
 ### 8.1 GitHub Copilot connection boundary
 
 Models have one route: `copilot`. `src/agent/copilot/` runs the official GitHub Copilot SDK's bundled runtime as a child of the Next server and adapts it to pi. The runtime module owns the lifecycle (signed-in status, the model catalog, the idle-session sweep). Each pi session binds to one Copilot session; tool calls are answered by Cairn's own tools (the runtime runs with no built-in tools), new learner messages are sent as prompts, and any other transcript change rebuilds the Copilot session from a replay.
+
+Web search is the one place Copilot runs a tool itself. When no keyed engine is pinned in settings, the researcher's `web_search` opens a short Copilot session (`src/agent/copilot/search.ts`) on the researcher's model whose only tool is Copilot's hosted `web_search`. Cairn keeps that tool's cited sources as the search hits and closes the session before the model writes an answer. A Tavily or Brave key, when present, takes over if a Copilot search fails.
 
 Cairn stores no Copilot credentials and starts the runtime without `GITHUB_TOKEN`, `GH_TOKEN` or any `*_API_KEY`; auth is the SDK's own (`COPILOT_GITHUB_TOKEN`, else the GitHub CLI / Copilot CLI sign-in). `/api/copilot` reports the connection to Settings → Providers. In the desktop app the same code runs inside the standalone server child; Electron main holds no credentials.
 

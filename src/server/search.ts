@@ -5,8 +5,11 @@
  * agent-layer tool both read.
  *
  * Owner decisions (2026-09-20) baked in:
- *  - NO default engine: an engine is live iff its key is present (auth
+ *  - NO default keyed engine: a keyed engine is live iff its key is present (auth
  *    store or env — env wins, keyed via server/keys.ts keyValue).
+ *  - GitHub Copilot's hosted web search goes first when nothing is pinned
+ *    and Copilot is signed in (no key needed); a keyed engine, if any,
+ *    backs it up when a Copilot search fails.
  *  - Setting a key is ALL the user does — auto-detection: explicit
  *    agent.search.engine pins the preference (when BOTH keys are present
  *    the preference order is Tavily → Brave); without a pin, whichever
@@ -19,9 +22,11 @@
  * tool depends on the PORT only and tests never touch the network.
  */
 
+import { COPILOT_PROVIDER, copilotSearchProvider, copilotSignedIn } from "../agent/copilot/index.ts";
 import type { SearchEngineId, SearchHit, SearchProvider, SearchStatus } from "../core/search.ts";
+import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { keyValue } from "./keys.ts";
-import { effectiveSettings } from "./stores.ts";
+import { effectiveSettings, stores } from "./stores.ts";
 
 /** The wire-callable shape the adapters close over (tests inject a stub). */
 type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
@@ -125,12 +130,15 @@ function engineKey(id: SearchEngineId): string | null {
 }
 
 /** Resolve the search state PURELY from the given pins (testable): the
- *  explicit engine (if pinned) wins but must be keyed; absent pin → first
+ *  explicit engine (if pinned) wins but must be keyed; absent pin →
+ *  GitHub Copilot when `copilot` says its search can run, else the first
  *  keyed engine in preference order. Never throws. */
 export function resolveSearchEngineFor(
 	pinned: SearchEngineId | undefined,
 	/** Per-engine live keys (absent engine = absent property is fine). */
 	keys: Partial<Record<SearchEngineId, string | undefined>>,
+	/** Copilot is signed in and the researcher runs on a Copilot model. */
+	copilot = false,
 ): SearchStatus & { key: string | null } {
 	const pinnedKey = pinned ? keys[pinned] ?? null : null;
 	if (pinned) {
@@ -144,6 +152,7 @@ export function resolveSearchEngineFor(
 		}
 		return { available: true, engine: pinned, reason: `search engine: ${pinned} (chosen)`, key: pinnedKey };
 	}
+	if (copilot) return { available: true, engine: "copilot", reason: "search engine: GitHub Copilot (auto)", key: null };
 	for (const { id } of ENGINE_ORDER) {
 		const key = keys[id] ?? null;
 		if (key) return { available: true, engine: id, reason: `search engine: ${id} (auto)`, key };
@@ -151,8 +160,42 @@ export function resolveSearchEngineFor(
 	return {
 		available: false,
 		engine: null,
-		reason: "no search engine configured — set a Tavily or Brave search API key",
+		reason: "no search engine configured — sign in to GitHub Copilot or set a Tavily or Brave search API key",
 		key: null,
+	};
+}
+
+function liveKeys(): Partial<Record<SearchEngineId, string>> {
+	return {
+		tavily: engineKey("tavily") ?? undefined,
+		brave: engineKey("brave") ?? undefined,
+	};
+}
+
+/** The Copilot model Copilot web search runs on (the researcher's), or
+ *  undefined when Copilot search cannot run (signed out, or no model). */
+function copilotSearchModel(): string | undefined {
+	if (!copilotSignedIn()) return undefined;
+	const spec = resolveRoleSpec("researcher", stores.settingsStore.readSettings());
+	return spec?.provider === COPILOT_PROVIDER ? spec.id : undefined;
+}
+
+function keyedProvider(engine: SearchEngineId, key: string): SearchProvider {
+	return engine === "tavily" ? tavilyProvider(key) : braveProvider(key);
+}
+
+/** Copilot search with a keyed engine behind it (automatic mode only). */
+export function withSearchBackup(primary: SearchProvider, backup: SearchProvider): SearchProvider {
+	return {
+		id: primary.id,
+		async search(query, count) {
+			try {
+				return await primary.search(query, count);
+			} catch (err) {
+				console.warn(`[search] ${primary.id} failed, using ${backup.id}: ${err instanceof Error ? err.message : String(err)}`);
+				return backup.search(query, count);
+			}
+		},
 	};
 }
 
@@ -162,10 +205,8 @@ export function resolveSearchEngineFor(
 export function searchStatus(): SearchStatus {
 	const { available, engine, reason } = resolveSearchEngineFor(
 		effectiveSettings().agent.search?.engine,
-		{
-			tavily: engineKey("tavily") ?? undefined,
-			brave: engineKey("brave") ?? undefined,
-		},
+		liveKeys(),
+		copilotSearchModel() !== undefined,
 	);
 	return { available, engine, reason };
 }
@@ -180,10 +221,14 @@ export function searchAvailable(): boolean {
  *  the tool layer (Teacher stream) calls this once per search, so key
  *  rotations take effect immediately. */
 export function searchProvider(): SearchProvider | null {
-	const resolved = resolveSearchEngineFor(effectiveSettings().agent.search?.engine, {
-		tavily: engineKey("tavily") ?? undefined,
-		brave: engineKey("brave") ?? undefined,
-	});
-	if (!resolved.available || !resolved.key) return null;
-	return resolved.engine === "tavily" ? tavilyProvider(resolved.key) : braveProvider(resolved.key);
+	const keys = liveKeys();
+	const model = copilotSearchModel();
+	const resolved = resolveSearchEngineFor(effectiveSettings().agent.search?.engine, keys, model !== undefined);
+	if (!resolved.available) return null;
+	if (resolved.engine === "copilot" && model) {
+		const copilot = copilotSearchProvider({ model });
+		const backup = resolveSearchEngineFor(undefined, keys);
+		return backup.key && backup.engine && backup.engine !== "copilot" ? withSearchBackup(copilot, keyedProvider(backup.engine, backup.key)) : copilot;
+	}
+	return resolved.key && resolved.engine && resolved.engine !== "copilot" ? keyedProvider(resolved.engine, resolved.key) : null;
 }

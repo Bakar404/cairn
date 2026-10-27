@@ -12,4 +12,5 @@ export {
 	type SessionSpec,
 	type ToolAnswer,
 } from "./runtime.ts";
+export { copilotSearchHits, copilotSearchProvider, type CopilotSearchOptions } from "./search.ts";
 export { copilotErrorText, copilotStream, releaseCopilotSessions } from "./stream.ts";
