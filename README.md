@@ -48,7 +48,7 @@ What you learn builds up as propositions and reasoning chains in a knowledge gra
 
 - A GitHub account with **GitHub Copilot**. Copilot Free works, with limited usage. On Copilot Business or Enterprise, your admin may need to allow Copilot CLI/SDK use.
 - **Node.js 22.12 or newer** (or 20.19+)
-- The **[GitHub CLI](https://cli.github.com)**, signed in with that account (`gh auth login`), or a token in `COPILOT_GITHUB_TOKEN`
+- No separate sign-in tool: Cairn has its own **Sign in with GitHub**. A [GitHub CLI](https://cli.github.com) sign-in (`gh auth login`) or a token in `COPILOT_GITHUB_TOKEN` works too.
 - *Optional, later for voice:* an Azure subscription, the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) and the [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
 
 Without Azure, Cairn still teaches by text.
@@ -56,23 +56,29 @@ Without Azure, Cairn still teaches by text.
 ## Try it
 
 ```bash
-gh auth login                        # once, with your Copilot account
 git clone https://github.com/Bakar404/cairn.git
 cd cairn
 npm install
 npm run dev                          # then open http://localhost:3000
 ```
 
-1. If Copilot isn't connected, the message box shows **Connect GitHub Copilot**. Run `gh auth login`, then choose **Check again** in that dialog.
+1. If Copilot isn't connected, the message box shows **Connect GitHub Copilot**. Choose **Sign in with GitHub** and approve the sign-in in your browser. GitHub's pages mention the GitHub Copilot CLI, whose sign-in Cairn uses; when one says to return to your terminal, come back to Cairn, which finishes on its own. Already signed in with `gh auth login`? Choose **Check again** instead.
 2. Choose **Set up your models**, or just send your first message. Cairn suggests a strong, a cheap and a vision model from your Copilot plan. Review them and save.
 3. Type what you want to learn. Cairn first asks a few questions to find what you already know, then starts teaching.
 
-You can change models later in **Settings → Agent**, and see your Copilot connection in **Settings → Providers**.
+You can change models later in **Settings → Agent**, and manage your Copilot sign-in in **Settings → Providers**.
+
+### Accounts
+
+- **Personal and Enterprise Managed (EMU) accounts on github.com:** choose **Sign in with GitHub**. EMU accounts go through your company's usual single sign-on. If your browser is signed in to GitHub as someone else, switch accounts on GitHub's page (or use a private window) before you approve.
+- **GitHub Enterprise Cloud on a `ghe.com` address:** choose **GitHub Enterprise Cloud (ghe.com)** and enter the address, like `your-company.ghe.com`.
+- **More than one account:** add another in **Settings → Providers**, then choose **Use** next to the one Cairn should run on. Every model call and search uses that account's Copilot plan.
+- The sign-in is the GitHub Copilot runtime's own: it keeps the credential in your system keychain, where the GitHub Copilot CLI keeps its sign-in too, so the two share it. Cairn never sees the token. **Sign out** shows only for sign-ins made this way, and may sign the Copilot CLI out as well. A `gh` sign-in is removed with `gh auth logout`.
 
 Notes:
 
 - For a faster, production run, use `npm run build && npm start` instead of `npm run dev`. Next prints a warning about `output: standalone`, which is the desktop build's setting; the web app works anyway.
-- Cairn ignores `GITHUB_TOKEN` and `GH_TOKEN`, which are often CI or fine-grained tokens without Copilot access. To use a token instead of your `gh` sign-in, set `COPILOT_GITHUB_TOKEN` before starting Cairn.
+- Cairn ignores `GITHUB_TOKEN` and `GH_TOKEN`, which are often CI or fine-grained tokens without Copilot access. To use a token instead of a sign-in, set `COPILOT_GITHUB_TOKEN` before starting Cairn.
 - To rehearse the first-run experience, run `npm run dev:fresh`. It starts a throwaway instance with no data at http://localhost:3005, while your real data stays untouched.
 - Usage counts against your Copilot plan, under your organization's Copilot policies.
 - Research uses Copilot's web search, which takes 20–40 seconds per search, so background research takes a few minutes. Searches use your Copilot plan too.
@@ -81,6 +87,7 @@ Notes:
 
 - Chats, the knowledge graph and settings stay on your machine as plain files you can inspect.
 - Model requests go to GitHub Copilot under your account and your organization's Copilot policies.
+- Your GitHub sign-in stays in your system keychain, kept by the GitHub Copilot runtime. Cairn stores no GitHub credentials.
 - Research queries go to GitHub Copilot's web search, which GitHub runs on Bing. They go to Tavily or Brave, and dictation audio to Deepgram, only if you add that key. With the planned Azure voice, speech goes to your own Azure Speech resource.
 - Cairn runs no servers of its own and includes no analytics.
 

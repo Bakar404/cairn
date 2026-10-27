@@ -50,7 +50,7 @@ export * from "./tool-parts.ts";
 export * from "./answer-presentation.ts";
 export * from "./prices.ts";
 export * from "./context-usage.ts";
-export type { CopilotStatus } from "./contracts/copilot.ts";
+export type { CopilotAccount, CopilotAccounts, CopilotLogin, CopilotLoginProvider, CopilotLoginStep, CopilotStatus } from "./contracts/copilot.ts";
 export * from "./cost-summary.ts";
 export * from "./fuzzy.ts";
 // settings.ts + settings-resolution.ts (settings-storage wave, 2026-09-19):
