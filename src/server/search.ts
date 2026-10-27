@@ -137,8 +137,10 @@ export function resolveSearchEngineFor(
 	pinned: SearchEngineId | undefined,
 	/** Per-engine live keys (absent engine = absent property is fine). */
 	keys: Partial<Record<SearchEngineId, string | undefined>>,
-	/** Copilot is signed in and the researcher runs on a Copilot model. */
-	copilot = false,
+	/** GitHub Copilot search: true when it can run (signed in, and the
+	 *  researcher runs on a Copilot model); "no-model" when signed in but
+	 *  no Copilot model is chosen yet. */
+	copilot: boolean | "no-model" = false,
 ): SearchStatus & { key: string | null } {
 	const pinnedKey = pinned ? keys[pinned] ?? null : null;
 	if (pinned) {
@@ -152,7 +154,7 @@ export function resolveSearchEngineFor(
 		}
 		return { available: true, engine: pinned, reason: `search engine: ${pinned} (chosen)`, key: pinnedKey };
 	}
-	if (copilot) return { available: true, engine: "copilot", reason: "search engine: GitHub Copilot (auto)", key: null };
+	if (copilot === true) return { available: true, engine: "copilot", reason: "search engine: GitHub Copilot (auto)", key: null };
 	for (const { id } of ENGINE_ORDER) {
 		const key = keys[id] ?? null;
 		if (key) return { available: true, engine: id, reason: `search engine: ${id} (auto)`, key };
@@ -160,7 +162,10 @@ export function resolveSearchEngineFor(
 	return {
 		available: false,
 		engine: null,
-		reason: "no search engine configured — sign in to GitHub Copilot or set a Tavily or Brave search API key",
+		reason:
+			copilot === "no-model"
+				? "no search engine yet — choose models above to search with GitHub Copilot"
+				: "no search engine configured — sign in to GitHub Copilot or set a Tavily or Brave search API key",
 		key: null,
 	};
 }
@@ -203,10 +208,11 @@ export function withSearchBackup(primary: SearchProvider, backup: SearchProvider
  *  settings record's pin + the auth store fresh each call, so a key saved
  *  mid-session activates on the next check (no restart). */
 export function searchStatus(): SearchStatus {
+	const model = copilotSearchModel();
 	const { available, engine, reason } = resolveSearchEngineFor(
 		effectiveSettings().agent.search?.engine,
 		liveKeys(),
-		copilotSearchModel() !== undefined,
+		model !== undefined || (copilotSignedIn() && "no-model"),
 	);
 	return { available, engine, reason };
 }
