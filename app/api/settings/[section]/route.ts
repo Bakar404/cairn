@@ -40,6 +40,7 @@ import {
 	readSettingsRecord,
 	validateChatSettings,
 	validateModelsSettings,
+	refreshConnectionCatalog,
 	writeSettingsRecord,
 	type SettingsBodyResult,
 } from "@/src/server";
@@ -64,6 +65,7 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 		return Response.json({ error: parsed.error }, { status: 400 });
 	}
 	let agentHealed: AgentSettings | undefined;
+	if (section === "chat" || section === "models") await refreshConnectionCatalog();
 
 	// Section-specific cross-validation (against the catalog / the prompt
 	// store) — the parsers only see shapes.

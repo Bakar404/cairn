@@ -80,15 +80,15 @@ describe("activity dock pure layer", () => {
 		assert.equal(absent.cost, null);
 	});
 
-	it("a key-refused job reads as info — 'needs a provider key' (zero-keys wave, 66dbea9)", () => {
+	it("a connection-refused job reads as info — 'needs GitHub Copilot' (zero-keys wave, 66dbea9)", () => {
 		const refused = job({
 			status: "error",
 			activity: "failed",
 			// the runner composes the envelope's error verbatim (invariant tail)
-			error: "No OpenRouter key is set — add one in Settings → Keys",
+			error: "GitHub Copilot is not connected — open Settings → Providers",
 		});
 		const blob = toBlobs({ jobs: [refused], extractions: [] })[0]!;
-		assert.equal(blob.activity, "needs a provider key");
+		assert.equal(blob.activity, "needs GitHub Copilot");
 	});
 
 	it("a models-refused job reads as info — 'needs model setup', not 'failed' (BYOK, 2026-09-22)", () => {

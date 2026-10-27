@@ -299,7 +299,7 @@ function fmtRunCost(dollars: number | null, providers: readonly string[] = []): 
 	return planCostLabel(dollars, providers, (value) => `$${value.toFixed(3)}`);
 }
 function graphProviders(value: { subscriptionRuns?: number; subscriptionProviders?: string[] }): string[] {
-	return value.subscriptionProviders ?? ((value.subscriptionRuns ?? 0) > 0 ? ["ChatGPT"] : []);
+	return value.subscriptionProviders ?? ((value.subscriptionRuns ?? 0) > 0 ? ["GitHub Copilot"] : []);
 }
 function graphUsageLabel(costs: Pick<GraphCostSummary, "stages">): string {
 	const stages = [costs.stages.extraction, costs.stages.audit];

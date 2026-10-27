@@ -2,29 +2,26 @@
 /**
  * The first-run setup flow (model-slots wave, 2026-09-20, owner design
  * "A — composer CTA + send interception"): chats cannot start until the
- * user has picked all three model slots — there are no defaults for 33
- * providers. The graph view's new-session dock (the app's home, where
- * chats start) shows a "Set up your models" CTA while unconfigured;
- * submitting a topic — or sending on /chat/new — opens THIS dialog with
- * the draft preserved; Save stores the slots — the draft WAITS in the
- * composer, the learner sends it themselves (owner ruling 2026-10-09:
- * saving models must never send the message).
+ * user has saved all three model slots. The graph view's new-session dock
+ * (the app's home, where chats start) shows a "Set up your models" CTA
+ * while unconfigured; submitting a topic — or sending on /chat/new —
+ * opens THIS dialog with the draft preserved; Save stores the slots — the
+ * draft WAITS in the composer, the learner sends it themselves (owner
+ * ruling 2026-10-09: saving models must never send the message).
  *
- * STAGED BY DEPENDENCY (owner, 2026-09-20: "first keys, then models —
- * there's no point presenting the model picker before the user has set a
- * key because there are no models to pick then"):
- *   Stage 1 — no keyed provider: a SELF-CONTAINED first-key screen
- *     (zero-keys wave, owner 2026-09-25): provider picker + one key
- *     input + save via PUT /api/keys/:id. The dialog STAYS MOUNTED —
- *     saving dispatches the "keys" signal, the fetch effect re-runs on
- *     it, and the stage flips to the pickers on its own. No Settings
- *     round-trip anymore; the draft lives in the caller's state,
- *     untouched throughout.
- *   Stage 2 — Strong → Cheap → Vision pickers over the FEDERATED catalog
- *     (keyed providers only), the vision slot filtered to image-capable
- *     models, in the app's shared dropdown language (ModelMenuList).
- *     All three required (owner: no skip, no defaults); Save PUTs the
- *     models section and reports onDone(models).
+ * STAGED BY DEPENDENCY ("there's no point presenting the model picker
+ * before there are models to pick"):
+ *   Stage 1 — GitHub Copilot not connected: the connection row with its
+ *     sign-in help. The dialog STAYS MOUNTED — "Check again" dispatches
+ *     the "keys" signal, the fetch effect re-runs on it, and the stage
+ *     flips to the pickers on its own; the draft lives in the caller's
+ *     state, untouched throughout.
+ *   Stage 2 — Strong → Cheap → Vision pickers over the Copilot catalog,
+ *     the vision slot filtered to image-capable models, in the app's
+ *     shared dropdown language (ModelMenuList). Unpinned tiers open with
+ *     a recommended pick from the live catalog (recommendSlots); the
+ *     learner can change any of them. Save PUTs the models section and
+ *     reports onDone(models).
  *
  * Closable without configuring (Esc/backdrop/✕) — browsing the app stays
  * possible; the GATE is the send interception, not the dialog. The
@@ -32,21 +29,17 @@
  * CMU title, z-50.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
-import type React from "react";
 import { type ModelCatalogEntry, type ModelSlotName, type ModelsSettings } from "@/src/core";
 import { prettyModel } from "@/components/usage-format";
 import { ModelMenuList } from "@/components/settings/model-menu";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { Hint } from "@/components/ui/hint";
-import { type ProviderKeyInfo } from "@/components/settings/keys-section";
-import { ProviderMenuList } from "@/components/settings/model-menu";
-import { ChatGPTBackgroundAccess } from "@/components/settings/chatgpt-connection";
-import { NativeSubscriptionBackgroundAccess, SubscriptionConnections } from "@/components/settings/subscription-connections";
-import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "@/components/thinking-default";
+import { CopilotConnection } from "@/components/settings/copilot-connection";
+import { populateLevel, THINKING_LABEL } from "@/components/thinking-default";
 import { ThinkingMenuList } from "@/components/settings/model-menu";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
@@ -69,8 +62,8 @@ interface ModelsBody {
 	slots?: Record<ModelSlotName, { model: { provider: string; id: string }; thinkingLevel?: ThinkingLevel } | null>;
 }
 
-/** Pure: which stage the flow opens at — no keyed provider = keys first
- *  (owner's dependency ordering). Exported for tests. */
+/** Pure: which stage the flow opens at — no connected provider = connect
+ *  first (owner's dependency ordering). Exported for tests. */
 export function setupStage(
 	providers: { id: string; keyPresent: boolean }[] | null,
 ): "keys" | "pickers" {
@@ -98,6 +91,27 @@ export function prefillFromSlots(
 	return pre;
 }
 
+/** Pure: recommended picks for the first run — every pick comes from the
+ *  live catalog, so a model the account cannot use is never suggested.
+ *  Strong prefers a Claude Sonnet, then any reasoning model; cheap prefers
+ *  a small fast model; vision prefers the cheap pick when it reads images,
+ *  else any image-capable small model. A tier with no candidate stays
+ *  empty (the "needed" mark). Exported for tests. */
+export function recommendSlots(models: readonly ModelCatalogEntry[]): Partial<Record<ModelSlotName, ModelCatalogEntry>> {
+	const byId = (...ids: string[]) => ids.map((id) => models.find((m) => m.id === id)).find((m) => m !== undefined);
+	const small = (m: ModelCatalogEntry) => /haiku|mini|luna|flash/i.test(m.id);
+	const sonnets = models.filter((m) => /^claude-sonnet/i.test(m.id)).sort((a, b) => b.id.localeCompare(a.id, undefined, { numeric: true }));
+	const strong = byId("claude-sonnet-5", "claude-sonnet-4.5") ?? sonnets[0] ?? models.find((m) => m.reasoning) ?? models[0];
+	const cheap = byId("claude-haiku-4.5", "gpt-5.6-luna", "gpt-5-mini") ?? models.find(small) ?? strong;
+	const images = models.filter((m) => m.input.includes("image"));
+	const vision = (cheap && images.includes(cheap) ? cheap : undefined) ?? images.find(small) ?? images[0];
+	const out: Partial<Record<ModelSlotName, ModelCatalogEntry>> = {};
+	if (strong) out.strong = strong;
+	if (cheap) out.cheap = cheap;
+	if (vision) out.vision = vision;
+	return out;
+}
+
 /** Level prefill (chunk 2): a pinned tier opens with its STORED level
  *  as-is (Save clamps server-side if the ladder lapsed), else the
  *  ordering's level for that model — the level a fresh pick would
@@ -111,108 +125,16 @@ export function prefillLevelFromPin(
 }
 
 /** Stage 1's pure body — exported for SSR pins (the delete/settings
- *  body pattern). The wrapper owns state + effects + the portal.
- *
- * The first-key screen (owner, zero-keys wave): provider picker (the
- * app's shared dropdown language, ProviderMenuList), one paste input,
- * Save. A save that 400s keeps the line inline (the keys section's
- * shape-gates write user-facing error text). */
-export function SetupKeysBody({
-	providers,
-	provider,
-	value,
-	saving,
-	error,
-	menuOpen,
-	onToggleMenu,
-	onPick,
-	onValue,
-	onSave,
-	menuAnchor,
-}: {
-	/** The full provider roster (GET /api/keys providers) — undefined
-	 *  while it loads; the picker renders an honest empty state then. */
-	providers: ProviderKeyInfo[] | undefined;
-	/** The chosen provider; null = the picker trigger reads "Pick a
-	 *  provider…". */
-	provider: ProviderKeyInfo | null;
-	value: string;
-	saving: boolean;
-	error: string | null;
-	menuOpen: boolean;
-	onToggleMenu: () => void;
-	onPick: (p: ProviderKeyInfo) => void;
-	onValue: (v: string) => void;
-	onSave: () => void;
-	/** The MenuShell anchor — wired by the wrapper (its triggerRef). */
-	menuAnchor: React.RefObject<HTMLDivElement | null>;
-}) {
+ *  body pattern): the GitHub Copilot connection row and its sign-in help.
+ *  Its "Check again" dispatches the "keys" signal the wrapper listens
+ *  for, so a fresh sign-in flips the stage on its own. */
+export function SetupConnectBody() {
 	return (
-		<div className="flex flex-col gap-3 px-6 py-5" data-testid="setup-stage-keys">
+		<div className="flex flex-col gap-3" data-testid="setup-stage-keys">
 			<p className="text-xs text-muted-foreground">
-				Choose your AI provider and paste its API key. You’ll pick your models next.
+				Cairn runs every model on your GitHub Copilot subscription. Connect it to pick your models.
 			</p>
-			<div className="flex flex-col gap-2">
-				<div ref={menuAnchor} className="relative max-w-96">
-					<button
-						type="button"
-						aria-label="Provider"
-						data-testid="setup-key-provider"
-						aria-expanded={menuOpen}
-						onClick={onToggleMenu}
-						className="flex h-7 w-full items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50"
-					>
-						<span className="min-w-0 flex-1 truncate text-left">{provider ? provider.label : "Pick a provider…"}</span>
-						<span aria-hidden className="text-muted-foreground">
-							▾
-						</span>
-					</button>
-					{menuOpen && (
-						<MenuShell
-							anchorRef={menuAnchor}
-							testid="setup-key-provider-menu"
-							preferredSide="down"
-							align="left"
-							menuClass="flex w-[22rem] flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
-						>
-							<ProviderMenuList providers={providers ?? []} onPick={onPick} />
-						</MenuShell>
-					)}
-				</div>
-				{provider && (
-					<div className="flex max-w-96 items-center gap-2">
-						<input
-							type="text"
-							value={value}
-							onChange={(e) => onValue(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" && value.trim()) onSave();
-							}}
-							placeholder="Paste key…"
-							aria-label={`${provider.label} key`}
-							data-testid="setup-key-input"
-							disabled={saving}
-							autoFocus
-							className="h-7 min-w-0 flex-1 rounded-sm border border-border bg-background px-1.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-muted-foreground/50"
-						/>
-						<button
-							type="button"
-							onClick={onSave}
-							disabled={saving || !value.trim()}
-							data-testid="setup-key-save"
-							className="shrink-0 rounded-sm border border-border bg-background px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-40"
-						>
-							{saving ? "Saving…" : "Save key"}
-						</button>
-					</div>
-				)}
-				{error && (
-					<p role="alert" data-testid="setup-key-error" className="text-xs text-red-400">
-						{error}
-					</p>
-				)}
-			</div>
-			<div className="mt-2 border-t border-border/60 pt-4"><h3 className="mb-3 font-ui text-xs text-muted-foreground">Subscriptions</h3><SubscriptionConnections setup /></div>
+			<CopilotConnection />
 		</div>
 	);
 }
@@ -238,33 +160,18 @@ export function SetupDialog({
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [openMenu, setOpenMenu] = useState<{ slot: ModelSlotName; kind: "model" | "thinking" } | null>(null);
-	// Stage 1's first-key screen (zero-keys wave): the provider roster,
-	// the chosen provider + pasted value, its busy/error pair, and its own
-	// menu-open bit (the slot menus' dismissal machinery covers it too —
-	// see the trigger testid branch below).
-	const [keyProviders, setKeyProviders] = useState<ProviderKeyInfo[] | undefined>(undefined);
-	const [keyProvider, setKeyProvider] = useState<ProviderKeyInfo | null>(null);
-	const [keyValue, setKeyValue] = useState("");
-	const [keySaving, setKeySaving] = useState(false);
-	const [keyError, setKeyError] = useState<string | null>(null);
-	const [keyMenuOpen, setKeyMenuOpen] = useState(false);
-	// Stage 1's provider-picker trigger wrapper — the shared shell's anchor.
-	// Declared with the other hooks: the early `if (!open) return null` sits
-	// below them all. (Stage 2's slot menus anchor by anchorTestid instead —
-	// see the slot MenuShell below for why a ref cannot work there.)
-	const keyTriggerRef = useRef<HTMLDivElement>(null);
 
-	// The keys signal (zero-keys wave): keys-section saves/deletes AND
-	// THIS dialog's own first-key save dispatch it; the fetch effect below
-	// re-runs on it, so saving a key flips the stage to the pickers with
-	// the widened catalog — no restart, no Settings round-trip.
+	// The keys signal (zero-keys wave): the Copilot row's "Check again"
+	// dispatches it; the fetch effect below re-runs on it, so a fresh
+	// sign-in flips the stage to the pickers with the live catalog — no
+	// restart, no Settings round-trip.
 	const [keysTick, setKeysTick] = useState(0);
 	useSettingsSaved((section) => {
 		if (section === "keys") setKeysTick((t) => t + 1);
 	});
 
-	// Fresh /api/models per open AND per keys change — a key saved a
-	// moment ago (stage 1's own screen) widens the pickers immediately.
+	// Fresh /api/models per open AND per connection change — a sign-in a
+	// moment ago (stage 1's "Check again") fills the pickers immediately.
 	useEffect(() => {
 		if (!open) return;
 		let cancelled = false;
@@ -272,10 +179,6 @@ export function SetupDialog({
 		setPicked({});
 		setLevels({});
 		setError(null);
-		fetch("/api/keys")
-			.then((r) => r.json())
-			.then((b: { providers?: ProviderKeyInfo[] }) => { if (!cancelled) setKeyProviders(b.providers ?? []); })
-			.catch(() => { if (!cancelled) setKeyProviders([]); });
 		fetch("/api/models")
 			.then((r) => { if (!r.ok) throw new Error("Catalog unavailable"); return r.json(); })
 			.then((b: ModelsBody) => {
@@ -283,10 +186,10 @@ export function SetupDialog({
 				setBody(b);
 				setFailed(false);
 				// Prefill (owner, 2026-09-22): each pinned tier opens with its
-				// pick (matched in the FEDERATED catalog — a lapsed key's pin
-				// does not prefill); unpinned tiers stay empty and carry the
-				// "needed" mark. First-run = nothing pinned → all three marked.
-				const pre = prefillFromSlots(b.models, b.slots);
+				// pick (matched in the live catalog — a lapsed pin does not
+				// prefill); unpinned tiers open with the recommended pick, and
+				// only a tier with no candidate carries the "needed" mark.
+				const pre = { ...recommendSlots(b.models), ...prefillFromSlots(b.models, b.slots) };
 				setPicked(pre);
 				// Levels prefill with the pins (chunk 2): stored level if still
 				// supported, else the ordering's level for the pinned model.
@@ -315,20 +218,12 @@ export function SetupDialog({
 			// never also fire. One Esc, one action.
 			e.preventDefault();
 			e.stopPropagation();
-			if (keyMenuOpen) {
-				setKeyMenuOpen(false);
-				return;
-			}
 			if (openMenu !== null) setOpenMenu(null);
 			else onClose();
 		};
 		const onPointerDown = (e: PointerEvent) => {
 			if (!(e.target instanceof Element)) return;
 			const t = e.target;
-			if (keyMenuOpen) {
-				if (t.closest("[data-lh-menu]") || t.closest('[data-testid="setup-key-provider"]')) return;
-				setKeyMenuOpen(false);
-			}
 			if (openMenu === null) return;
 			const triggerTestid =
 				openMenu.kind === "model" ? `setup-trigger-${openMenu.slot}` : `setup-thinking-${openMenu.slot}`;
@@ -341,36 +236,12 @@ export function SetupDialog({
 			document.removeEventListener("keydown", onKey);
 			document.removeEventListener("pointerdown", onPointerDown);
 		};
-	}, [open, onClose, openMenu, keyMenuOpen]);
+	}, [open, onClose, openMenu]);
 
 	if (!open) return null;
 
 	const stage = failed ? "keys" : setupStage(body ? body.providers : null);
 	const allPicked = SLOT_ORDER.every((s) => picked[s]);
-
-	/** Stage 1's save: PUT the pasted key, dispatch the keys signal, and
-	 *  CLEAN the local screen — the signal re-fetch widens the catalog and
-	 *  the stage flips to the pickers on its own; the dialog stays mounted
-	 *  the whole way. Shape-gate 400s keep their user-facing line inline. */
-	async function saveKey() {
-		if (!keyProvider || !keyValue.trim() || keySaving) return;
-		setKeySaving(true);
-		setKeyError(null);
-		const res = await fetch(`/api/keys/${encodeURIComponent(keyProvider.envVar)}`, {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ value: keyValue }),
-		}).catch(() => null);
-		setKeySaving(false);
-		if (!res || !res.ok) {
-			const body = (await res?.json().catch(() => ({}))) as { error?: string } | undefined;
-			setKeyError(res ? (body?.error ?? `Save failed (${res.status})`) : "Save failed. Check your connection and try again.");
-			return;
-		}
-		setKeyProvider(null);
-		setKeyValue("");
-		notifySettingsSaved("keys");
-	}
 
 	async function save() {
 		if (!allPicked || saving) return;
@@ -434,29 +305,13 @@ export function SetupDialog({
 								Model catalog could not be loaded. Check the connection and retry.
 							</p>
 						) : (
-							<SetupKeysBody
-								providers={keyProviders}
-								provider={keyProvider}
-								value={keyValue}
-								saving={keySaving}
-								error={keyError}
-								menuOpen={keyMenuOpen}
-								menuAnchor={keyTriggerRef}
-								onToggleMenu={() => setKeyMenuOpen((v) => !v)}
-								onPick={(p) => {
-									setKeyProvider(p);
-									setKeyMenuOpen(false);
-									setKeyError(null);
-								}}
-								onValue={setKeyValue}
-								onSave={() => void saveKey()}
-							/>
+							<SetupConnectBody />
 						)}
 					</div>
 				) : (
 					<div className="flex flex-col gap-4 overflow-y-auto px-6 py-5" data-testid="setup-stage-pickers">
 						<p className="text-xs text-muted-foreground">
-							Pick the model for each tier. All three are required before chats can start.
+							Each tier runs on your GitHub Copilot subscription. Review the picks, then save.
 						</p>
 						{SLOT_ORDER.map((slot) => {
 							const entry = picked[slot];
@@ -478,7 +333,6 @@ export function SetupDialog({
 										)}
 									</span>
 									<span className="text-xs text-muted-foreground/70">{SLOT_META[slot].roster}</span>
-									{slot !== "strong" && <><ChatGPTBackgroundAccess provider={entry?.provider} /><NativeSubscriptionBackgroundAccess provider={entry?.provider} /></>}
 									<div className="flex items-center gap-2">
 										<div className="relative flex-1">
 											<button
@@ -527,7 +381,7 @@ export function SetupDialog({
 															}));
 															setOpenMenu(null);
 														}}
-														footer={catalog && catalog.length === 0 ? "No image-capable models. Add a provider key with access to a vision model." : undefined}
+														footer={catalog && catalog.length === 0 ? "No image-capable models are available on your GitHub Copilot plan." : undefined}
 													/>
 												</MenuShell>
 											)}

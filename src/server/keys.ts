@@ -2,8 +2,8 @@
  * The auth/keys composition (auth-keys wave, 2026-09-19): the server-side
  * key manager behind GET/PUT/DELETE /api/keys.
  *
- * THE ENV SEAM (the architecture keystone): every consumer — models.ts's
- * openRouterApiKey(), the sub-agents, web.ts, the STT route — reads
+ * THE ENV SEAM (the architecture keystone): every consumer — the
+ * sub-agents, web.ts, the STT route — reads
  * process.env directly, and the agent layer may not import the store
  * layer. Instead of rewiring five consumers across lanes, the store
  * REFLECTS itself into the child's env: at boot (idempotent, anchored on
@@ -29,30 +29,26 @@
  * makes every env key invisible APP-WIDE — the exact new-user simulation
  * (a fresh empty data dir + the switch = zero keys, zero federated
  * providers, setup stage 1). Under the switch real env vars are DELETED
- * from the process (not merely ignored by this seam): pi-ai resolves
- * provider keys from process.env NATIVELY at every request
- * (auth/context.js's defaultProviderAuthContext reads live env), so
- * deletion is the one mechanism that hides keys from every consumer —
- * model engines included. Only the file store (auth.json) counts; the
- * fill-gap still reflects file keys so a fresh user can add keys
- * mid-session and the engines see them with no restart. Unset switch =
- * today's behavior, byte-for-byte.
+ * from the process (not merely ignored by this seam), so deletion is the
+ * one mechanism that hides keys from every consumer. Only the file store
+ * (auth.json) counts; the fill-gap still reflects file keys so a fresh
+ * user can add keys mid-session with no restart. Unset switch = today's
+ * behavior, byte-for-byte.
+ *
+ * Model access is never a key here: every model call runs on the user's
+ * GitHub Copilot sign-in (src/agent/copilot), and providerKeyPresent
+ * reports that connection.
  */
 
 import {
 	AUTH_KEYS,
-	AUTH_PROVIDER_KEYS,
-	AUTH_PROVIDER_ENV_VARS,
 	type AuthKeyInfo,
 	type AuthKeyStatus,
-	genericProviderKeyGuard,
 	isKnownAuthKey,
-	isProviderEnvVar,
 	maskKey,
 	validateKeyShape,
 } from "../core/auth-keys.ts";
 import { authStore } from "../store/auth.ts";
-import { isSubscriptionProvider, subscriptionConnected } from "../agent/subscription-connections.ts";
 import { COPILOT_PROVIDER, copilotStatus } from "../agent/copilot/index.ts";
 
 // The once-per-process boot record — globalThis anchor (HMR re-imports the
@@ -73,18 +69,9 @@ function boot(): AuthBoot {
 	return g[BOOT_KEY];
 }
 
-/** Is `id` a WRITABLE key name — curated catalog or model-provider env
- *  var (provider-keys interlude: PUT/DELETE accept both). */
+/** Is `id` a WRITABLE key name — the curated catalog only. */
 export function isWritableAuthKey(id: string): boolean {
-	return isKnownAuthKey(id) || isProviderEnvVar(id);
-}
-
-/** The settings page's provider dropdown: every pi-ai provider that takes
- *  a plain key ({id, envVar, label} — no-drift-pinned, see the table's doc
- *  in core/auth-keys.ts and tests/auth-provider-keys.test.ts). Sorted by
- *  id for a stable payload. */
-export function providerKeyList() {
-	return [...AUTH_PROVIDER_KEYS].sort((a, b) => a.id.localeCompare(b.id));
+	return isKnownAuthKey(id);
 }
 
 /** The fresh-user switch (owner, interlude 2026-09-22): env keys are
@@ -106,10 +93,6 @@ export function initAuthEnv(): void {
 	const managed = new Set<string>([
 		...Object.keys(fileVars),
 		...AUTH_KEYS.map((k) => k.id),
-		// Provider env vars are managed names too (provider-keys interlude):
-		// an env-exported OPENAI_API_KEY with a file copy gets honest shadow
-		// semantics, exactly like the curated vars.
-		...AUTH_PROVIDER_KEYS.map((p) => p.envVar),
 	]);
 	if (envKeysIgnored()) {
 		// THE FRESH-USER SWITCH: delete every managed env var (re-run on
@@ -134,8 +117,8 @@ export function initAuthEnv(): void {
 	}
 }
 
-/** Is this env-var name one the keys system manages (curated, provider,
- *  or held in the file)? */
+/** Is this env-var name one the keys system manages (curated or held in
+ *  the file)? */
 function isManagedName(name: string): boolean {
 	return isWritableAuthKey(name) || name in authStore.authVars();
 }
@@ -148,15 +131,8 @@ export function resolveKeyStatuses(
 	fileVars: Record<string, string>,
 	env: Record<string, string | undefined>,
 	realEnv: ReadonlySet<string>,
-	/** The model-provider env vars (provider-keys interlude): PRESENT ones
-	 *  join the status rows — absent ones never spam (the dropdown is the
-	 *  discovery surface). Curated keys always get rows, present or not. */
-	providerEnvVars: ReadonlySet<string> = new Set(),
 ): AuthKeyStatus[] {
 	const ids = new Set<string>([...AUTH_KEYS.map((k) => k.id), ...Object.keys(fileVars)]);
-	for (const envVar of providerEnvVars) {
-		if (env[envVar] !== undefined || fileVars[envVar] !== undefined) ids.add(envVar);
-	}
 	const rows: AuthKeyStatus[] = [];
 	for (const id of ids) {
 		const envValue = env[id];
@@ -180,7 +156,7 @@ export function resolveKeyStatuses(
 
 /** The GET view: every curated key (present or not) + unknown file vars. */
 export function keyStatuses(): AuthKeyStatus[] {
-	return resolveKeyStatuses(authStore.authVars(), process.env, boot().realEnv, AUTH_PROVIDER_ENV_VARS);
+	return resolveKeyStatuses(authStore.authVars(), process.env, boot().realEnv);
 }
 
 /** The live value for one var, env-first (the env-wins rule) — the canonical
@@ -195,19 +171,14 @@ export function keyValue(id: string): string | undefined {
 	return process.env[id] ?? authStore.authVars()[id];
 }
 
-/** The key-presence truth for one model provider (provider-key interlude,
- * 2026-09-25): would this provider's key be present at request time?
- * Reads through keyValue — the SAME env-first lookup pi-ai performs
- * natively at every request — so an env-shadowed key counts as present
- * (gate by what would run). Providers absent from AUTH_PROVIDER_KEYS take
- * no key at all: nothing to gate, present by definition. */
+/** The connection-presence truth for one model provider (provider-key
+ * interlude, 2026-09-25): would a call on this provider run? GitHub
+ * Copilot signs in through its runtime, not a key; before the first status
+ * check lands ("unknown") the runtime itself is the judge. Every other
+ * provider is a stale pin from an older build and never runs. */
 export function providerKeyPresent(provider: string): boolean {
-	// Copilot signs in through the runtime, not a key. Before the first
-	// status check lands ("unknown") the runtime itself is the judge.
 	if (provider === COPILOT_PROVIDER) return ["signed-in", "unknown"].includes(copilotStatus().state);
-	if (isSubscriptionProvider(provider)) return subscriptionConnected(provider);
-	const info = AUTH_PROVIDER_KEYS.find((p) => p.id === provider);
-	return info ? keyValue(info.envVar) !== undefined : true;
+	return false;
 }
 
 /**
@@ -217,7 +188,7 @@ export function providerKeyPresent(provider: string): boolean {
  * reports shadowedByEnv so the page can explain it).
  */
 export function saveKey(id: string, value: string): { ok: true; status: AuthKeyStatus } | { ok: false; error: string } {
-	const shape = isProviderEnvVar(id) ? genericProviderKeyGuard(id, value) : validateKeyShape(id, value);
+	const shape = validateKeyShape(id, value);
 	if (!shape.ok) return { ok: false, error: shape.error };
 	const trimmed = value.trim();
 	authStore.setAuthVar(id, trimmed);

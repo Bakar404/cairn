@@ -1,45 +1,32 @@
 /**
- * The model catalog's server surface (model-control wave, 2026-09-12;
- * federated since the model-slots wave, 2026-09-20): pi-ai's catalog for
- * every KEYED provider, projected to client-safe DTOs for the picker (GET
- * /api/models), plus the validation gate for settings writes (PUT
- * /api/settings/* — the per-chat settings PUT is retired from the UI;
- * legacy records' per-chat overrides still resolve server-side).
+ * The model catalog's server surface (model-control wave, 2026-09-12):
+ * the signed-in user's GitHub Copilot models, projected to client-safe
+ * DTOs for the picker (GET /api/models), plus the validation gate for
+ * settings writes (PUT /api/settings/* — the per-chat settings PUT is
+ * retired from the UI; legacy records' per-chat overrides still resolve
+ * server-side).
  *
- * pi-ai owns ALL the data: the catalog (id/name/cost/context/modality/
- * thinkingLevelMap) and the per-model thinking truth
+ * GitHub Copilot is the ONLY model connection: the catalog is whatever
+ * the user's Copilot account offers (src/agent/copilot), refreshed on
+ * read. pi-ai owns the per-model thinking truth
  * (getSupportedThinkingLevels / clampThinkingLevel). This module only
  * projects and validates — no second registry to drift out of sync.
- *
- * Federation: `getModels()` is called per keyed provider (federated, the
- * model-slots wave), so a provider appears in the picker exactly when its
- * key is present — piModels() in src/agent/models.ts owns the provider
- * set; nothing here changes.
  */
 
 import { clampThinkingLevel, getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { piModels } from "../agent/models.ts";
-import { chatGPTConnected, chatGPTModel, chatGPTModels, refreshChatGPTModels } from "../agent/chatgpt-bridge.ts";
-import { NATIVE_SUBSCRIPTIONS } from "../core/contracts/subscriptions.ts";
-import { nativeSubscriptionId, nativeSubscriptionConnected, nativeSubscriptionModel, nativeSubscriptionModels, refreshSubscriptionModels } from "../agent/subscription-bridge.ts";
 import { COPILOT_PROVIDER, copilotModels, copilotSignedIn, refreshCopilot } from "../agent/copilot/index.ts";
 
+/** Refresh the Copilot status + model list (cheap when fresh). The
+ *  provider argument is accepted for callers that hold a spec; only
+ *  the Copilot connection exists. */
 export async function refreshConnectionCatalog(provider?: string): Promise<void> {
-	await Promise.all([
-		!provider || provider === COPILOT_PROVIDER ? refreshCopilot() : Promise.resolve(),
-		!provider || provider === "chatgpt" ? refreshChatGPTModels(piModels().getModels("openai").filter((m): m is Model<"openai-responses"> => m.api === "openai-responses")) : Promise.resolve(),
-		!provider || nativeSubscriptionId(provider) ? refreshSubscriptionModels() : Promise.resolve(),
-	]);
+	if (!provider || provider === COPILOT_PROVIDER) await refreshCopilot();
 }
 function connectionModel(provider: string, id: string): Model<Api> | undefined {
-	if (provider === COPILOT_PROVIDER) return copilotModels().find((m) => m.id === id);
-	return provider === "chatgpt" ? chatGPTModel(id) : nativeSubscriptionId(provider) ? nativeSubscriptionModel(provider, id) : piModels().getModel(provider, id);
+	return provider === COPILOT_PROVIDER ? copilotModels().find((m) => m.id === id) : undefined;
 }
-function connectionProviderIds(): string[] { return [COPILOT_PROVIDER, ...piModels().getProviders().map((p) => p.id), "chatgpt", ...NATIVE_SUBSCRIPTIONS.map((p) => p.logicalId)]; }
-import { settingsStore } from "../store/settings.ts";
 import { effectiveSettings } from "./stores.ts";
-import { keyValue } from "./keys.ts";
 import type { ChatSettings } from "../core/contracts/chat.ts";
 import type {
 	CatalogDefaults,
@@ -50,7 +37,6 @@ import type {
 	SlotPins,
 } from "../core/contracts/models.ts";
 import type { EffectiveModelSpec, EffectiveSlot } from "../core/settings-resolution.ts";
-import { AUTH_PROVIDER_KEYS } from "../core/auth-keys.ts";
 import { BACKGROUND_MODEL_ROLES, MODEL_SLOTS, type BackgroundModelRole, type ModelSlotName, type ModelsSettings } from "../core/settings.ts";
 
 /** The picker's client-safe model entry (contract: core/contracts/models.ts). */
@@ -133,27 +119,10 @@ export function catalogSlots(): SlotPins {
 	return pins;
 }
 
-/** The providers surface (model slots wave, 2026-09-20): one row per
- *  plain-key model provider (core/auth-keys.ts's pi-ai-derived table),
- *  with keyPresent read env-wins through the keys seam, fresh per call —
- *  saving a key immediately federates the provider into the picker. */
+/** The providers surface: the one GitHub Copilot connection. keyPresent
+ *  means "signed in" — the setup flow and the zero-keys pill read it. */
 export function catalogProviders(): CatalogProvider[] {
-	return AUTH_PROVIDER_KEYS.map((p) => ({
-		id: p.id,
-		envVar: p.envVar,
-		keyPresent: keyValue(p.envVar) !== undefined,
-	})).concat([
-		{ id: COPILOT_PROVIDER, envVar: "", keyPresent: copilotSignedIn() },
-		{ id: "chatgpt", envVar: "", keyPresent: chatGPTConnected() },
-		...NATIVE_SUBSCRIPTIONS.map((p) => ({ id: p.logicalId, envVar: "", keyPresent: nativeSubscriptionConnected(p.providerId) })),
-	]).sort((a, b) => a.id.localeCompare(b.id));
-}
-
-/** The providers whose key is present — the picker federates exactly
- *  these (a keyless provider's models are unreachable by design; the
- *  Keys page is the discovery surface, same discipline as search). */
-function keyedProviderIds(): Set<string> {
-	return new Set(catalogProviders().filter((p) => p.keyPresent).map((p) => p.id));
+	return [{ id: COPILOT_PROVIDER, envVar: "", keyPresent: copilotSignedIn() }];
 }
 
 /** Project one catalog model to the client DTO. */
@@ -177,38 +146,26 @@ export function toModelDto(model: Model<Api>): ModelDto {
 }
 
 /** The live-limits index (context-meter amendment, owner 2026-09-23):
- *  provider:id → contextWindow from pi's catalog, over the SAME keyed
- *  providers the picker federates. The one source for every context
- *  meter's denominator — the stats-bar join holds /api/models' copy,
- *  and the activity feed (observability.ts) resolves job limits
- *  server-side through this. No hardcoded fallback exists anywhere:
- *  a model missing here reads limit-null (usage-only, honest render). */
+ *  provider:id → contextWindow over the signed-in Copilot catalog. The one
+ *  source for every context meter's denominator — the stats-bar join
+ *  holds /api/models' copy, and the activity feed (observability.ts)
+ *  resolves job limits server-side through this. No hardcoded fallback
+ *  exists anywhere: a model missing here reads limit-null (usage-only,
+ *  honest render). */
 export function catalogContextLimits(): Map<string, number> {
-	const keyed = keyedProviderIds();
 	const index = new Map<string, number>();
-	for (const provider of piModels().getProviders()) {
-		if (!keyed.has(provider.id)) continue;
-		for (const model of piModels().getModels(provider.id)) {
-			index.set(`${provider.id}:${model.id}`, model.contextWindow);
-		}
-	}
-	for (const model of [...copilotModels(), ...chatGPTModels(), ...nativeSubscriptionModels()]) index.set(`${model.provider}:${model.id}`, model.contextWindow);
+	for (const model of copilotModels()) index.set(`${model.provider}:${model.id}`, model.contextWindow);
 	return index;
 }
 
-/** The full picker payload: every model of every configured provider
- *  (sorted by provider then id — stable, diff-friendly) + the config
- *  defaults a settings-less chat runs + the background roles' resolved
- *  pins (the settings UI's per-role default captions). */
+/** The full picker payload: every model the signed-in Copilot account
+ *  offers (sorted by id — stable, diff-friendly) + the config defaults a
+ *  settings-less chat runs + the background roles' resolved pins (the
+ *  settings UI's per-role default captions). */
 export function modelCatalog(): ModelCatalogResponse {
-	const keyed = keyedProviderIds();
-	const models = piModels()
-		.getProviders()
-		.filter((p) => keyed.has(p.id))
-		.flatMap((p) => piModels().getModels(p.id))
+	const models = copilotModels()
 		.map(toModelDto)
-		.sort((a, b) => (a.provider === b.provider ? a.id.localeCompare(b.id) : a.provider.localeCompare(b.provider)))
-		.concat([...copilotModels(), ...chatGPTModels(), ...nativeSubscriptionModels()].map(toModelDto));
+		.sort((a, b) => a.id.localeCompare(b.id));
 	return {
 		models,
 		defaults: catalogDefaults(),
@@ -230,15 +187,9 @@ export type SettingsValidation =
  *    the model the picker writes against (settings.model, else config's
  *    prober/teacher pin; one controller, so the two specs share it). */
 export function validateChatSettings(settings: ChatSettings): SettingsValidation {
-	const providers = connectionProviderIds();
 	if (settings.model) {
-		const { provider, id } = settings.model;
-		if (!providers.includes(provider)) {
-			return { ok: false, error: `Unknown provider "${provider}" — configured: ${providers.join(", ")}` };
-		}
-		if (!connectionModel(provider, id)) {
-			return { ok: false, error: `No model "${id}" in the ${provider} catalog` };
-		}
+		const verdict = validateModelRef(settings.model);
+		if (!verdict.ok) return verdict;
 	}
 	// BYOK interlude (owner, 2026-09-22): thinking levels NEVER reject a
 	// write — a model swap with a pinned level JUST WORKS. The WRITE clamps
@@ -259,16 +210,21 @@ export function validateModelsSettings(settings: ModelsSettings): SettingsValida
 	return { ok: true };
 }
 
-function validateSlotSpec(name: ModelSlotName, slot: { model?: { provider: string; id: string }; thinkingLevel?: ThinkingLevel }): SettingsValidation {
-	const providers = connectionProviderIds();
+/** A model pin must name a model the signed-in Copilot account offers. */
+function validateModelRef({ provider, id }: { provider: string; id: string }): SettingsValidation {
+	if (provider !== COPILOT_PROVIDER) {
+		return { ok: false, error: `Unknown provider "${provider}" — Cairn runs on GitHub Copilot ("${COPILOT_PROVIDER}") only` };
+	}
+	if (!connectionModel(provider, id)) {
+		return { ok: false, error: `No model "${id}" in the GitHub Copilot catalog` };
+	}
+	return { ok: true };
+}
+
+function validateSlotSpec(_name: ModelSlotName, slot: { model?: { provider: string; id: string }; thinkingLevel?: ThinkingLevel }): SettingsValidation {
 	if (slot.model) {
-		const { provider, id } = slot.model;
-		if (!providers.includes(provider)) {
-			return { ok: false, error: `Unknown provider "${provider}" — configured: ${providers.join(", ")}` };
-		}
-		if (!connectionModel(provider, id)) {
-			return { ok: false, error: `No model "${id}" in the ${provider} catalog` };
-		}
+		const verdict = validateModelRef(slot.model);
+		if (!verdict.ok) return verdict;
 	}
 	// BYOK interlude (owner, 2026-09-22): the supported-level verdict is
 	// DEAD — a slot write with a pinned level never rejects; the WRITE

@@ -18,7 +18,7 @@ import {
 	sectionedSegments,
 } from "../components/settings/agent-section.tsx";
 import { nextOverrides } from "../components/settings/keyboard-section.tsx";
-import { classifyKeys, keyStatusLine, type ProviderKeyInfo } from "../components/settings/keys-section.tsx";
+import { classifyKeys, keyStatusLine } from "../components/settings/keys-section.tsx";
 import type { AgentSettings, AuthKeyStatus, ModelsSettings } from "../src/core";
 import { slotsConfigured } from "../src/core";
 import { setupStage } from "../components/setup-dialog.tsx";
@@ -213,7 +213,7 @@ describe("nextOverrides — the rebind persistence map", () => {
 	});
 });
 
-describe("classifyKeys — the Keys section's two-group projection", () => {
+describe("classifyKeys — the Providers section's projection", () => {
 	const synth = (id: string, present = false): AuthKeyStatus => ({
 		id,
 		info: null,
@@ -222,33 +222,9 @@ describe("classifyKeys — the Keys section's two-group projection", () => {
 		source: present ? "file" : "none",
 		shadowedByEnv: false,
 	});
-	const providers: ProviderKeyInfo[] = [
-		{ id: "groq", envVar: "GROQ_API_KEY", label: "Groq" },
-		{ id: "deepseek", envVar: "DEEPSEEK_API_KEY", label: "DeepSeek" },
-		{ id: "openrouter", envVar: "OPENROUTER_API_KEY", label: "OpenRouter" },
-	];
-
-	it("OpenRouter is UN-pinned (wave-5 owner ruling): no row when absent, a row when stored", () => {
-		const none = classifyKeys([], providers);
-		assert.equal(none.providerRows.length, 0); // nothing synthesized
-		assert.ok(none.addable.some((p) => p.id === "openrouter")); // it's just an Add option
-		const stored = classifyKeys([synth("OPENROUTER_API_KEY", true)], providers);
-		assert.equal(stored.providerRows.length, 1);
-		assert.equal(stored.providerRows[0]!.id, "OPENROUTER_API_KEY");
-		assert.ok(!stored.addable.some((p) => p.id === "openrouter"));
-	});
-
-	it("stored provider keys land in providerRows; the Add dropdown drops them", () => {
-		const out = classifyKeys([synth("GROQ_API_KEY", true)], providers);
-		assert.equal(out.providerRows.length, 1);
-		assert.equal(out.providerRows[0]!.id, "GROQ_API_KEY");
-		// the Add dropdown no longer offers groq
-		assert.ok(!out.addable.some((p) => p.id === "groq"));
-		assert.ok(out.addable.some((p) => p.id === "deepseek"));
-	});
 
 	it("curated tool ids always render (synthesized when absent)", () => {
-		const out = classifyKeys([synth("DEEPGRAM_API_KEY", true)], undefined);
+		const out = classifyKeys([synth("DEEPGRAM_API_KEY", true)]);
 		assert.deepEqual(out.toolRows.map((r) => r.id), [
 			"DEEPGRAM_API_KEY",
 			"TAVILY_API_KEY",
@@ -256,17 +232,19 @@ describe("classifyKeys — the Keys section's two-group projection", () => {
 		]);
 		assert.ok(out.toolRows[0]!.present);
 		assert.ok(!out.toolRows[1]!.present);
+		assert.deepEqual(out.unknownRows, []);
 	});
 
-	it("unknown file vars surface read-only, out of the provider rows", () => {
-		const out = classifyKeys([synth("PLANS_LOGIN_TOKEN", true)], providers);
-		assert.equal(out.unknownRows.length, 1);
-		assert.equal(out.providerRows.length, 0);
+	it("every other saved var — older model keys included — surfaces read-only", () => {
+		const out = classifyKeys([synth("PLANS_LOGIN_TOKEN", true), synth("OPENROUTER_API_KEY", true)]);
+		assert.deepEqual(out.unknownRows.map((r) => r.id), ["PLANS_LOGIN_TOKEN", "OPENROUTER_API_KEY"]);
+		assert.equal(out.toolRows.length, 3);
 	});
 
-	it("providers seam absent = addable empty, nothing crashes", () => {
-		const out = classifyKeys([], undefined);
-		assert.deepEqual(out.addable, []);
+	it("nothing saved = only the synthesized tool rows", () => {
+		const out = classifyKeys([]);
+		assert.equal(out.toolRows.length, 3);
+		assert.deepEqual(out.unknownRows, []);
 	});
 });
 
@@ -322,8 +300,8 @@ describe("first-run gate — slotsConfigured + setupStage (model-slots wave)", (
 	it("setupStage: keys before models (owner's dependency ordering)", () => {
 		assert.equal(setupStage(null), "keys", "fetch failed → the honest fallback");
 		assert.equal(setupStage([]), "keys", "no providers = keys");
-		assert.equal(setupStage([{ id: "zai", keyPresent: false }]), "keys", "provider present but keyless");
-		assert.equal(setupStage([{ id: "zai", keyPresent: false }, { id: "openai", keyPresent: true }]), "pickers", "one keyed provider widens the pickers");
+		assert.equal(setupStage([{ id: "copilot", keyPresent: false }]), "keys", "Copilot listed but not connected");
+		assert.equal(setupStage([{ id: "copilot", keyPresent: true }]), "pickers", "a connected Copilot widens the pickers");
 	});
 });
 

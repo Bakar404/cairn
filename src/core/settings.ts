@@ -28,7 +28,6 @@
  */
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
@@ -153,12 +152,16 @@ export interface ProviderKeyMissing {
 	slots: ModelSlotName[];
 }
 /** The refusal wording's invariant tail — the matcher below keys on it
- * (the label prefix varies by provider). */
-const PROVIDER_KEY_MISSING_TAIL = "key is set — add one in Settings → Keys";
+ * (the prefix varies by provider). The GitHub Copilot connection is the
+ * only model connection; any other provider is a stale pin from an older
+ * build and resolves through the same setup path (pick a Copilot model). */
+const PROVIDER_KEY_MISSING_TAIL = "— open Settings → Providers";
 export function providerKeyMissing(provider: string, slots: ModelSlotName[]): ProviderKeyMissing {
-	const label = AUTH_PROVIDER_KEYS.find((p) => p.id === provider)?.label ?? provider;
+	const subject = provider === "copilot"
+		? "GitHub Copilot is not connected"
+		: `"${provider}" models are unavailable (Cairn runs on GitHub Copilot only)`;
 	return {
-		error: `No ${label} ${PROVIDER_KEY_MISSING_TAIL}`,
+		error: `${subject} ${PROVIDER_KEY_MISSING_TAIL}`,
 		code: PROVIDER_KEY_MISSING_CODE,
 		provider,
 		slots,

@@ -4,7 +4,6 @@ import {
 	getSupportedThinkingLevels,
 	type Api,
 	type Model,
-	type Models,
 	type StreamFunction,
 } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
@@ -12,11 +11,6 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type ModelRole } from "../../config.ts";
 import { DEFAULT_THINKING_ORDER } from "../core/settings.ts";
 import packageMetadata from "../../package.json" with { type: "json" };
-import { chatGPTModel } from "./chatgpt-bridge.ts";
-import { chatGPTStream } from "./chatgpt-stream.ts";
-import type { ChatGPTDispatchLifecycle } from "./chatgpt-request-cycle.ts";
-import { nativeSubscriptionId, nativeSubscriptionModel } from "./subscription-bridge.ts";
-import { nativeSubscriptionStream } from "./subscription-stream.ts";
 import { COPILOT_PROVIDER, copilotModel, copilotStream } from "./copilot/index.ts";
 
 /** App identity is immutable and shared by Models and every native Agent.
@@ -28,15 +22,13 @@ export const APP_IDENTITY = Object.freeze({
 
 /**
  * The one engine factory every agent's model comes from (the pi-ai swap,
- * docs/pi-engine-swap.md). BYOK ALL THE WAY DOWN (owner, 2026-09-22):
- * there are no factory pins — every engine resolves from a RESOLVED SPEC
- * (the settings chain's output) and the one builder here wires it to
- * pi-ai's federated catalogs.
+ * docs/pi-engine-swap.md). There are no factory pins: every engine
+ * resolves from a RESOLVED SPEC (the settings chain's output).
  *
  * An "engine" is the model + the stream function the agent loop runs on —
- * the two things a test fake replaces. Production engines resolve the model
- * from pi-ai's static catalogs and stream through the same Models
- * collection.
+ * the two things a test fake replaces. Every production engine runs on the
+ * signed-in user's GitHub Copilot subscription (src/agent/copilot); no other
+ * model connection exists.
  */
 
 export interface PiEngine {
@@ -51,25 +43,15 @@ export type { ThinkingLevel };
 
 let collection: ReturnType<typeof createModels> | undefined;
 
-/** The process-wide pi-ai Models collection — EVERY builtin provider's
- *  catalog (model slots wave, 2026-09-20): engines and the picker resolve
- *  against all of pi-ai's per-provider catalogs, so a settings slot can pin
- *  any native model id. Auth is resolved per request by pi-ai itself from
- *  the environment (the keys seam reflects file-saved keys into env), and
- *  a provider with no key simply fails its stream with "not configured" —
- *  honest, late, and unreachable through the picker, which gates on
- *  keyPresent. */
+/** pi-ai's static per-provider catalogs. Read-only here: pricing uses them
+ *  to estimate API dollars for older records saved with a priced
+ *  provider:model id. Nothing streams through these providers. */
 export function piModels() {
 	if (!collection) {
 		collection = createModels({ identity: APP_IDENTITY });
 		for (const provider of builtinProviders()) collection.setProvider(provider);
 	}
 	return collection;
-}
-
-/** OpenRouter API key (BYOK); tests never read this — they inject engines. */
-export function openRouterApiKey(): string | undefined {
-	return process.env.OPENROUTER_API_KEY || undefined;
 }
 
 /** A fully-resolved model pin — the shape every engine now comes from:
@@ -94,18 +76,16 @@ function defaultThinkingLevel(model: Model<Api>): ThinkingLevel {
 	return supported[0] ?? "off";
 }
 
-/** The production engine for a RESOLVED spec (model slots wave,
- *  2026-09-20): provider-aware catalog lookup + thinking clamp. The API
- *  key is resolved by pi-ai itself from the environment per request (the
- *  keys seam reflects file-saved keys into env), so the engine never
- *  hardcodes OpenRouter's. */
-export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (() => boolean) = true, lifecycle?: ChatGPTDispatchLifecycle): PiEngine {
-	const models: Models = piModels();
-	const nativeId = nativeSubscriptionId(spec.provider);
-	const copilot = spec.provider === COPILOT_PROVIDER;
-	const model = copilot ? copilotModel(spec.id) : spec.provider === "chatgpt" ? chatGPTModel(spec.id) : nativeId ? nativeSubscriptionModel(spec.provider, spec.id) : models.getModel(spec.provider, spec.id);
+/** The production engine for a RESOLVED spec: the Copilot catalog lookup +
+ *  thinking clamp. Any other provider is refused — a stored pin from an
+ *  older build surfaces as "model unavailable", never a silent fallback. */
+export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
+	if (spec.provider !== COPILOT_PROVIDER) {
+		throw new Error(`Cairn runs models through GitHub Copilot only (got provider "${spec.provider}")`);
+	}
+	const model = copilotModel(spec.id);
 	if (!model) {
-		throw new Error(`${spec.provider} catalog has no model ${spec.id}`);
+		throw new Error(`GitHub Copilot has no model ${spec.id}`);
 	}
 	// UNSET level → the baked default order (first entry the model
 	// supports); SET level → pi's native nearest-clamp (model swaps keep
@@ -113,17 +93,15 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 	const level = spec.thinkingLevel
 		? clampThinkingLevel(model, spec.thinkingLevel)
 		: defaultThinkingLevel(model);
+	const stream = copilotStream();
 	return {
 		model,
 		level,
-		// bound streamSimple: the agent loop forwards state.thinkingLevel as
-		// `reasoning` (undefined = off on pi-ai's scale); the clamp above keeps
-		// the pin honest even when config or settings drift off the map.
-		streamFn: (requestModel, context, options) => {
-			const purpose = typeof background === "function" ? background : () => background;
-			const stream = copilot ? copilotStream() : spec.provider === "chatgpt" ? chatGPTStream(purpose, lifecycle) : nativeId ? nativeSubscriptionStream(models.getProvider(nativeId)!, purpose, lifecycle) : models.streamSimple.bind(models);
-			return stream(requestModel, context, { ...options, reasoning: level === "off" ? undefined : level });
-		},
+		// The agent loop forwards state.thinkingLevel as `reasoning`
+		// (undefined = off on pi-ai's scale); the clamp above keeps the pin
+		// honest even when settings drift off the model's supported levels.
+		streamFn: (requestModel, context, options) =>
+			stream(requestModel, context, { ...options, reasoning: level === "off" ? undefined : level }),
 	};
 }
 
