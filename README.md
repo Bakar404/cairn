@@ -5,7 +5,7 @@
 Cairn finds out what you already understand, plans a path to your goal and teaches one reasoning step at a time. Like stones in a cairn, each new idea rests on one you already have, and a persistent knowledge graph carries the path from one session to the next.
 
 > [!IMPORTANT]
-> **Early stage.** This repository currently contains [LearnHarness](https://github.com/amosblomqvist/learnharness) 0.3.8 unchanged. The Cairn changes below are planned and haven't been built yet.
+> **Early stage.** Cairn is renamed, with its own icon, data folder and update feed, but it still uses LearnHarness's model setup (your own API keys or a subscription sign-in) until the GitHub Copilot engine lands. The other changes below are planned.
 
 ## Built on LearnHarness
 
