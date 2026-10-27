@@ -43,5 +43,16 @@ export * from "./compaction.ts";
 export { runPiTurn, piTurnResponse, type PiTurnHandle, type PiTurnSpec } from "./pi/ui-stream.ts";
 export * from "./observability.ts";
 export * from "./model-catalog.ts";
-export { refreshCopilot } from "../agent/copilot/index.ts";
+export {
+	cancelCopilotLogin,
+	continueCopilotLogin,
+	copilotAccounts,
+	copilotLogin,
+	CopilotAccountError,
+	refreshCopilot,
+	signOutCopilotAccount,
+	startCopilotLogin,
+	switchCopilotAccount,
+	type CopilotLoginInput,
+} from "../agent/copilot/index.ts";
 export { sessionCost } from "./pricing.ts";

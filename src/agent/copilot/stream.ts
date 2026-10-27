@@ -167,7 +167,7 @@ function toolAnswer(result: Parameters<typeof toolResultText>[0], vision: boolea
 export function copilotErrorText(message: string, status?: number): string {
 	const m = message.toLowerCase();
 	if (status === 401 || /not authenticated|unauthori[sz]ed|authentication|sign in|log ?in|not logged|no github token/.test(m))
-		return "GitHub Copilot is not signed in. Run `gh auth login` (or set COPILOT_GITHUB_TOKEN), then choose Check again in Settings → Providers.";
+		return "GitHub Copilot is not signed in. Choose Sign in with GitHub in Settings → Providers (or run `gh auth login`, then Check again there).";
 	if (status === 429 || /quota|rate.?limit|too many requests|premium request|usage limit/.test(m))
 		return "GitHub Copilot usage limit reached for now. Try again later or pick a model with a lower multiplier.";
 	if (status === 403 || /policy|not enabled|forbidden|not allowed|disabled/.test(m))

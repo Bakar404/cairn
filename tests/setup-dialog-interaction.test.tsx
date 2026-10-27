@@ -50,6 +50,8 @@ async function mount({ keyed = false, catalogFails = false } = {}) {
 		assert.equal(init?.method ?? "GET", "GET", "interaction tests must not write data");
 		const path = new URL(String(input), "http://localhost").pathname;
 		if (path === "/api/copilot") return Response.json(keyed ? { state: "signed-in", login: "octo" } : { state: "signed-out" });
+		if (path === "/api/copilot/accounts") return Response.json({ accounts: [] });
+		if (path === "/api/copilot/login") return Response.json(null);
 		assert.equal(path, "/api/models");
 		if (catalogFails) throw new Error("fixture catalog failure");
 		return Response.json({

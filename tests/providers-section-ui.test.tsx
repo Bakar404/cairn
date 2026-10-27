@@ -33,6 +33,8 @@ test("Providers is the first/default page; General is last and other pages keep 
 test("Providers lists the GitHub Copilot connection under Models, then the tool keys; other saved variables stay masked/read-only last", async () => {
 	globalThis.fetch = async (url) => {
 		if (url === "/api/copilot") return Response.json({ state: "signed-in", login: "octocat" });
+		if (url === "/api/copilot/accounts") return Response.json({ accounts: [{ id: "s1", login: "octocat", host: "https://github.com", active: true, source: "gh" }] });
+		if (url === "/api/copilot/login") return Response.json(null);
 		assert.equal(url, "/api/keys");
 		return Response.json({
 			keys: [
