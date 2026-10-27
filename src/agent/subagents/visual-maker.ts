@@ -4,6 +4,7 @@ import { normalizeContext } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { piEngineFor, type PiEngine, type ThinkingLevel } from "../models.ts";
 import { providerEventObserver, type ProviderEventObserver } from "../provider-events.ts";
+import { releaseCopilotSessions } from "../copilot/index.ts";
 import type { VisualResult } from "../../core/contracts.ts";
 import { getHeadless, type HeadlessApi } from "./headless.ts";
 
@@ -292,6 +293,8 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		return { svg: "", notes: `FAILED: the maker crashed — ${msg}` };
+	} finally {
+		releaseCopilotSessions(sessionId);
 	}
 
 	// Iteration limit: deliver the last written SVG only if it was looked at.
