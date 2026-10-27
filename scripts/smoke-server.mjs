@@ -44,6 +44,11 @@ const POLL_MS = 500;
 const BOOT_TIMEOUT_MS = 30_000;
 /** GET-only probes — the routes that exercised today's failure class. */
 const PROBES = ["/api/graph", "/api/models", "/api/settings"];
+const PROBE_TIMEOUT_MS = 5_000;
+/** /api/models waits for the GitHub Copilot runtime's first start (a child
+ *  process that checks sign-in and lists models), which takes 3-5s on
+ *  Windows runners. */
+const PROBE_TIMEOUTS_MS = { "/api/models": 30_000 };
 
 if (!fs.existsSync(SERVER)) {
 	console.error("[smoke-server] .next/standalone/server.js missing — run next build first.");
@@ -63,14 +68,14 @@ function freePort() {
 }
 
 /** One GET; resolves the status code (0 = connection refused/failed). */
-function get(url) {
+function get(url, timeoutMs = PROBE_TIMEOUT_MS) {
 	return new Promise((resolve) => {
 		const req = http.get(url, (res) => {
 			res.resume();
 			resolve(res.statusCode ?? 0);
 		});
 		req.on("error", () => resolve(0));
-		req.setTimeout(5000, () => {
+		req.setTimeout(timeoutMs, () => {
 			req.destroy();
 			resolve(0);
 		});
@@ -162,9 +167,10 @@ async function main() {
 
 		// 2) API surface: every probe must be 200.
 		for (const route of PROBES) {
-			const status = await get(url + route);
+			const started = Date.now();
+			const status = await get(url + route, PROBE_TIMEOUTS_MS[route]);
 			if (status !== 200) throw new Error(`GET ${route} → ${status} (expected 200)`);
-			console.log(`[smoke-server] GET ${route} → 200`);
+			console.log(`[smoke-server] GET ${route} → 200 (${Date.now() - started}ms)`);
 		}
 	} catch (err) {
 		failed = err;
