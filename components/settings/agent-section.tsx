@@ -89,6 +89,14 @@ const SEARCH_ENGINES = ["tavily", "brave"] as const;
  *  changing — the Teacher stream settled this 2026-09-19). */
 export const TOGGLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
 
+/** The line under each tool row: what the tool lets the tutor do. */
+const TOOL_HINTS: Record<(typeof TOGGLE_TOOLS)[number], string> = {
+	research: "Lets the tutor check facts on the web in the background, with sources",
+	demo: "Lets the tutor build interactive demos you can try",
+	visual: "Lets the tutor draw precise figures",
+	pdf: "Lets the tutor read PDFs you point it to",
+};
+
 const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /** SegmentInfo as GET /api/settings/prompts returns it. */
@@ -795,6 +803,7 @@ export function AgentSection({
 					<SettingsRow
 						key={id}
 						label={`Tool · ${id}`}
+						hint={TOOL_HINTS[id]}
 						testid={`tool-row-${id}`}
 					>
 						<Toggle
