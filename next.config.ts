@@ -88,6 +88,11 @@ const nextConfig: NextConfig = {
 			"node_modules/@earendil-works/pi-ai/dist/auth/oauth/{load,github-copilot,xai,device-code}.js",
 			"node_modules/@earendil-works/pi-ai/dist/utils/sleep.js",
 			"node_modules/@earendil-works/pi-agent-core/dist/**/*.json",
+			// The Copilot SDK resolves its bundled runtime from a per-platform
+			// package (@github/copilot-sdk-<platform>-<arch>) at run time —
+			// invisible to the tracer, one platform per build like the above.
+			"node_modules/@github/copilot-sdk/dist/**/*",
+			"node_modules/@github/copilot-sdk-*/**/*",
 			// Next 16.3.2 native Turbopack applies unanchored excludes while
 			// traversing modules; **/data/**/* still prunes gcp-metadata and
 			// its private runtime chain. Includes are applied after traversal.
@@ -107,6 +112,7 @@ const nextConfig: NextConfig = {
 		"pdfjs-dist", // sources v0: bundling breaks its node fake-worker path
 		"@napi-rs/canvas", // native binding — bundling breaks the .node require
 		"@resvg/resvg-js", // native binding — same
+		"@github/copilot-sdk", // spawns its bundled runtime from a resolved package path
 	],
 };
 

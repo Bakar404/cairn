@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from "react";
 import { AUTH_KEYS, type AuthKeyStatus } from "@/src/core";
 import { SettingsGroup } from "./controls.tsx";
 import { SubscriptionConnections } from "./subscription-connections.tsx";
+import { CopilotConnection } from "./copilot-connection.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -413,6 +414,10 @@ export function KeysSection({
 
 	return (
 		<>
+			<SettingsGroup label="GitHub Copilot" testid="group-copilot">
+				<CopilotConnection />
+			</SettingsGroup>
+
 			<SettingsGroup label="Model API keys" testid="group-provider-keys">
 				{providerRows.map((status) => (
 					<KeyTableRow

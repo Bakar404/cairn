@@ -50,6 +50,8 @@ describe("standalone JavaScript tracing exclusions and native workaround policy"
 			"node_modules/@earendil-works/pi-ai/dist/auth/oauth/{load,github-copilot,xai,device-code}.js",
 			"node_modules/@earendil-works/pi-ai/dist/utils/sleep.js",
 			"node_modules/@earendil-works/pi-agent-core/dist/**/*.json",
+			"node_modules/@github/copilot-sdk/dist/**/*",
+			"node_modules/@github/copilot-sdk-*/**/*",
 			"node_modules/gcp-metadata/**/*",
 			"node_modules/json-bigint/**/*",
 			"node_modules/bignumber.js/**/*",
