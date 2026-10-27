@@ -16,6 +16,7 @@
  * tests/extraction.test.ts with mock models.
  */
 
+import "./isolated-data-dir.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { after, describe, it } from "node:test";

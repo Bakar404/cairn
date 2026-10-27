@@ -20,6 +20,7 @@
  * sub-agent suite's faux engines.
  */
 
+import "./isolated-data-dir.ts";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createProberAgent, createTeacherAgent, type TeachingAgent } from "../src/agent/teacher-agent.ts";

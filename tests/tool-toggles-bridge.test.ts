@@ -10,6 +10,7 @@
  * construction tests use an in-memory chat fixture like
  * question-tools.test.ts.
  */
+import "./isolated-data-dir.ts";
 import assert from "node:assert/strict";
 import { z } from "zod";
 import { describe, it } from "node:test";

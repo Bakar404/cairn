@@ -13,6 +13,7 @@
  * question call's real tool result (fork 1, owner 2026-09-26).
  */
 
+import "./isolated-data-dir.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
