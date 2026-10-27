@@ -137,13 +137,13 @@ describe("DispatchCard — the BYOK refusal tone (owner, 2026-09-22)", () => {
 		assert.ok(!html.includes("text-red-500"));
 	});
 
-	it("a key-refused job is INFO: 'needs a provider key', 'Add a key' (zero-keys wave, 66dbea9)", () => {
+	it("a connection-refused job is INFO: 'needs GitHub Copilot', 'Connect Copilot' (zero-keys wave, 66dbea9)", () => {
 		const html = renderToStaticMarkup(
-			inJobs([job({ error: "No OpenRouter key is set — add one in Settings → Keys" })]),
+			inJobs([job({ error: "GitHub Copilot is not connected — open Settings → Providers" })]),
 		);
 		assert.ok(html.includes('data-testid="dispatch-refused"'));
-		assert.ok(html.includes("needs a provider key"));
-		assert.ok(html.includes("Add a key"));
+		assert.ok(html.includes("needs GitHub Copilot"));
+		assert.ok(html.includes("Connect Copilot"));
 		assert.ok(html.includes('data-testid="dispatch-setup-link"'));
 		assert.ok(!html.includes("failed"));
 	});

@@ -36,8 +36,8 @@ import { CONCLUDE_ACK_TEXT } from "../src/core/contracts/chat.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 
-// The BYOK key-presence gate reads env-first (chat-flow.test.ts's idiom).
-process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
+// The connection gate defers to the never-started Copilot runtime under
+// tests (chat-flow.test.ts's idiom): a Copilot pin opens it.
 
 /** A valid problem pose — the slim schema: statement, mode, target,
  *  modelSolution (the commitment, which is also the reveal). */
@@ -70,7 +70,7 @@ after(() => {
 
 function createPracticeChat(title: string) {
 	const chat = chatStore.createChat(title, "practice");
-	chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+	chatStore.saveSettings(chat.id, { model: { provider: "copilot", id: "claude-haiku-4.5" } });
 	createdChats.push(chat.id);
 	return chat;
 }

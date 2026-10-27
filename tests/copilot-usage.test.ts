@@ -9,20 +9,20 @@ const step = { inputTokens: 1000, outputTokens: 100, cacheReadTokens: undefined,
 const turn = (model: string, steps = [step]): TurnUsage => ({ id: "scratch-turn", messageId: "scratch-message", at: "2026-10-19T00:00:00Z", model, steps });
 
 test("subscription usage is neither API dollars nor an unpriced-model mistake, including empty/partial usage", () => {
-	const plan = turn("chatgpt:gpt-5");
+	const plan = turn("copilot:gpt-5");
 	assert.equal(callCost(step, plan.model), null);
 	assert.equal(turnCost(turn(plan.model, [])), null);
 	assert.equal(jobCost({ usage: { model: plan.model, ...step, steps: 1 } }), null);
-	assert.deepEqual(sessionCost({ turns: [plan, turn(plan.model, [])] }), { cost: 0, unpriced: 0, subscription: 2, subscriptionProviders: ["ChatGPT"], turnCosts: { "scratch-turn": null } });
+	assert.deepEqual(sessionCost({ turns: [plan, turn(plan.model, [])] }), { cost: 0, unpriced: 0, subscription: 2, subscriptionProviders: ["GitHub Copilot"], turnCosts: { "scratch-turn": null } });
 	const api = turn("openai:gpt-5");
 	const mixed = sessionCost({ turns: [plan, api, turn("unknown:missing")] });
 	assert.equal(mixed.cost, turnCost(api)); assert.equal(mixed.unpriced, 1); assert.equal(mixed.subscription, 1);
-	assert.equal(planCostLabel(null, true), "ChatGPT");
-	assert.match(planCostLabel(mixed.cost, true), /\$[\d.]+ \+ ChatGPT$/);
+	assert.equal(planCostLabel(null, true), "GitHub Copilot");
+	assert.match(planCostLabel(mixed.cost, true), /\$[\d.]+ \+ GitHub Copilot$/);
 });
 
 test("graph extraction and audit preserve subscription identity separately from priced and unknown stages", () => {
-	const base = { startedAt: 1, at: "2026-10-19T00:00:00Z", durationMs: 1, stages: { extractor: { model: "chatgpt:gpt-5", steps: [step] }, auditor: { model: "chatgpt:gpt-5", steps: [] } } };
+	const base = { startedAt: 1, at: "2026-10-19T00:00:00Z", durationMs: 1, stages: { extractor: { model: "copilot:gpt-5", steps: [step] }, auditor: { model: "copilot:gpt-5", steps: [] } } };
 	const plan = graphCostSummary({ chats: [{ title: "Scratch", extractions: [base] }], sources: [] });
 	assert.equal(plan.unpricedRuns, 0); assert.equal(plan.subscriptionRuns, 2);
 	assert.equal(plan.stages.extraction.unpricedRuns, 0); assert.equal(plan.stages.audit.unpricedRuns, 0);
@@ -33,7 +33,7 @@ test("graph extraction and audit preserve subscription identity separately from 
 	assert.equal(mixed.runs[0]!.subscriptionRuns, 1);
 	assert.equal(mixed.unpricedRuns, 0);
 	for (const reverse of [false, true]) {
-		const stages = [{ model: "chatgpt:gpt-5", steps: [step] }, { model: "unknown:not-priced", steps: [step] }];
+		const stages = [{ model: "copilot:gpt-5", steps: [step] }, { model: "unknown:not-priced", steps: [step] }];
 		if (reverse) stages.reverse();
 		const unknown = graphCostSummary({ chats: [{ title: "Scratch", extractions: [{ ...base, stages: { extractor: stages[0]!, auditor: stages[1]! } }] }], sources: [] });
 		assert.equal(unknown.unpricedRuns, 1); assert.equal(unknown.runs[0]!.dollars, null); assert.equal(unknown.subscriptionRuns, 1);

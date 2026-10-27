@@ -9,11 +9,10 @@
  * shadow semantics) is pinned byte-for-byte by tests/server-keys.test.ts
  * — that file IS the visible case; this file is the hidden one.
  *
- * The engine path is the critical subtlety this file pins: pi-ai reads
- * provider keys from process.env NATIVELY at every request
- * (auth/context.js's defaultProviderAuthContext reads live env), so the
- * switch works by DELETING the vars from the process — assert the
- * deletion directly, because that is what a fresh user's engines see.
+ * Model calls never read keys (GitHub Copilot signs in through its own
+ * runtime); the managed vars are the curated tool keys (search, speech).
+ * The switch works by DELETING them from the process, so assert the
+ * deletion directly — that is what a fresh user's tools see.
  *
  * LH_AUTH_FILE redirects to a fresh tmp dir BEFORE the imports (the
  * seam is module-load bound). All values are throwaway test strings —
@@ -44,15 +43,17 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-fresh-env-keys-"));
 const AUTH = path.join(TMP, "auth.json");
 process.env.LH_AUTH_FILE = AUTH;
 
+const FILE_BRAVE = "BSA-file-fresh-file-fresh-01";
+
 // The file BEFORE first boot: one file-only key.
-fs.writeFileSync(AUTH, JSON.stringify({ OPENAI_API_KEY: "sk-file-fresh-file-fresh" }));
+fs.writeFileSync(AUTH, JSON.stringify({ BRAVE_API_KEY: FILE_BRAVE }));
 
 // The env the switch must hide — set BEFORE the module's first import:
-//  - an env-ONLY provider key (the engine-path specimen)
+//  - an env-ONLY tool key (the deletion specimen)
 //  - the SAME var the file holds (the collision specimen: under the
 //    switch the FILE value must win, and the env copy must be deleted)
-process.env.OPENROUTER_API_KEY = "sk-or-env-env-env";
-process.env.OPENAI_API_KEY = "sk-openai-env-env-env";
+process.env.TAVILY_API_KEY = "tvly-env-env-env-0123456789";
+process.env.BRAVE_API_KEY = "BSA-env-env-env-0123456789";
 
 // THE SWITCH — set before first import (exactly how the launcher boots).
 process.env.LH_IGNORE_ENV_KEYS = "1";
@@ -72,25 +73,25 @@ describe("the fresh-user switch (boot under LH_IGNORE_ENV_KEYS=1)", () => {
 		assert.equal(envKeysIgnored(), true);
 	});
 
-	it("THE ENGINE PATH: env-only keys are DELETED from the process — pi-ai's native per-request env resolution finds nothing", () => {
-		assert.equal(process.env.OPENROUTER_API_KEY, undefined, "deleted from process.env at boot");
+	it("env-only keys are DELETED from the process — no consumer can find them", () => {
+		assert.equal(process.env.TAVILY_API_KEY, undefined, "deleted from process.env at boot");
 	});
 
 	it("the env copy of a file-backed var is deleted; the FILE value is what fills the env (only auth.json counts)", () => {
-		assert.equal(process.env.OPENAI_API_KEY, "sk-file-fresh-file-fresh", "the env copy died; the fill-gap reflected the file value");
-		assert.equal(authStore.authVars().OPENAI_API_KEY, "sk-file-fresh-file-fresh");
+		assert.equal(process.env.BRAVE_API_KEY, FILE_BRAVE, "the env copy died; the fill-gap reflected the file value");
+		assert.equal(authStore.authVars().BRAVE_API_KEY, FILE_BRAVE);
 	});
 
 	it("keyValue: env keys invisible, file keys visible — and a post-boot env reintroduction stays invisible (belt-and-suspenders)", () => {
-		assert.equal(keyValue("OPENROUTER_API_KEY"), undefined, "env key invisible under the switch");
-		assert.equal(keyValue("OPENAI_API_KEY"), "sk-file-fresh-file-fresh", "file key visible");
+		assert.equal(keyValue("TAVILY_API_KEY"), undefined, "env key invisible under the switch");
+		assert.equal(keyValue("BRAVE_API_KEY"), FILE_BRAVE, "file key visible");
 		// A stray consumer re-sets an env key AFTER boot: the seam still
 		// ignores it (the deletion is boot-time; the read guard is live).
-		process.env.OPENROUTER_API_KEY = "sk-or-reintroduced-late";
+		process.env.TAVILY_API_KEY = "tvly-reintroduced-late-0123";
 		try {
-			assert.equal(keyValue("OPENROUTER_API_KEY"), undefined, "reintroduced env key stays invisible to the seam");
+			assert.equal(keyValue("TAVILY_API_KEY"), undefined, "reintroduced env key stays invisible to the seam");
 		} finally {
-			delete process.env.OPENROUTER_API_KEY;
+			delete process.env.TAVILY_API_KEY;
 		}
 	});
 
@@ -99,44 +100,47 @@ describe("the fresh-user switch (boot under LH_IGNORE_ENV_KEYS=1)", () => {
 		// env first — today's behavior, byte-for-byte (the boot-snapshot
 		// half is pinned in tests/server-keys.test.ts, the visible case).
 		process.env.LH_IGNORE_ENV_KEYS = undefined;
-		process.env.OPENROUTER_API_KEY = "sk-or-env-wins";
+		process.env.TAVILY_API_KEY = "tvly-env-wins-0123456789";
 		try {
-			assert.equal(keyValue("OPENROUTER_API_KEY"), "sk-or-env-wins", "env wins without the switch");
-			assert.equal(keyValue("OPENAI_API_KEY"), "sk-file-fresh-file-fresh", "file is the fallback without the switch");
+			assert.equal(keyValue("TAVILY_API_KEY"), "tvly-env-wins-0123456789", "env wins without the switch");
+			assert.equal(keyValue("BRAVE_API_KEY"), FILE_BRAVE, "the file value fills the env without the switch");
 		} finally {
-			delete process.env.OPENROUTER_API_KEY;
+			delete process.env.TAVILY_API_KEY;
 			process.env.LH_IGNORE_ENV_KEYS = "1";
 		}
 	});
 
 	it("the status view is the fresh machine's: file sources only, no env rows, no shadowing", () => {
 		const rows = keyStatuses();
-		const openai = rows.find((r) => r.id === "OPENAI_API_KEY");
-		assert.ok(openai, "the file-backed provider key has a row");
-		assert.equal(openai!.present, true);
-		assert.equal(openai!.source, "file", "realEnv is empty under the switch — nothing reports as env");
-		assert.equal(openai!.shadowedByEnv, false);
-		assert.equal(rows.some((r) => r.id === "OPENROUTER_API_KEY"), false, "the env-only key is gone everywhere — no row");
+		const brave = rows.find((r) => r.id === "BRAVE_API_KEY");
+		assert.ok(brave, "the file-backed key has a row");
+		assert.equal(brave!.present, true);
+		assert.equal(brave!.source, "file", "realEnv is empty under the switch — nothing reports as env");
+		assert.equal(brave!.shadowedByEnv, false);
+		const tavily = rows.find((r) => r.id === "TAVILY_API_KEY");
+		assert.equal(tavily!.present, false, "the env-only key reads as absent");
+		assert.equal(tavily!.source, "none");
 		assert.equal(rows.some((r) => r.source === "env"), false, "no env-owned key under the switch");
 	});
 
 	it("a fresh user CAN add keys mid-session: save reflects file → env (engines see it, no restart)", () => {
-		const result = saveKey("ZAI_API_KEY", "zai-fresh-sim-key-1234567890");
+		const value = "deepgram-fresh-sim-key-1234567890";
+		const result = saveKey("DEEPGRAM_API_KEY", value);
 		assert.equal(result.ok, true);
-		assert.equal(authStore.authVars().ZAI_API_KEY, "zai-fresh-sim-key-1234567890", "persisted to the file");
-		assert.equal(process.env.ZAI_API_KEY, "zai-fresh-sim-key-1234567890", "reflected into env for pi-ai");
-		const row = keyStatuses().find((r) => r.id === "ZAI_API_KEY");
+		assert.equal(authStore.authVars().DEEPGRAM_API_KEY, value, "persisted to the file");
+		assert.equal(process.env.DEEPGRAM_API_KEY, value, "reflected into env");
+		const row = keyStatuses().find((r) => r.id === "DEEPGRAM_API_KEY");
 		assert.equal(row!.source, "file", "the status honestly reports the file as the source");
 		// and DELETE removes both (fill-gap semantics hold under the switch)
-		deleteKey("ZAI_API_KEY");
-		assert.equal(process.env.ZAI_API_KEY, undefined);
-		assert.equal(authStore.authVars().ZAI_API_KEY, undefined);
+		deleteKey("DEEPGRAM_API_KEY");
+		assert.equal(process.env.DEEPGRAM_API_KEY, undefined);
+		assert.equal(authStore.authVars().DEEPGRAM_API_KEY, undefined);
 	});
 
 	it("re-running initAuthEnv is idempotent — deleted env keys never resurrect", () => {
-		process.env.OPENROUTER_API_KEY = "sk-or-zombie";
+		process.env.TAVILY_API_KEY = "tvly-zombie-0123456789-zz";
 		initAuthEnv();
-		assert.equal(process.env.OPENROUTER_API_KEY, undefined, "a reintroduced env key is re-deleted");
-		assert.equal(process.env.OPENAI_API_KEY, "sk-file-fresh-file-fresh", "the file reflection survives re-init");
+		assert.equal(process.env.TAVILY_API_KEY, undefined, "a reintroduced env key is re-deleted");
+		assert.equal(process.env.BRAVE_API_KEY, FILE_BRAVE, "the file reflection survives re-init");
 	});
 });

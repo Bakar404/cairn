@@ -41,6 +41,8 @@ import { danglingQuestionOf, endsInDismissal, needsContinuation, newAnswerResult
 import { projectView } from "../src/core/view.ts";
 import type { PiEngine } from "../src/agent/models.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
+import { installCopilotRuntime } from "../src/agent/copilot/index.ts";
+import { copilotInfo, idleCopilotRuntime } from "./fixtures/copilot.ts";
 
 // Route-level pin (the chat-birth-stamp pattern): the dismiss route's
 // handler, driven directly. Env is the runner's (the same the static
@@ -51,10 +53,9 @@ const streamRoute = await import("../app/api/chats/[id]/stream/route.ts");
 const recordRoute = await import("../app/api/chats/[id]/route.ts");
 import { PATHS } from "../config.ts";
 
-// The key-presence turn gate (provider-key interlude, 2026-09-25): scripted
-// turns pin openrouter per chat — the gate reads env-first truth, so the
-// key must be present in the test process like any real setup.
-process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
+// The connection gate (provider-key interlude, 2026-09-25): scripted turns
+// pin a GitHub Copilot model per chat. Under tests the Copilot runtime is
+// never started, so its status stays "unknown" and the gate defers to it.
 
 const QUIZ_INPUT = {
 	question: "Which planet is closest to the sun?",
@@ -247,7 +248,7 @@ function dismissPost(chatId: string, toolCallId: string, kind: "quiz" | "ask" | 
  *  production (the injected faux engine still runs the loop). */
 function createConfiguredChat(title: string) {
 	const chat = chatStore.createChat(title);
-	chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+	chatStore.saveSettings(chat.id, { model: { provider: "copilot", id: "claude-haiku-4.5" } });
 	// nodeId is required on teach quizzes (owner ruling 2026-09-26) — the
 	// scripted lessons quiz against this seeded tree.
 	chatStore.saveTree(chat.id, {
@@ -837,9 +838,9 @@ describe("chat store", () => {
 		const chat = chatStore.createChat("Settings test");
 		createdChats.push(chat.id);
 		const before = chatStore.getChat(chat.id)!.updatedAt;
-		chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" }, thinkingLevel: "high" });
+		chatStore.saveSettings(chat.id, { model: { provider: "copilot", id: "claude-haiku-4.5" }, thinkingLevel: "high" });
 		const saved = chatStore.getChat(chat.id)!;
-		assert.deepEqual(saved.settings, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" }, thinkingLevel: "high" });
+		assert.deepEqual(saved.settings, { model: { provider: "copilot", id: "claude-haiku-4.5" }, thinkingLevel: "high" });
 		assert.equal(saved.updatedAt, before, "a picker write is not conversation activity");
 		// replace-whole: a settings-less write clears the override (an empty
 		// object persists — every field absent = config defaults)
@@ -1069,51 +1070,58 @@ describe("the BYOK turn gate (no factory floor — owner, 2026-09-22)", () => {
 
 // ─── the key-presence turn gate (provider-key interlude, owner, 2026-09-25) ─
 
-describe("the key-presence turn gate (provider-key interlude, 2026-09-25)", () => {
-	// The gate's truth is env-first (keyValue): in tests process.env is the
-	// WHOLE truth (the throwaway data dir has no auth.json), so each test
-	// pins its provider's env var explicitly and restores it after.
-	it("a pinned provider whose key is gone refuses with 503 provider_key_missing — nothing lingers", async () => {
-		const chat = chatStore.createChat("Test: keyless provider");
-		createdChats.push(chat.id);
-		const saved = process.env.TOGETHER_API_KEY;
-		delete process.env.TOGETHER_API_KEY;
-		try {
-			// The chat's own model override pins the provider — the same
-			// chain the strong slot rides. The gate fires BEFORE the engine
-			// build, so the fake model id never hits the catalog.
-			chatStore.saveSettings(chat.id, { model: { provider: "together", id: "no-such-model" } });
-			const res = await handleChatRequest(post(chat.id, { type: "text", text: "teach me something" }), agentFactory(scriptedTeacher(defaultLesson).engine));
+describe("the connection turn gate (provider-key interlude, 2026-09-25)", () => {
+	// The gate's truth is the Copilot runtime's status. Each test seeds a
+	// fresh status (and catalog) on an idle fake runtime — the injected
+	// agent replaces the loop, so no session ever opens — and removes it
+	// after, back to the never-started "unknown".
 
-			assert.equal(res.status, 503, "the key-presence gate refuses before beginTurn");
-			const body = (await res.json()) as { error: string; code: string; provider: string; slots: string[] };
+	it("a pin outside GitHub Copilot (an older build's provider) refuses with 503 provider_key_missing — nothing lingers", async () => {
+		const chat = chatStore.createChat("Test: non-Copilot pin");
+		createdChats.push(chat.id);
+		// The chat's own model override pins the provider — the same chain
+		// the strong slot rides. The gate fires BEFORE the engine build, so
+		// the fake model id never hits the catalog.
+		chatStore.saveSettings(chat.id, { model: { provider: "together", id: "no-such-model" } });
+		const res = await handleChatRequest(post(chat.id, { type: "text", text: "teach me something" }), agentFactory(scriptedTeacher(defaultLesson).engine));
+
+		assert.equal(res.status, 503, "the connection gate refuses before beginTurn");
+		const body = (await res.json()) as { error: string; code: string; provider: string; slots: string[] };
+		assert.equal(body.code, "provider_key_missing");
+		assert.equal(body.provider, "together", "the envelope names the stale provider");
+		assert.deepEqual(body.slots, ["strong"], "the conversation tier is the affected slot");
+		assert.equal(body.error, '"together" models are unavailable (Cairn runs on GitHub Copilot only) — open Settings → Providers');
+		assert.equal(isTurnRunning(chat.id), false, "the refusal never registers a live turn");
+		assert.equal(chatStore.getChat(chat.id)!.messages.length, 0, "no write-ahead persist before the gate");
+	});
+
+	it("a signed-out Copilot refuses a Copilot pin with the connect line", async () => {
+		const chat = createConfiguredChat("Test: Copilot signed out");
+		createdChats.push(chat.id);
+		installCopilotRuntime(idleCopilotRuntime, { status: { state: "signed-out" } });
+		try {
+			const res = await handleChatRequest(post(chat.id, { type: "text", text: "teach me something" }), agentFactory(scriptedTeacher(defaultLesson).engine));
+			assert.equal(res.status, 503);
+			const body = (await res.json()) as { error: string; code: string; provider: string };
 			assert.equal(body.code, "provider_key_missing");
-			assert.equal(body.provider, "together", "the envelope names whose key is gone");
-			assert.deepEqual(body.slots, ["strong"], "the conversation tier is the affected slot");
-			assert.equal(body.error, "No Together key is set — add one in Settings → Keys", "the human line names the provider");
-			assert.equal(isTurnRunning(chat.id), false, "the refusal never registers a live turn");
-			assert.equal(chatStore.getChat(chat.id)!.messages.length, 0, "no write-ahead persist before the gate");
+			assert.equal(body.provider, "copilot");
+			assert.equal(body.error, "GitHub Copilot is not connected — open Settings → Providers");
+			assert.equal(isTurnRunning(chat.id), false);
 		} finally {
-			if (saved !== undefined) process.env.TOGETHER_API_KEY = saved;
+			installCopilotRuntime(undefined);
 		}
 	});
 
-	it("an env-present key passes the gate (gate by what would run)", async () => {
-		const chat = chatStore.createChat("Test: env-keyed provider");
+	it("a signed-in Copilot passes the gate (gate by what would run)", async () => {
+		const chat = createConfiguredChat("Test: Copilot signed in");
 		createdChats.push(chat.id);
-		const saved = process.env.OPENAI_API_KEY;
-		process.env.OPENAI_API_KEY = "test-key-presence-gate";
+		installCopilotRuntime(idleCopilotRuntime, { status: { state: "signed-in", login: "octo" }, models: [copilotInfo("claude-haiku-4.5")] });
 		try {
-			// A REAL catalog model: the engine build AFTER the gate must
-			// resolve — the injected agent replaces the loop, not the build.
-			chatStore.saveSettings(chat.id, { model: { provider: "openai", id: "gpt-4" } });
 			const res = await handleChatRequest(post(chat.id, { type: "text", text: "teach me something" }), agentFactory(scriptedTeacher(defaultLesson).engine));
-
-			assert.equal(res.status, 200, "the env-shadowed key counts as present — the turn runs");
+			assert.equal(res.status, 200, "a connected Copilot runs the turn");
 			await drainRunning(chat.id);
 		} finally {
-			if (saved !== undefined) process.env.OPENAI_API_KEY = saved;
-			else delete process.env.OPENAI_API_KEY;
+			installCopilotRuntime(undefined);
 		}
 	});
 });

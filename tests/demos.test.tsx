@@ -88,10 +88,9 @@ function testRunner() {
 }
 import { artifactRenderers } from "../components/artifacts/index.ts";
 
-// The key-presence turn gate (provider-key interlude, 2026-09-25): scripted
-// turns pin openrouter per chat — the gate reads env-first truth, so the
-// key must be present in the test process like any real setup.
-process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
+// The connection gate (provider-key interlude, 2026-09-25): scripted turns
+// pin a GitHub Copilot model per chat. Under tests the Copilot runtime is
+// never started, so its status stays "unknown" and the gate defers to it.
 
 
 
@@ -913,7 +912,7 @@ describe("demo/visual job runners", () => {
 		createdChats.push(chat.id);
 		// BYOK turn gate (owner, 2026-09-22): the scripted chat needs a
 		// conversation model — the per-chat pin, exactly like the setup flow.
-		chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+		chatStore.saveSettings(chat.id, { model: { provider: "copilot", id: "claude-haiku-4.5" } });
 
 		// A teacher that calls demo on turn 1, then continues in the SAME turn.
 		const teacher = scriptedModel([

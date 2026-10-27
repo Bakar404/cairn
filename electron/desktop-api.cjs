@@ -22,4 +22,12 @@ function desktopAPIHeaders(details, origin, secret, windows) {
 	} catch { /* Missing/destroyed/navigated frames fail closed. */ }
 	return headers;
 }
-module.exports = { desktopAPIHeaders, HEADER };
+/** IPC callers must be the main frame of an app window still showing the
+ * app's own origin. Navigated or destroyed frames fail closed. */
+function trustedSender(event, origin, BrowserWindow) {
+	const win = BrowserWindow.fromWebContents(event.sender);
+	try {
+		return !!win && event.senderFrame === event.sender.mainFrame && new URL(event.senderFrame.url).origin === origin;
+	} catch { return false; }
+}
+module.exports = { desktopAPIHeaders, trustedSender, HEADER };

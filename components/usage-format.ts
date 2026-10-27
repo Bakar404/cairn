@@ -9,7 +9,7 @@ export function formatUsd(c: number): string {
 }
 
 export function planCostLabel(dollars: number | null, subscription: boolean | string | readonly string[] | undefined, format = formatUsd): string {
-	const labels = subscription === true ? ["ChatGPT"] : typeof subscription === "string" ? [subscription] : Array.isArray(subscription) ? [...new Set(subscription)] : [];
+	const labels = subscription === true ? ["GitHub Copilot"] : typeof subscription === "string" ? [subscription] : Array.isArray(subscription) ? [...new Set(subscription)] : [];
 	return [...(dollars === null ? [] : [format(dollars)]), ...labels].join(" + ") || "—";
 }
 
@@ -45,7 +45,9 @@ export function prettyModel(id: string, qualified = false): string {
 	const { provider, id: bare } = splitQualified(id);
 	const short = bare.includes("/") ? bare.slice(bare.lastIndexOf("/") + 1) : bare;
 	const parts = short.split("-");
-	const trimmed = /^\d+$/.test(parts[parts.length - 1] ?? "") ? parts.slice(0, -1) : parts;
+	// A trailing date stamp (-0902, -20250514) goes; a bare version number
+	// (claude-sonnet-5) is part of the name.
+	const trimmed = /^\d{4,}$/.test(parts[parts.length - 1] ?? "") ? parts.slice(0, -1) : parts;
 	// No auto-capitalization, dashes KEPT (owner rounds 4-5, 2026-10-05):
 	// model names render exactly as their providers write them.
 	const pretty = trimmed.join("-");

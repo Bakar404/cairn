@@ -49,20 +49,20 @@ describe("isModelsRefusal — the job-record matcher", () => {
 });
 
 describe("providerKeyMissing — the envelope factory (provider-key interlude, 2026-09-25)", () => {
-	it("names the provider from the curated label and carries the exact machine code", () => {
-		const envelope = providerKeyMissing("openrouter", ["strong"]);
+	it("a signed-out GitHub Copilot connection carries the exact machine code", () => {
+		const envelope = providerKeyMissing("copilot", ["strong"]);
 		assert.deepEqual(envelope, {
-			error: "No OpenRouter key is set — add one in Settings → Keys",
+			error: "GitHub Copilot is not connected — open Settings → Providers",
 			code: PROVIDER_KEY_MISSING_CODE,
-			provider: "openrouter",
+			provider: "copilot",
 			slots: ["strong"],
 		});
 		assert.equal(envelope.code, "provider_key_missing");
 	});
 
-	it("an unknown provider falls back to its raw id as the label", () => {
-		const envelope = providerKeyMissing("weird", ["cheap"]);
-		assert.equal(envelope.error, "No weird key is set — add one in Settings → Keys");
+	it("a stale pin to any other provider is refused by its raw id", () => {
+		const envelope = providerKeyMissing("openrouter", ["cheap"]);
+		assert.equal(envelope.error, '"openrouter" models are unavailable (Cairn runs on GitHub Copilot only) — open Settings → Providers');
 	});
 });
 

@@ -83,10 +83,9 @@ const JOBS_DIR = path.join(PATHS.data, "jobs");
 
 const createdChats: string[] = [];
 
-// The key-presence turn gate (provider-key interlude, 2026-09-25): scripted
-// turns pin openrouter per chat — the gate reads env-first truth, so the
-// key must be present in the test process like any real setup.
-process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
+// The connection gate (provider-key interlude, 2026-09-25): scripted turns
+// pin a GitHub Copilot model per chat. Under tests the Copilot runtime is
+// never started, so its status stays "unknown" and the gate defers to it.
 const createdJobs: string[] = [];
 
 function trackChat(id: string) {
@@ -502,7 +501,7 @@ describe("dispatch (async protocol §2)", () => {
 		trackChat(chat.id);
 		// BYOK turn gate (owner, 2026-09-22): the scripted chat needs a
 		// conversation model — the per-chat pin, exactly like the setup flow.
-		chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+		chatStore.saveSettings(chat.id, { model: { provider: "copilot", id: "claude-haiku-4.5" } });
 
 		const delivery = fakeDeliver();
 		const search = stubSearch();
@@ -1844,7 +1843,7 @@ describe("provider-key job refusal (key-presence interlude)", () => {
 		assert.deepEqual(seen, [[engine.model.provider, "cheap"]], "the check saw the engine's provider + the researcher's tier");
 		assert.equal(delivery.steers.length, 1, "the refusal STEERED — the teacher is not stranded");
 		assert.ok(
-			delivery.steers[0]!.content.includes(`Research failed: No ${engine.model.provider} key is set`),
+			delivery.steers[0]!.content.includes(`Research failed: ${providerKeyMissing(engine.model.provider, ["cheap"]).error}`),
 			"the steer carries the kind's failure shape",
 		);
 		const result = done.result as ResearchResult;

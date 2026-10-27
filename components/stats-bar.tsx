@@ -148,7 +148,7 @@ export function StatsBar({
 								<span>{subscription ? "Usage" : "Total cost"}</span>
 								<span className="tabular-nums text-card-foreground">{costLabel}</span>
 							</div>
-							{providers.includes("ChatGPT") && <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer" className="underline underline-offset-2">Manage ChatGPT usage</a>}
+							{providers.includes("GitHub Copilot") && <a href="https://github.com/settings/copilot" target="_blank" rel="noreferrer" className="underline underline-offset-2">Manage Copilot usage</a>}
 							{unpriced > 0 && (
 								<div className="flex justify-between gap-2">
 									<span>Unpriced turns</span>

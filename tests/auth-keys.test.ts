@@ -9,7 +9,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { AUTH_KEYS, genericProviderKeyGuard, isKnownAuthKey, maskKey, validateKeyShape } from "../src/core/auth-keys.ts";
+import { AUTH_KEYS, isKnownAuthKey, maskKey, validateKeyShape } from "../src/core/auth-keys.ts";
 
 describe("the catalog", () => {
 	it("is exactly the three CURATED app-service keys (provider keys live in the provider table)", () => {
@@ -69,26 +69,6 @@ describe("validateKeyShape (the 400 gate — curated keys)", () => {
 		const r = validateKeyShape("SOMETHING_ELSE", "whatever");
 		assert.ok(!r.ok);
 		if (!r.ok) assert.match(r.error, /SOMETHING_ELSE.*DEEPGRAM_API_KEY/);
-	});
-});
-
-describe("genericProviderKeyGuard (model-provider keys — paste hygiene only)", () => {
-	it("accepts any ≥12-char whitespace-free value (families vary)", () => {
-		assert.deepEqual(genericProviderKeyGuard("OPENROUTER_API_KEY", "sk-or-v1-abc123"), { ok: true });
-		assert.deepEqual(genericProviderKeyGuard("OPENAI_API_KEY", "whaterver-value-here"), { ok: true });
-		assert.deepEqual(genericProviderKeyGuard("HF_TOKEN", "hf_xxxxxxxx9999"), { ok: true });
-	});
-
-	it("rejects truncations and whitespace — the only guards", () => {
-		const short = genericProviderKeyGuard("ZAI_API_KEY", "short");
-		assert.ok(!short.ok);
-		if (!short.ok) assert.match(short.error, /at least 12/);
-		assert.ok(!genericProviderKeyGuard("OPENAI_API_KEY", "has whitespace now").ok);
-		assert.ok(!genericProviderKeyGuard("OPENAI_API_KEY", "   ").ok);
-	});
-
-	it("trims before checking", () => {
-		assert.ok(genericProviderKeyGuard("OPENROUTER_API_KEY", "  sk-or-v1-xyz999  ").ok);
 	});
 });
 

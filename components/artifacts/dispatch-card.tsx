@@ -38,13 +38,13 @@ export function DispatchCard({ toolCallId, kind }: { toolCallId: string; kind: J
 	// not scary-error — gray glyph + "needs model setup" + the deep-link
 	// into the SetupDialog (the same flow the send interception uses).
 	// The provider-key refusal twin (zero-keys wave): a pinned model
-	// whose key is gone reads as the key being needed — the deep-link
-	// lands on the SetupDialog's first-key stage on its own.
+	// whose connection is gone reads as GitHub Copilot being needed — the
+	// deep-link lands on the SetupDialog's connect stage on its own.
 	if (isModelsRefusal(job.error)) {
 		return <DispatchRefusedCard label={label} line="needs model setup" button="Set up models" />;
 	}
 	if (isProviderKeyRefusal(job.error)) {
-		return <DispatchRefusedCard label={label} line="needs a provider key" button="Add a key" />;
+		return <DispatchRefusedCard label={label} line="needs GitHub Copilot" button="Connect Copilot" />;
 	}
 	const failed = job.status === "error";
 	return (

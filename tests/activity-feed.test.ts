@@ -14,6 +14,8 @@ import { chatStore } from "../src/store/chats.ts";
 import { jobStore } from "../src/store/jobs.ts";
 import { PATHS } from "../config.ts";
 import { activityFeed } from "../src/server/observability.ts";
+import { installCopilotRuntime } from "../src/agent/copilot/index.ts";
+import { copilotInfo, idleCopilotRuntime } from "./fixtures/copilot.ts";
 
 test("activityFeed: running jobs across ALL chats, running-only, title-joined, oldest first", () => {
 	const chatA = chatStore.createChat("feed chat A");
@@ -61,9 +63,12 @@ test("activityFeed: running jobs across ALL chats, running-only, title-joined, o
 });
 
 test("activityFeed: contextLimit is the server's live-catalog join (owner amendment, 2026-09-23)", () => {
-	// keyed-provider federation — the same env-key pattern as the
-	// model-catalog tests; file-local (each test file is its own process)
-	process.env.OPENROUTER_API_KEY ??= "test-key-openrouter-catalog";
+	// the signed-in Copilot catalog is the live catalog (file-local: each
+	// test file is its own process)
+	installCopilotRuntime(idleCopilotRuntime, {
+		status: { state: "signed-in", login: "octo" },
+		models: [copilotInfo("claude-haiku-4.5", { context: 128_000 })],
+	});
 	const chat = chatStore.createChat("limit join chat");
 	const createdJobs: string[] = [];
 	const usageFor = (model: string) => ({
@@ -77,18 +82,21 @@ test("activityFeed: contextLimit is the server's live-catalog join (owner amendm
 	});
 	try {
 		const known = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "tc_known" });
+		const historical = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "tc_historical" });
 		const unknown = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "tc_unknown" });
 		const bare = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "tc_bare" });
-		createdJobs.push(known.id, unknown.id, bare.id);
-		jobStore.updateJob(known.id, { usage: usageFor("openrouter:z-ai/glm-5.3-flash") });
+		createdJobs.push(known.id, historical.id, unknown.id, bare.id);
+		jobStore.updateJob(known.id, { usage: usageFor("copilot:claude-haiku-4.5") });
+		jobStore.updateJob(historical.id, { usage: usageFor("openrouter:z-ai/glm-5.3-flash") });
 		jobStore.updateJob(unknown.id, { usage: usageFor("nope/unknown") });
 
 		const feed = activityFeed();
 		const knownJob = feed.jobs.find((j) => j.id === known.id)!;
-		// pi 1.0.2's catalog: glm-5.3-flash contextWindow 1_048_575 (was
-		// 1_048_576 at 0.87.1 — upstream models.dev refresh).
-		assert.equal(knownJob.contextLimit, 1_048_575, "pi's catalog, joined server-side onto the feed");
-		assert.ok(knownJob.costUsd !== null && Math.abs(knownJob.costUsd - 0.0002) < 1e-12, "Pi's price is projected on the server");
+		assert.equal(knownJob.contextLimit, 128_000, "the live Copilot catalog, joined server-side onto the feed");
+		assert.equal(knownJob.costUsd, null, "Copilot usage is the subscription, never API dollars");
+		const historicalJob = feed.jobs.find((j) => j.id === historical.id)!;
+		assert.equal(historicalJob.contextLimit, null, "an older build's model is not in the live catalog");
+		assert.ok(historicalJob.costUsd !== null && Math.abs(historicalJob.costUsd - 0.0002) < 1e-12, "Pi's price is still projected for historical records");
 		const unknownJob = feed.jobs.find((j) => j.id === unknown.id)!;
 		assert.equal(unknownJob.contextLimit, null, "missing from the live catalog → null, never a guessed window");
 		assert.equal(unknownJob.costUsd, null);
@@ -96,6 +104,7 @@ test("activityFeed: contextLimit is the server's live-catalog join (owner amendm
 		assert.equal(bareJob.contextLimit, null, "no usage yet → no context line");
 		assert.equal(bareJob.costUsd, null);
 	} finally {
+		installCopilotRuntime(undefined);
 		fs.unlinkSync(`${PATHS.chats}/${chat.id}.json`);
 		const jobsDir = path.join(PATHS.data, "jobs");
 		for (const id of createdJobs) {
