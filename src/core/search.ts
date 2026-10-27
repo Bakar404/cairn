@@ -8,10 +8,12 @@
  * (closed to new customers; dies Jan 2027) — replaced by Tavily + Brave.
  *
  * Owner decisions baked here:
- *  - NO default engine in the factory record: an engine is live iff its
- *    key is present. With a key, the engine auto-activates (the user never
+ *  - NO default engine in the factory record: a keyed engine is live iff
+ *    its key is present. With a key, the engine auto-activates (the user never
  *    chooses an engine to make search work — setting the key is enough);
  *    agent.search.engine is only an explicit preference.
+ *  - GitHub Copilot's hosted web search comes first when nothing is
+ *    pinned and Copilot is signed in; a keyed engine backs it up.
  *  - Nothing silently falls back: no engine live = search is honestly
  *    unavailable (the tool says so; the researcher sub-agent is disabled
  *    by the agent layer on the same signal — that rewiring is the Teacher
@@ -30,15 +32,20 @@ export interface SearchHit {
 	snippet: string;
 }
 
-/** The engine ids this wave ships (the catalog: curated keys + adapters). */
+/** The keyed engines a user can choose (agent.search.engine). */
 export type SearchEngineId = "tavily" | "brave";
+
+/** Every engine that can serve a search. "copilot" is GitHub Copilot's
+ *  hosted web search: it needs no key, is used automatically while
+ *  Copilot is signed in, and is never stored as a choice. */
+export type SearchProviderId = SearchEngineId | "copilot";
 
 /** A live search engine: an id (for status/labels) + one operation. The
  *  adapters own their wire protocol (fetch, timeouts, error mapping) —
  *  callers see only this. `search` throws on failure (adapters map HTTP
  *  errors to clear Error messages); the tool layer catches and reports. */
 export interface SearchProvider {
-	id: SearchEngineId;
+	id: SearchProviderId;
 	search(query: string, count: number): Promise<SearchHit[]>;
 }
 
@@ -47,7 +54,7 @@ export interface SearchProvider {
 export interface SearchStatus {
 	available: boolean;
 	/** The active engine (null when unavailable). */
-	engine: SearchEngineId | null;
+	engine: SearchProviderId | null;
 	/** The one-line reason for the state (status text for the UI). */
 	reason: string;
 }

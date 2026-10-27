@@ -4,15 +4,18 @@
  * gray-out affordance) and any client surface can read.
  *
  * { available, engine, reason } — never a key, never a secret: `engine` is
- * the ACTIVE engine when live (auto-detection or the explicit pin), and
- * `reason` is the one-line state explanation ("set a Tavily or Brave
- * search API key", or the pinned-engine-key-missing case).
+ * the ACTIVE engine when live (GitHub Copilot or a keyed engine, automatic
+ * or the explicit pin), and `reason` is the one-line state explanation
+ * ("sign in to GitHub Copilot or set a Tavily or Brave search API key",
+ * or the pinned-engine-key-missing case).
  */
 
-import { searchStatus } from "@/src/server";
+import { refreshCopilot, searchStatus } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+	// Copilot search is live only while Copilot is signed in: check first.
+	await refreshCopilot().catch(() => undefined);
 	return Response.json(searchStatus());
 }

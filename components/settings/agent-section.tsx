@@ -27,9 +27,10 @@
  * is live iff its key is present; with a key the engine AUTO-activates,
  * the explicit choice is only a preference between live engines): a row
  * in the Tools group, Tavily / Brave via the same shared-menu look, with
- * the live reason line from /api/search. No engine key at all → the row
- * grays whole-row (a choice without a key would only BLOCK the other
- * engine's auto-activation).
+ * the live reason line from /api/search. No engine key at all → the
+ * trigger is disabled (a choice without a key would only BLOCK the other
+ * engine's auto-activation); the row grays only when no search runs at
+ * all — GitHub Copilot's search needs no key.
  *
  * Tools — the owner's final list (2026-09-19): research, demo, visual, pdf.
  * Absent key = enabled in the schema; the UI writes explicit booleans for
@@ -808,7 +809,7 @@ export function AgentSection({
 							label="Search engine"
 							hint={search?.reason ?? undefined}
 							testid="search-engine-row"
-							dimmed={!anyKey}
+							dimmed={!anyKey && !search?.available}
 						>
 							<span ref={open ? menuAnchorRef : undefined} className="relative flex items-center gap-2">
 								<MenuTrigger

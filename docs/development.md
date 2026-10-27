@@ -41,7 +41,7 @@ Secrets and machine-specific paths only. Model choice and thinking budgets are t
 | Variable | Purpose |
 |---|---|
 | `COPILOT_GITHUB_TOKEN` | optional — a GitHub token for Copilot; without it the Copilot SDK uses the GitHub CLI / Copilot CLI sign-in |
-| `TAVILY_API_KEY` / `BRAVE_API_KEY` | optional — the researcher's `web_search` |
+| `TAVILY_API_KEY` / `BRAVE_API_KEY` | optional — the researcher's `web_search` runs on GitHub Copilot's hosted web search with no key; a Tavily or Brave key takes over when a Copilot search fails, or replaces it when chosen in settings |
 | `DEEPGRAM_API_KEY` | optional — dictation (STT token minting; audio streams browser→Deepgram, never through the server) |
 | `CHROME_PATH` | optional system Chrome fallback for demo verification; the app's own browser helper is primary (nothing is downloaded) |
 
@@ -122,7 +122,7 @@ src/
     tools/plan.ts               plan_init (author-once mermaid plan, deterministic parser)
     tools/probe.ts              probe_done (probe→teach handoff seam)
     tools/jobs.ts               research / demo / visual tool surfaces
-    tools/web.ts                web_search (Google CSE) + web_fetch (researcher only)
+    tools/web.ts                web_search (Copilot · Tavily · Brave) + web_fetch (researcher only)
     subagents/                  researcher · demo-builder · visual-maker
                                 · pdf-reader,
                                 extraction pipeline (extractor/auditor + merger handoff),

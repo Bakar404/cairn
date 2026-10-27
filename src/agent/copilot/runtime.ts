@@ -8,7 +8,8 @@
  * *_API_KEY are withheld from the runtime so an unrelated token in the
  * shell (CI tokens, PATs without Copilot access) never shadows the user's
  * own sign-in. Sessions run in "empty" mode with only Cairn's tools
- * available, inside an empty workspace under the data folder; they never
+ * available (a web search session also gets Copilot's hosted web_search),
+ * inside an empty workspace under the data folder; they never
  * touch the user's own Copilot CLI history.
  */
 import fs from "node:fs/promises";
@@ -31,6 +32,9 @@ export interface SessionSpec {
 	effort?: string;
 	systemPrompt: string;
 	tools: ToolDeclaration[];
+	/** Copilot-hosted MCP tools to enable, by bare name (e.g. "web_search").
+	 *  Copilot runs these itself; they never reach Cairn as tool requests. */
+	mcpTools?: string[];
 }
 
 export interface ToolAnswer {
@@ -124,12 +128,14 @@ async function startSdkRuntime(): Promise<CopilotRuntimePort> {
 		authStatus: () => client.getAuthStatus(),
 		listModels: () => client.listModels(),
 		async createSession(spec) {
+			let availableTools = new ToolSet().addCustom("*");
+			for (const name of spec.mcpTools ?? []) availableTools = availableTools.addMcp(name);
 			const session = await client.createSession({
 				model: spec.model,
 				...(spec.effort ? { reasoningEffort: spec.effort as ReasoningEffort } : {}),
 				streaming: true,
 				systemMessage: { mode: "replace", content: spec.systemPrompt },
-				availableTools: new ToolSet().addCustom("*"),
+				availableTools,
 				// Cairn's tools are the only tools; some share a built-in's name (grep).
 				tools: spec.tools.map((tool) => ({ ...tool, overridesBuiltInTool: true, skipPermission: true, defer: "never" as const })),
 				onPermissionRequest: approveAll,
