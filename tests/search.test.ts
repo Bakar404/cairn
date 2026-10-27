@@ -91,6 +91,15 @@ describe("resolveSearchEngineFor (the auto-detect decision)", () => {
 		assert.ok(!out.available);
 		assert.match(out.reason, /sign in to GitHub Copilot or set a Tavily or Brave search API key/);
 	});
+
+	it("signed in to Copilot but no model chosen: the reason points to the models, and a key still works", () => {
+		const out = resolveSearchEngineFor(undefined, {}, "no-model");
+		assert.ok(!out.available);
+		assert.match(out.reason, /choose models above to search with GitHub Copilot/);
+
+		const keyed = resolveSearchEngineFor(undefined, { brave: "brave-throwaway-key-00001" }, "no-model");
+		assert.equal(keyed.engine, "brave");
+	});
 });
 
 describe("withSearchBackup (Copilot search with a keyed engine behind it)", () => {

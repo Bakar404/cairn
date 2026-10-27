@@ -361,7 +361,11 @@ export function AgentSection({
 	}, []);
 
 	useSettingsSaved((section) => {
-		if (section === "models" || section === "keys") readModels(section === "keys");
+		if (section === "models" || section === "keys") {
+			readModels(section === "keys");
+			// Copilot search follows the researcher's model and the Copilot sign-in.
+			refreshSearch();
+		}
 		// THE state-echo root cause: the prompt switches write through the
 		// agent section, but this view (the toggles' truth) never re-read —
 		// the settings-saved law (every reader re-reads) was missing this
