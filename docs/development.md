@@ -2,7 +2,7 @@
 
 The developer README (split out of the storefront README, 2026-10-10). Everything below is for people working ON Cairn, not using it.
 
-A standalone learning app (web + Electron desktop): a **teacher agent** (Next.js; the Vercel AI SDK's `UIMessage` protocol end-to-end, LLM engine [pi-ai](docs/pi-engine-swap.md) via OpenRouter), probe→teach lessons with graded quiz/ask interactions, a formal **session plan tree** the teacher authors once (`plan_init`) and whose progress is derived from tagged quiz calls, and a persistent cross-session **knowledge graph** of what the learner knows — the graph is the app's home page.
+A standalone learning app (web + Electron desktop): a **teacher agent** (Next.js; the Vercel AI SDK's `UIMessage` protocol end-to-end, agent engine [pi](docs/pi-engine-swap.md), with every model call running on the user's GitHub Copilot subscription through the official GitHub Copilot SDK), probe→teach lessons with graded quiz/ask interactions, a formal **session plan tree** the teacher authors once (`plan_init`) and whose progress is derived from tagged quiz calls, and a persistent cross-session **knowledge graph** of what the learner knows — the graph is the app's home page.
 
 Not a chat app with a graph bolted on: sessions are probe→teach lessons, the plan tree is a structured, schema-validated object, sessions accumulate into the graph through the extraction pipeline (propositions + reasoning chains — the stored truth; the canvas renders a derived image), and the teacher reaches back into the graph through read-only prober tools on its own judgment so probing compounds across sessions.
 
@@ -22,7 +22,6 @@ npm start            # serve the production build
 npm test             # the full suite (node:test via tsx; deterministic, no LLM, no network)
 npm run lint         # eslint — includes the import law (architecture §2)
 npm run typecheck    # tsc --noEmit
-node scripts/smoke-web-subscriptions.mjs # after build: offline Next start/dev + reload gate
 
 npm run desktop:dev    # next dev + Electron shell pointed at it
 npm run desktop:dist   # local macOS arm64 build (signed/notarized when APPLE_* env is set)
@@ -37,26 +36,24 @@ For Windows/Linux packages and the three-OS CI/release flow, see [`desktop-relea
 
 ## Environment (`.env.local`)
 
-Secrets and machine-specific paths only. Model choice and thinking budgets are the user's, not the environment's — BYOK model slots live in **settings** (`models` section: strong/cheap/vision, provider + model id + optional thinking level; per-role and per-chat overrides ride on top). The extraction batch threshold is a settings knob too (`graph.extractionChunkTokens`, default 4096, floor 500).
+Secrets and machine-specific paths only. Model choice and thinking budgets are the user's, not the environment's — model slots live in **settings** (`models` section: strong/cheap/vision, provider `copilot` + model id + optional thinking level; per-role and per-chat overrides ride on top). The extraction batch threshold is a settings knob too (`graph.extractionChunkTokens`, default 4096, floor 500).
 
 | Variable | Purpose |
 |---|---|
-| `OPENROUTER_API_KEY` | required — all LLM calls go through OpenRouter |
-| `GOOGLE_SEARCH_API_KEY` + `GOOGLE_CSE_ID` | researcher's `web_search` (Google Custom Search) |
+| `COPILOT_GITHUB_TOKEN` | optional — a GitHub token for Copilot; without it the Copilot SDK uses the GitHub CLI / Copilot CLI sign-in |
+| `TAVILY_API_KEY` / `BRAVE_API_KEY` | optional — the researcher's `web_search` |
 | `DEEPGRAM_API_KEY` | optional — dictation (STT token minting; audio streams browser→Deepgram, never through the server) |
 | `CHROME_PATH` | optional system Chrome fallback for demo verification; the app's own browser helper is primary (nothing is downloaded) |
 
-The packaged desktop app takes keys from `userData/auth.json` (BYOK, mode 0600, read/written directly by the server via `LH_AUTH_FILE`). PDFs render natively with pdfjs/Skia; SVGs use resvg.
+The packaged desktop app takes tool keys from `userData/auth.json` (mode 0600, read/written directly by the server via `LH_AUTH_FILE`). PDFs render natively with pdfjs/Skia; SVGs use resvg.
 
-### Subscription connections in web/dev
+### GitHub Copilot connection
 
-Ordinary `npm run dev` and `npm start` support the existing **ChatGPT, GitHub Copilot and Grok** connections in Settings → Providers. No separate launcher or change to Next's listening/LAN behavior is required. `npm run desktop:dev` uses these same dev-server connections; the packaged desktop app keeps its separate main-process credentials and private IPC transport.
+Every model call runs through the official GitHub Copilot SDK (`src/agent/copilot/`). Cairn stores no Copilot credentials: the SDK's bundled runtime uses `COPILOT_GITHUB_TOKEN` when set, otherwise the account signed in to the GitHub CLI (`gh auth login`) or the Copilot CLI. The runtime starts without `GITHUB_TOKEN`, `GH_TOKEN` or any `*_API_KEY` variable, so a CI or fine-grained token in your shell can't stand in for the Copilot sign-in. Settings → Providers shows the signed-in account; **Check again** re-reads it after you sign in.
 
-Web/dev saves `chatgpt-credentials.json`, `github-copilot-credentials.json` and `xai-credentials.json` **beside the configured API-key `auth.json`**: the project directory by default, or the directory containing `LH_AUTH_FILE`. These are owner-only plaintext files, not files under `data/`, desktop Application Support, or a global Pi profile. Git and standalone-build exclusions cover both the files and atomic-write temporary files. Run only one server process per credential directory: refresh serialization is process-local, not a cross-process lock.
+Model keys saved by an older build (OpenRouter, OpenAI, …) stay visible read-only under "Other saved keys" and are never used; saving one is refused. Sessions pinned to another provider's model are refused with a pointer to Settings instead of failing mid-turn.
 
-Sign-in opens a new tab in the browser that initiated it; permit that tab if your browser blocks popups. **ChatGPT sign-in must be completed in a browser on the server's machine**, because its callback listener remains `127.0.0.1` on that machine. Copilot/Grok use device codes. In the Electron dev shell, provider pages open in the system browser instead. Once connected, credentials and refresh remain server-owned; other browsers using that server share its connections and background-use consent, just as they share its API keys. Disconnect, storage-failure handling, and provider-specific background consent retain the existing behavior; subscription routes never fall back to API-key billing.
-
-This remains a **trusted developer/shared-server mode**, not multi-user hosting. Subscription controls require same-origin JSON/custom-header requests; browser-opening actions are short-lived, origin-bound and one-use. These checks prevent ordinary cross-origin browser controls, **not user authentication or DNS-rebinding protection**. Do not expose an unprotected dev/server instance to untrusted users or the public Internet; a public deployment needs an independent access/host gate. Remote ChatGPT callback routing, per-user accounts and credential import are not implemented.
+This is a **trusted single-user mode**, not multi-user hosting: everyone who can reach the server uses its owner's Copilot sign-in. The server performs **no user authentication or DNS-rebinding protection**. Do not expose an instance to untrusted users or the public Internet; a shared deployment needs an independent access gate and per-user Copilot auth.
 
 ## Architecture
 
@@ -88,7 +85,7 @@ flowchart TB
     end
 
     subgraph ROOM["MACHINE ROOM — host"]
-        HOST["Electron main → standalone Next server ·<br/>config.ts · LH_DATA_DIR · BYOK keys"]
+        HOST["Electron main → standalone Next server ·<br/>config.ts · LH_DATA_DIR · tool keys"]
     end
 
     LEARNER -->|"text · graded answers"| UI
@@ -152,7 +149,7 @@ src/
   store/                        fs adapters implementing the ports: chats · graph
                                 ledgers · jobs (+ render-settings, default-settings)
 electron/                       desktop launcher + security guard (spawns the standalone
-                                server; 1 IPC channel; LH_DATA_DIR + BYOK env)
+                                server; 1 IPC channel; LH_DATA_DIR + tool-key env)
 scripts/                        build-server.mjs (packaging guards), import-notes,
                                 backfill-graph, replay-layout
 data/                           chats/ · graph/ (nodes/chains/sessions/coverage
@@ -182,11 +179,7 @@ pricing-generation step: Pi AI's catalog and public calculator are the authority
 
 All deterministic, no LLM, no network (engines are injected — pi-ai's faux provider scripted per test; `globalThis.fetch` stubbed where transport matters):
 
-1. **Pure core units** — merger (via the real fs adapters, backup-and-restored), derivation, coverage, question grading, plan tree, phases, clusters, layout, tool-parts, prices.
-2. **Server flows** — `handleChatRequest` driven end-to-end with scripted engines: persistence, liveness, steer claiming, the wake pipeline (409 retry, quiz deferral, idempotency), crash recovery, the data-dir seam (including a fresh child process).
-3. **Sub-agent loops** — researcher/demo-builder/visual-maker with fake headless APIs; the extraction pipeline end-to-end (audit drops, failure-checkpoints-nothing, single-flight, abort).
-4. **Render tests** — transcript, cards, docks, composer, sidebar, coverage via React server-side rendering.
-5. **Golden fixtures** (`tests/fixtures/golden-data/`) — a REAL data dir (real records produced by the app, never hand-edited), copied to a temp dir and read through the production paths via the `LH_DATA_DIR` seam. Pins that real data parses, flattens to a legal LLM wire, derives the graph end-to-end, covers every custom-marker kind, and that reads never write. **The fixture law:** an intentional on-disk format change updates the fixtures in the same commit — see the fixture README.
+1. **Pure core units** — merger (via the real fs adapters, backup-and-restored), derivation, coverage, question grading, plan tree, phases, clusters, layout, tal on-disk format change updates the fixtures in the same commit — see the fixture README.
 
 ## Lineage
 

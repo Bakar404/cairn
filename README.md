@@ -5,7 +5,7 @@
 Cairn finds out what you already understand, plans a path to your goal and teaches one reasoning step at a time. Like stones in a cairn, each new idea rests on one you already have, and a persistent knowledge graph carries the path from one session to the next.
 
 > [!IMPORTANT]
-> **Early stage.** Cairn is renamed, with its own icon, data folder and update feed, but it still uses LearnHarness's model setup (your own API keys or a subscription sign-in) until the GitHub Copilot engine lands. The other changes below are planned.
+> **Early stage.** Every model call already runs on your GitHub Copilot subscription. Azure voice, Copilot web search and the one-command install are still planned, so for now you run Cairn from source, and dictation and web research use your own Deepgram, Tavily or Brave key if you add one.
 
 ## Built on LearnHarness
 
@@ -35,33 +35,57 @@ What you learn builds up as propositions and reasoning chains in a knowledge gra
 
 ## What Cairn changes
 
-| | LearnHarness | Cairn (planned) |
+| | LearnHarness | Cairn |
 | --- | --- | --- |
-| **Models** | Your own API keys (30+ providers) or a subscription sign-in | Your **GitHub Copilot** plan, through the official [GitHub Copilot SDK](https://github.com/github/copilot-sdk). No model keys. |
-| **Talk** | Dictation through Deepgram | Dictation through **Azure Speech**, then a hands-free **voice mode** (speech-to-text → Copilot teacher → neural voice) |
-| **Web research** | Tavily or Brave | **Copilot's built-in web search**, with Tavily or Brave as fallbacks |
-| **Azure** | Not used | Optional. `azd up` deploys into **your own** subscription, and Cairn signs in with your `az login` (Microsoft Entra ID), so no Azure keys are stored |
-| **Install** | Desktop downloads | A local web app started with one `npx` command; a desktop app later |
+| **Models** | Your own API keys (30+ providers) or a subscription sign-in | **Available now:** your **GitHub Copilot** plan, through the official [GitHub Copilot SDK](https://github.com/github/copilot-sdk). It is the only model connection, and there are no model keys. |
+| **Talk** | Dictation through Deepgram | *Planned:* dictation through **Azure Speech**, then a hands-free **voice mode** (speech-to-text → Copilot teacher → neural voice). Until then, Deepgram dictation works with your own key. |
+| **Web research** | Tavily or Brave | *Planned:* **Copilot's built-in web search** first, with Tavily or Brave as fallbacks. Until then, research uses your Tavily or Brave key. |
+| **Azure** | Not used | *Planned, optional:* `azd up` deploys into **your own** subscription, and Cairn signs in with your `az login` (Microsoft Entra ID), so no Azure keys are stored. |
+| **Install** | Desktop downloads | *Now:* run from source. *Planned:* a local web app started with one `npx` command, then a desktop app. |
 | **Later** | | Opt-in suggestions for what to learn from Microsoft 365 work context (Work IQ), search over company docs (Azure AI Search), a shared team gateway |
 
-## Requirements (planned)
+## Requirements
 
 - A GitHub account with **GitHub Copilot**. Copilot Free works, with limited usage. On Copilot Business or Enterprise, your admin may need to allow Copilot CLI/SDK use.
-- **Node.js 22+**
-- *Optional, for voice:* an Azure subscription, the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) and the [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
+- **Node.js 22.12 or newer** (or 20.19+)
+- The **[GitHub CLI](https://cli.github.com)**, signed in with that account (`gh auth login`), or a token in `COPILOT_GITHUB_TOKEN`
+- *Optional, later for voice:* an Azure subscription, the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) and the [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
 
 Without Azure, Cairn still teaches by text.
+
+## Try it
+
+```bash
+gh auth login                        # once, with your Copilot account
+git clone https://github.com/Bakar404/cairn.git
+cd cairn
+npm install
+npm run dev                          # then open http://localhost:3000
+```
+
+1. If Copilot isn't connected, the message box shows **Connect GitHub Copilot**. Run `gh auth login`, then choose **Check again** in that dialog.
+2. Choose **Set up your models**, or just send your first message. Cairn suggests a strong, a cheap and a vision model from your Copilot plan. Review them and save.
+3. Type what you want to learn. Cairn first asks a few questions to find what you already know, then starts teaching.
+
+You can change models later in **Settings → Agent**, and see your Copilot connection in **Settings → Providers**.
+
+Notes:
+
+- For a faster, production run, use `npm run build && npm start` instead of `npm run dev`. Next prints a warning about `output: standalone`, which is the desktop build's setting; the web app works anyway.
+- Cairn ignores `GITHUB_TOKEN` and `GH_TOKEN`, which are often CI or fine-grained tokens without Copilot access. To use a token instead of your `gh` sign-in, set `COPILOT_GITHUB_TOKEN` before starting Cairn.
+- To rehearse the first-run experience, run `npm run dev:fresh`. It starts a throwaway instance with no data at http://localhost:3005, while your real data stays untouched.
+- Usage counts against your Copilot plan, under your organization's Copilot policies.
 
 ## Your data
 
 - Chats, the knowledge graph and settings stay on your machine as plain files you can inspect.
 - Model requests go to GitHub Copilot under your account and your organization's Copilot policies.
-- Speech goes to your own Azure Speech resource. Research queries go to Copilot's web search, or to Tavily or Brave if you set one up.
+- Dictation audio goes to Deepgram, and research queries to Tavily or Brave, only if you add that key. With the planned Azure voice, speech goes to your own Azure Speech resource.
 - Cairn runs no servers of its own and includes no analytics.
 
 ## Development
 
-For now, development works exactly as it does for LearnHarness:
+Development works as it does for LearnHarness, except that models come only from GitHub Copilot:
 
 ```bash
 npm install
