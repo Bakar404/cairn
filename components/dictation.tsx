@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
+import { onSettingsSaved } from "@/components/settings-signal";
 import { Hint } from "@/components/ui/hint";
 
 /**
@@ -74,7 +75,9 @@ import { Hint } from "@/components/ui/hint";
  *     worklet module — per-run contexts paid context creation AND a
  *     worklet-module fetch on every start (through the dev server in dev).
  *   - WARM TOKEN (D): pre-minted at page mount and refreshed after every
- *     run (TTL 3min); the click no longer waits on the remote mint. A
+ *     run (TTL 3min) — only when a Deepgram key is saved, so a keyless
+ *     page never calls the token route; the click no longer waits on the
+ *     remote mint. A
  *     stale-token handshake failure self-heals via the reconnect-once
  *     path, which always mints FRESH.
  *   - The honest floor stays: getUserMedia can't be pre-warmed (the mic
@@ -167,6 +170,36 @@ export function createWarmMinter(
 }
 
 const warmTokens = createWarmMinter(mintFreshToken);
+
+/** Is a Deepgram key saved? Read from the masked GET /api/keys list (the
+ *  Deepgram row's `present`): true/false when the list answers, null when
+ *  it can't be read. Unknown keeps the old path: try, and let the mint's
+ *  honest error speak. */
+function deepgramKeyPresent(body: unknown): boolean | null {
+	const keys = (body as { keys?: unknown } | null)?.keys;
+	if (!Array.isArray(keys)) return null;
+	return keys.some((k: { id?: unknown; present?: unknown } | null) => k?.id === DEEPGRAM_KEY_ID && k.present === true);
+}
+
+/** One read shared across page navigations; a keys save or delete re-reads
+ *  it (useDictation's settings-signal listener). Only definite answers
+ *  stay cached. */
+let keyPresence: Promise<boolean | null> | null = null;
+
+function readKeyPresence(fresh = false): Promise<boolean | null> {
+	if (fresh || !keyPresence) {
+		const p: Promise<boolean | null> = fetch("/api/keys")
+			.then((res) => (res.ok ? res.json() : null))
+			.then(deepgramKeyPresent)
+			.catch(() => null)
+			.then((present) => {
+				if (present === null && keyPresence === p) keyPresence = null;
+				return present;
+			});
+		keyPresence = p;
+	}
+	return keyPresence;
+}
 
 /* Persistent capture graph (mitigation C, owner 2026-09-27): one
  * app-lifetime AudioContext + a module-load memo. Created under the
@@ -277,6 +310,9 @@ export type Dictation = {
 	 * the keyless click leaves for Settings and the surface must come
 	 * back clean. */
 	clearError: () => void;
+	/** No Deepgram key is saved (false while unknown): the idle button sets
+	 *  dictation up instead of starting it, and no token is ever minted. */
+	needsKey: boolean;
 };
 
 /**
@@ -287,6 +323,10 @@ export type Dictation = {
 export function useDictation({ append }: { append: (text: string) => void }): Dictation {
 	const [phase, setPhase] = useState<DictationPhase>("idle");
 	const [error, setError] = useState<string | null>(null);
+	/** Deepgram key presence (null until read or when unreadable). The ref
+	 *  serves the stable callbacks (start, cleanup). */
+	const [hasKey, setHasKey] = useState<boolean | null>(null);
+	const hasKeyRef = useRef<boolean | null>(null);
 	/** Latest RMS from the worklet — the meter samples this (dictate pattern). */
 	const levelRef = useRef(0);
 	/** The page's fallback append — kept fresh per render so a mid-recording
@@ -355,9 +395,9 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		// a submit path resuming after `await finishDictation()` reads the
 		// target field with the dictated tail already in it.
 		for (const w of waitersRef.current.splice(0)) w();
-		// Pre-mint for the next run (mitigation D) — best-effort; a keyless
-		// page just doesn't warm.
-		warmTokens.refresh();
+		// Pre-mint for the next run (mitigation D) — best-effort, and only
+		// with a key: a keyless page sends no token request.
+		if (hasKeyRef.current === true) warmTokens.refresh();
 	}, []);
 
 	/** Open the Deepgram socket and wire its messages. `gen` guards staleness. */
@@ -426,6 +466,11 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	);
 
 	const start = useCallback(async () => {
+		if (hasKeyRef.current === false) {
+			// Known keyless (⌘D included): no mic prompt, no doomed mint.
+			setError(DICTATION_KEYLESS);
+			return;
+		}
 		dictationActiveFlag = true;
 		setError(null);
 		setPhase("connecting");
@@ -584,8 +629,28 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	// page; the Esc chain lands here as a CANCEL (owner, round 3). Each
 	// page owns ONE hook instance, and only the mounted page's listener is
 	// attached.
+	// Key presence first, then the pre-mint (mitigation D) only with a key.
+	// A keys save or delete re-reads it: a key that lands warms the next run
+	// and clears a keyless error.
 	useEffect(() => {
-		warmTokens.refresh(); // pre-mint at mount (mitigation D) — silent if keyless
+		let live = true;
+		const apply = (present: boolean | null) => {
+			if (!live) return;
+			hasKeyRef.current = present;
+			setHasKey(present);
+			if (present === true) {
+				setError((e) => (e === DICTATION_KEYLESS ? null : e));
+				warmTokens.refresh();
+			}
+		};
+		void readKeyPresence().then(apply);
+		const off = onSettingsSaved((section) => {
+			if (section === "keys") void readKeyPresence(true).then(apply);
+		});
+		return () => {
+			live = false;
+			off();
+		};
 	}, []);
 	useEffect(() => {
 		window.addEventListener("lh:kbd-toggle-dictation", toggle);
@@ -606,6 +671,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		finish,
 		cancel,
 		clearError: () => setError(null),
+		needsKey: hasKey === false,
 	};
 }
 
@@ -622,13 +688,16 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
  *             (full text in the tooltip), cleared on the next click.
  */
 export function DictationBar({ dictation }: { dictation: Dictation }) {
-	const { phase, error, levelRef, toggle, active, clearError } = dictation;
+	const { phase, error, levelRef, toggle, active, clearError, needsKey } = dictation;
 	const { open: openSettings } = useSettingsDialog();
-	/** The keyless click (zero-keys wave, owner dictation trio): the errored
-	 *  idle button deep-links Settings → Keys → the Deepgram row and clears
-	 *  the error — the surface is clean when the user returns. Any other
-	 *  error keeps the old behavior (click = retry, which clears). */
-	const keyless = error === DICTATION_KEYLESS;
+	/** The keyless click (zero-keys wave, owner dictation trio): with no
+	 *  Deepgram key saved, the idle button reads "Set up dictation"; it (and
+	 *  the errored keyless button) deep-links Settings → Providers → the
+	 *  Deepgram row and clears the error, so the surface is clean when the
+	 *  user returns. Any other error keeps the old behavior (click = retry,
+	 *  which clears). */
+	const keyless = error === DICTATION_KEYLESS || (error === null && needsKey);
+	const idleLabel = keyless ? "Set up dictation" : "Dictate";
 	const [levels, setLevels] = useState<number[]>(() => new Array(METER_CELLS).fill(0));
 	const recording = phase === "recording" || phase === "stopping";
 	/** Adaptive cell count (owner round 2): derived from the meter's
@@ -678,8 +747,8 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 				// full reveal (the keyless line KEEPS "Deepgram" — owner overrule:
 				// it's the Keys row label, the truth the user needs). Otherwise the
 				// quiet label + the live ⌘D binding.
-				label={error ?? "Dictate"}
-				action={error ? undefined : "toggle-dictation"}
+				label={error ?? (keyless ? DICTATION_KEYLESS : idleLabel)}
+				action={error || keyless ? undefined : "toggle-dictation"}
 				side="top"
 			>
 				<button
@@ -692,14 +761,14 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 							toggle();
 						}
 					}}
-					aria-label={error ? `Dictation failed: ${error}` : "Start dictation"}
+					aria-label={error ? `Dictation failed: ${error}` : keyless ? idleLabel : "Start dictation"}
 					data-testid="dictation-toggle"
 				// Same blurring as the floating chrome (owner, fix wave round 3),
 			// but lower opacity — the mic stays quieter than the model pills.
 			className="flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-border/50 bg-card/50 text-xs text-muted-foreground/70 shadow-lg backdrop-blur transition-colors hover:border-border hover:text-muted-foreground"
 			>
 					<MicIcon className="size-3.5" />
-					<span className="max-w-full truncate">{error ?? "Dictate"}</span>
+					<span className="max-w-full truncate">{error ?? idleLabel}</span>
 				</button>
 			</Hint>
 		);

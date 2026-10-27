@@ -85,10 +85,17 @@ until correct and clean. Never finish without having looked at a render of your 
 
 SVG requirements:
 - A complete <svg> with explicit width/height AND a matching viewBox.
-- White background (<rect> or style), dark strokes, sans-serif labels at generous sizes.
+- The house palette, so every figure in a lesson reads as one set — no other colors:
+  - paper #FFFFFF: a full-size background <rect>;
+  - ink #1F1F1F: strokes, shapes, and main labels;
+  - muted #6B6B6B: secondary labels, axes, tick marks;
+  - faint #D9D9D9: grids and guide lines;
+  - accent #2563EB: the one thing the figure is about;
+  - second accent #EA580C: only when two things must be told apart.
+- Sans-serif labels at generous sizes; arrows end in filled arrowheads (a <marker>).
 - One idea, fewest elements — sparse and large beats busy and tiny.
 - Draw only what the brief specifies; never invent data, values, or shapes to fill space.
-- Plain, clean styling: at most one accent color. An explanatory diagram, not art.
+- Plain, clean styling. An explanatory diagram, not art.
 
 Your FINAL message: 1-2 sentences of notes for the teacher (what the figure shows, any caveats) —
 NEVER the SVG source itself. If you genuinely cannot make a correct picture of the brief, say exactly
