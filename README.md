@@ -77,7 +77,8 @@ You can change models later in **Settings → Agent**, and manage your Copilot s
 
 Notes:
 
-- For a faster, production run, use `npm run build && npm start` instead of `npm run dev`. Next prints a warning about `output: standalone`, which is the desktop build's setting; the web app works anyway.
+- For a faster, production run, use `npm run build`, then `npm start`, instead of `npm run dev`. Next prints a warning about `output: standalone`, which is the desktop build's setting; the web app works anyway.
+- Cairn listens only on this computer (`127.0.0.1`), so other machines on your network, such as an office network, can't reach it or use your Copilot through it.
 - Cairn ignores `GITHUB_TOKEN` and `GH_TOKEN`, which are often CI or fine-grained tokens without Copilot access. To use a token instead of a sign-in, set `COPILOT_GITHUB_TOKEN` before starting Cairn.
 - To rehearse the first-run experience, run `npm run dev:fresh`. It starts a throwaway instance with no data at http://localhost:3005, while your real data stays untouched.
 - Usage counts against your Copilot plan, under your organization's Copilot policies.
