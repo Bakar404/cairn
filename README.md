@@ -73,7 +73,7 @@ You can change models later in **Settings → Agent**, and manage your Copilot s
 - **Personal and Enterprise Managed (EMU) accounts on github.com:** choose **Sign in with GitHub**. EMU accounts go through your company's usual single sign-on. If your browser is signed in to GitHub as someone else, switch accounts on GitHub's page (or use a private window) before you approve.
 - **GitHub Enterprise Cloud on a `ghe.com` address:** choose **GitHub Enterprise Cloud (ghe.com)** and enter the address, like `your-company.ghe.com`.
 - **More than one account:** add another in **Settings → Providers**, then choose **Use** next to the one Cairn should run on. Every model call and search uses that account's Copilot plan.
-- The sign-in is the GitHub Copilot runtime's own: it keeps the credential in your system keychain, where the GitHub Copilot CLI keeps its sign-in too, so the two share it. Cairn never sees the token. **Sign out** shows only for sign-ins made this way, and may sign the Copilot CLI out as well. A `gh` sign-in is removed with `gh auth logout`.
+- The sign-in is the GitHub Copilot runtime's own: it keeps the credential in your system keychain, where the GitHub Copilot CLI keeps its sign-in too, so the two share it. Cairn stores no token and never passes one to the browser. **Sign out** shows only for sign-ins made this way, and may sign the Copilot CLI out as well. A `gh` sign-in is removed with `gh auth logout`.
 
 Notes:
 
