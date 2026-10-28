@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIcon, BotIcon, FileTextIcon, FilmIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
+import { ActivityIcon, BotIcon, BriefcaseBusinessIcon, FileTextIcon, FilmIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CallUsage, JobKind, JobRecord } from "@/src/core";
 import { isModelsRefusal, isProviderKeyRefusal, subscriptionLabel, subscriptionLabels } from "@/src/core";
@@ -284,6 +284,7 @@ const KIND_ICON: Record<JobKind, typeof SearchIcon> = {
 	visual: PenToolIcon,
 	pdf: FileTextIcon, // sources v0 — type-forced entry (JobKind grew "pdf")
 	animation: FilmIcon,
+	work_context: BriefcaseBusinessIcon,
 };
 
 /** Abort states per blob id: pending (fired) / failed (backend absent). */
@@ -404,7 +405,9 @@ function ActivityBlobRow({
 							? "PDF reader"
 							: blob.jobKind === "animation"
 								? "Animation maker"
-								: "Sub-agent";
+								: blob.jobKind === "work_context"
+									? "Work IQ"
+									: "Sub-agent";
 	return (
 		<div
 			data-testid={`activity-blob-${blob.process}`}

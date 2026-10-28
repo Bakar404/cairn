@@ -82,6 +82,9 @@ export interface EffectiveSettings {
 		/** Prober graph tools (wave 7): passthrough delta as stored —
 		 * absent/undefined enabled = ON; consumers use graphToolsEnabled. */
 		graphTools: { enabled?: boolean };
+		/** Work IQ (M10): passthrough delta as stored — absent/undefined
+		 * enabled = OFF; consumers use workIqEnabled. */
+		workIq: { enabled?: boolean };
 	};
 	/** The resolved strong/cheap/vision slots: each tier's concrete model or
 	 *  NULL when the tier holds no model (no factory floor — BYOK all the
@@ -182,6 +185,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			prompts: agent.prompts ?? {},
 			search: agent.search ?? {},
 			graphTools: agent.graphTools ?? {},
+			workIq: agent.workIq ?? {},
 		},
 		models: {
 			strong: resolveSlot(modelsSection.strong),
@@ -251,6 +255,12 @@ export function graphToolsEnabled(effective: {
 	agent: { graphTools: { enabled?: boolean } };
 }): boolean {
 	return effective.graph.enabled && (effective.agent.graphTools.enabled ?? true);
+}
+
+/** The Work IQ gate (M10): opt-in, so only an explicit true opens it —
+ *  the prober's work_context tool and the runner's client both read it. */
+export function workIqEnabled(effective: { agent: { workIq: { enabled?: boolean } } }): boolean {
+	return effective.agent.workIq.enabled === true;
 }
 
 

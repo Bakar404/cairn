@@ -26,7 +26,7 @@ Hold the architecture along two orthogonal axes:
 | System | Owns (sole writer) | Role |
 |---|---|---|
 | **Classroom** — session engine | `data/chats/*.json` | the turn pipeline, prober→teacher, plan tree, questions, phases |
-| **Workbench** — background labor | `data/jobs/*.json`, `data/media/<chatId>/` | job runner, researcher/demo-builder/visual-maker/animation-maker, steer delivery |
+| **Workbench** — background labor | `data/jobs/*.json`, `data/media/<chatId>/` | job runner, researcher/demo-builder/visual-maker/animation-maker, the Work IQ lookup, steer delivery |
 | **Library** — world model | `data/graph/*` ledgers | extraction pipeline (sole graph writer), derivation, birth-session clusters |
 | **Practice** — problem sets | `data/practice/*.json` | partitioner→generator→grader pipeline, self-contained sets (§7) |
 | **Stage** — presentation shell | nothing server-side | components/, graph canvas, docks — pure consumer via `/api/*` |
@@ -306,7 +306,7 @@ sequenceDiagram
 - **Client-side question tools** (`quiz`, `ask_user_question`) have no server execute: the call streams to the browser, the learner answers in the dock, the client grades via `question-core` and returns the verdict with `addToolOutput`, which fires the continuation. A pending quiz persisted in the record is exactly what makes **resume mid-question free**. Deterministic seeded shuffling (keyed by toolCallId) keeps server and client renders identical.
 - **The prober→teacher handoff**: the first turn(s) run the prober (floor/ceiling via quiz, goal via ask); `probe_done` (server-executed) files the assessment and queues a handoff steer; from the first `tool-probe_done` part in the transcript, the handler builds the teacher agent for every later turn. Phases (`core/phases.ts`) fold strictly: probe → plan → teach.
 - **The formal plan tree is author-once**: the teacher authors the session's dependency map with a single schema-validated `plan_init` tool (a mermaid-subset graph, parsed deterministically with line-numbered errors, validated as a DAG). Progress is never mutated — statuses (`current`/`visited`/upcoming) are **derived** from tagged quiz calls in the transcript; the tree panel and the plan blocks render that derivation.
-- **Job tools are server-executed, ack-and-steer**: `research`/`demo`/`visual`/`pdf`/`animation` resolve immediately mid-turn with a fire-and-forget ack (the teacher keeps teaching); `spawn(job, input)` fires the background runner. `animation` is offered only while the Manim renderer reports ready (§8.2), so a teacher can never dispatch a job that has nowhere to render.
+- **Job tools are server-executed, ack-and-steer**: `research`/`demo`/`visual`/`pdf`/`animation` resolve immediately mid-turn with a fire-and-forget ack (the teacher keeps teaching); `spawn(job, input)` fires the background runner. `animation` is offered only while the Manim renderer reports ready (§8.2), so a teacher can never dispatch a job that has nowhere to render. `work_context` is the prober's alone, offered only while the learner has switched Work IQ on, and accepted once per chat (§8.3); it is the one job kind that runs no model.
 - Turn services are named seams taking explicit dependencies. Extraction contains its errors, but **canonical persistence must not fail silently**: a failed input write refuses acceptance without starting an agent; `persistTurn` throws on a failed reply write. The runner reports settlement failure before `[DONE]` and releases liveness even when normal settlement fails. Steer reconciliation uses the durable record, so a later bookkeeping failure cannot replay already-saved learner input.
 - **Late attachment must still see settlement failure.** A small, memory-only notice per session precedes the settled stream terminal when the failing turn has already left the live registry. The next accepted turn, successful session deletion, or server exit clears it. Reopening seeds the existing banner from that notice and waits for ordinary learner input; dismissing the banner is not permission to automatically retry the model. No synthetic failure entry is added to the saved transcript.
 - **Recovery never blindly resends an answer.** Submitted question drafts survive optimistic unmount in memory; the existing Submit action reconciles uncertain acceptance against the canonical record and running-turn state before sending again. EOF or a rejected stream read without a terminal triggers one read-only reattachment; another transport failure shows the existing error banner rather than claiming completion. Explicit completion, cancellation, and the literal-final-entry saved-error rule remain unchanged.
@@ -416,12 +416,14 @@ flowchart LR
         WEBT["Tavily / Brave / Jina (researcher tools)"]
         CHROME["system Chrome (headless: demo verify · SVG render)"]
         DOCKER["Docker (optional): Manim renders — stdin/stdout, no network, no mounts"]
+        WORKIQ["Work IQ CLI (optional, off by default): MCP over stdio, ask only — the learner's own Microsoft 365 sign-in"]
         DISK["data/ ledgers (via LH_DATA_DIR seam)"]
     end
     NEXT --> CP
     NEXT --> WEBT
     NEXT --> CHROME
     NEXT --> DOCKER
+    NEXT --> WORKIQ
     NEXT --> DISK
     REND --> DG
     REND -->|"fetch /api/*"| NEXT
@@ -446,6 +448,12 @@ Slots or sessions pinned to any other provider are refused before dispatch with 
 Animations and Manim stills render on the learner's computer in Docker, from the pinned image `manimcommunity/manim:v0.22.0`. The port is `src/core/manim.ts` (`ManimRenderer`: `status`, `install`, `render`); the adapter is `src/server/manim.ts`, which drives the `docker` CLI. The renderer is optional: without Docker, or before the one-time image download (about 500 MB), the `animation` tool is simply not offered and the visual-maker draws SVG only. Settings → Providers → Animations reads `GET /api/manim` and starts the download with `POST /api/manim`; nothing downloads until the learner asks.
 
 Each render is a fresh `docker run --rm -i` that takes one JSON bundle (runner, palette module, scene) on stdin and returns the MP4 or PNG on stdout. The container gets no bind mounts and no network, a read-only root with a 1 GB `/tmp`, all capabilities dropped, `no-new-privileges`, 2 GB of memory, a 256-process limit and at most 2 CPUs. Every render has a time limit, and aborting a job kills its container. Model-written Python therefore never sees the host filesystem or the network. Under `NODE_ENV=test` the adapter starts no processes; tests inject a fake `ManimRenderer`.
+
+### 8.3 Work IQ boundary
+
+Work IQ is Microsoft 365 Copilot's MCP server. The prober may ask it, once per chat, which parts of the subject the learner's own work (email, meetings, chats, documents) already touches, so the probe can open each strand at the right height. The port is `src/core/workiq.ts` (`WorkIqClient`, the question template and the answer parser); the adapter is `src/server/workiq.ts`. Each question is one fresh `npx -y @microsoft/workiq@1.0.1 mcp` process, driven over stdio with hand-written JSON-RPC: `initialize`, then one `tools/call` of `ask`, then the process tree ends. Cairn calls no other Work IQ tool, never accepts the license and never signs in: the learner does both once in a terminal, under their own Microsoft 365 account, and their admin may need to consent once. The child gets the server's environment minus `COPILOT_GITHUB_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN` and any `*_API_KEY`, matched in any letter case. An ask times out after 300 seconds; aborting the job kills the process tree.
+
+Work IQ is opt-in: `agent.workIq.enabled` is off when absent, and while it is off the prober has no `work_context` tool and nothing starts the CLI. The answer is parsed deterministically into at most 12 short topic lines (list lines only; lines with URLs or email addresses are dropped), and only those topics are saved, never the full answer. The steer marks them as untrusted data and a starting guess, never evidence, and nothing from Work IQ reaches `probe_done` or the graph: the extractor reads only the tutor's prose. Settings → Providers → Work IQ lists the setup steps and tests the connection with `POST /api/workiq`. Under `NODE_ENV=test` the adapter starts no processes; tests inject a fake `WorkIqClient` or drive the adapter against a fake MCP server.
 
 ## 9. The foundational invariants — what ALWAYS holds
 
@@ -539,7 +547,7 @@ All deterministic, no network: engines are injected (pi-ai's **faux provider** �
 
 1. **Pure core units** — merger via real adapters, derivation, coverage, question grading, plan tree, phases, clusters, layout, tool-parts, prices, fuzzy search.
 2. **Server flows** — `handleChatRequest` driven end-to-end with scripted faux engines: persistence, liveness, steer claiming, the wake pipeline (409 retry, quiz deferral, idempotency), crash recovery, the data-dir seam (including a fresh child process).
-3. **Sub-agent loops** — researcher/demo-builder/visual-maker/animation-maker with fake headless APIs and a fake Manim renderer; the extraction pipeline end-to-end (audit drops, failure-checkpoints-nothing, single-flight, abort); the practice pipeline end-to-end (partition echo/coverage retries, failure isolation, semaphore width, abort mid-generation, grading, boot sweep).
+3. **Sub-agent loops** — researcher/demo-builder/visual-maker/animation-maker with fake headless APIs and a fake Manim renderer; the Work IQ lookup with a fake client and its adapter against a fake MCP server; the extraction pipeline end-to-end (audit drops, failure-checkpoints-nothing, single-flight, abort); the practice pipeline end-to-end (partition echo/coverage retries, failure isolation, semaphore width, abort mid-generation, grading, boot sweep).
 4. **Render tests** — transcript, cards, docks, composer, sidebar, coverage, stats, practice surfaces (creation dialog both modes, chain table incl. the shared-TopBar + lines-law pins, list, exam states) via React server-side rendering (`renderToStaticMarkup`), no DOM library.
 
 Gates on every change: `tsc` clean, all tests, `eslint` clean, `next build` clean.
@@ -563,6 +571,7 @@ Every place the architecture is designed to be cut — the "one file" a future c
 | Agent construction (tests) | `handleChatRequest(req, buildAgent?)` | scripted engines, no refactor |
 | Sub-agent verification | `sub-agents/headless.ts` (`headlessOverride`) | demo/SVG verification, no Chrome |
 | Animation renderer | `src/core/manim.ts` (`ManimRenderer` port) + `src/server/manim.ts` (Docker adapter) | where Manim scenes render; tests inject a fake |
+| Work IQ | `src/core/workiq.ts` (`WorkIqClient` port) + `src/server/workiq.ts` (stdio MCP adapter) | how Work IQ is asked; tests inject a fake or run a fake MCP server |
 | Data location (Electron) | `LH_DATA_DIR` env (`config.ts` PATHS) | where data/ lives, nothing else |
 | Desktop host | `electron/main.cjs` | launcher/security shell only |
 

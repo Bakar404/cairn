@@ -270,6 +270,9 @@ export interface ProberToolContext extends ProbeDoneContext {
 	spawn: (job: JobRecord, input: JobInput) => void;
 	/** Retained search-status seam; research dispatch is available keylessly. */
 	searchAvailable?: () => boolean;
+	/** True while Work IQ is switched on (M10): the work_context tool joins
+	 *  the prober's registry — and no other agent's. */
+	workContextAvailable?: () => boolean;
 	/** The prober's graph-map reader (wave 7): present = the two map tools
 	 *  (list_sessions / list_propositions) are registered. The composition
 	 *  root passes it only when graphToolsEnabled(effective) — the graph
@@ -298,6 +301,7 @@ export function createProberTools(
 		jobStore: ctx.jobStore,
 		spawn: ctx.spawn,
 		searchAvailable: ctx.searchAvailable,
+		workContextAvailable: ctx.workContextAvailable,
 	});
 	// Quizzing mechanics (owner 2026-09-27): free-recall swaps the probe
 	// quiz for the probe explain — one quizzing tool at a time, whichever
@@ -334,6 +338,8 @@ export function createProberTools(
 				// remains available without a search-provider key.
 				...(jobs.research ? { research: jobs.research } : {}),
 				pdf: jobs.pdf!,
+				// Work IQ (M10): prober-only, present only while switched on.
+				...(jobs.work_context ? { work_context: jobs.work_context } : {}),
 				// The map reader (wave 7): present only when the settings gate
 				// opened.
 				...(ctx.graphStore

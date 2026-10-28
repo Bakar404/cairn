@@ -36,6 +36,8 @@
  * animation joined with M13 (it also needs the Manim renderer, installed
  * from Providers). Absent key = enabled in the schema; the UI writes an
  * explicit boolean per tool (simpler to reason about, sanitize-equivalent).
+ * Work IQ (M10) is a separate row with its own key (agent.workIq) and the
+ * opposite default: absent = off, because it reads the learner's work.
  *
  * Prompts: GET /api/settings/prompts segments — THREE SECTIONS in the
  * owner's ruled order (2026-09-26 overhaul): Teacher first, Prober, then
@@ -141,6 +143,13 @@ export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics
  *  explicit-off record stays visible as stored. Pure — exported for tests. */
 export function composeGraphTools(agent: AgentSettings | undefined, on: boolean): AgentSettings {
 	return { ...agent, graphTools: { enabled: on } };
+}
+
+/** Compose the Work IQ switch (M10): its own key, like graph tools — but
+ *  absent = OFF (it reads the learner's work data, so it's opt-in). Pure —
+ *  exported for tests. */
+export function composeWorkIq(agent: AgentSettings | undefined, on: boolean): AgentSettings {
+	return { ...agent, workIq: { enabled: on } };
 }
 
 /** Compose: one slot's model/thinking override. Empty model = absent
@@ -762,6 +771,20 @@ export function AgentSection({
 						</SettingsRow>
 					);
 				})()}
+				{/* Work IQ (M10): a prober capability like graph tools, so it sits
+				    beside them. Opt-in: absent = off. The setup and the
+				    connection test live in Providers › Work IQ. */}
+				<SettingsRow
+					label="Work IQ"
+					hint="Lets the tutor ask Work IQ what your work already covers. Set it up in Providers."
+					testid="work-iq-row"
+				>
+					<Toggle
+						checked={agent?.workIq?.enabled === true}
+						label="work iq"
+						onChange={(on) => onSectionChange(composeWorkIq(agent, on))}
+					/>
+				</SettingsRow>
 				{/* The quizzing mechanic (owner 2026-09-27): segmented — exactly one
 				    of Multiple choice / Free recall is active; the choice swaps which
 				    quizzing tool BOTH agents carry (prober checks + teach checks).

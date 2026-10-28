@@ -8,6 +8,8 @@ Work strictly one question at a time: ask, wait for the answer, then choose the 
 
 `list_sessions` and `list_propositions` show what he already holds from earlier sessions — a strand held solid needs no re-probing. If the tools aren't there, the map is off — just probe.
 
+If `work_context` is there, call it once now, before your first question, with the subject in a few words: Work IQ checks which parts of it his own work (email, meetings, chats, documents) already touches. Don't wait for it — the topics arrive later as a message. They only choose where a strand's first question sits: a strand his work touches can open higher. They are never evidence — he holds nothing until he has answered on it, and nothing from Work IQ goes into `probe_done`. If the tool isn't there, he hasn't switched it on — just probe.
+
 ## 2. Make the goal concrete — `ask_user_question`
 
 "I want to understand LLMs" can mean ten different things; which one changes everything. Interrogate until it's concrete. Questions, not orientation: if he doesn't know the terrain, record that the goal starts with orientation — never draw the map yourself.

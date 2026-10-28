@@ -31,6 +31,10 @@ export interface JobToolContext {
 	 *  offered only then, so the teacher never dispatches one that can't
 	 *  run. Absent = no animation tool. */
 	animationAvailable?: () => boolean;
+	/** True while Work IQ is switched on (M10). The work_context tool is
+	 *  offered only then — and only the prober's registry picks it up.
+	 *  Absent = no work_context tool. */
+	workContextAvailable?: () => boolean;
 }
 
 export const researchInputSchema = Type.Object({
@@ -80,6 +84,14 @@ export const animationInputSchema = Type.Object({
 	}),
 });
 
+export const workContextInputSchema = Type.Object({
+	topic: Type.String({
+		description:
+			"The subject the learner wants to learn, in a few plain words (e.g. 'Kubernetes networking'). " +
+			"No names of people, customers or projects.",
+	}),
+});
+
 /**
  * The per-call dispatch: create the job (idempotent by toolCallId), fire the
  * runner, and return the ack. Shared by every job tool — only kind differs.
@@ -112,6 +124,12 @@ const PDF_ACK =
 const ANIMATION_ACK =
 	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
 	"The finished animation arrives as a new message when ready and plays in the lesson; narrate it then.";
+const WORK_CONTEXT_ACK =
+	"This call is fire-and-forget: continue your turn — do not wait or poll. Tell the learner in one short sentence " +
+	"that you're checking what their work already covers, then ask your first probe question now. The topics arrive " +
+	"later as a new message: a starting guess for where to probe first, never evidence of what the learner knows.";
+const WORK_CONTEXT_ALREADY_ASKED =
+	"Work IQ was already asked in this session — don't call it again; probe as usual.";
 
 const RESEARCH_DESCRIPTION =
 	"Dispatch a background web-research agent: fact verification, current data, or niche specifics you are not certain about. " +
@@ -143,6 +161,12 @@ const ANIMATION_DESCRIPTION =
 	"picture. For one static figure use visual; for something the learner should control use demo. " +
 	"The call is ASYNC and fire-and-forget — it resolves immediately and your turn continues; the finished animation arrives " +
 	"later as a new message.";
+const WORK_CONTEXT_DESCRIPTION =
+	"Ask Work IQ (Microsoft 365 Copilot) which parts of the subject the learner's own work — email, meetings, chats, " +
+	"documents — already touches. Call it ONCE, at the very start of the probe, before your first question. " +
+	"The call is ASYNC and fire-and-forget — it resolves immediately and your turn continues; the topics arrive later as a " +
+	"new message. They only suggest where to probe first: check each with your own questions, and never count them as " +
+	"evidence in probe_done.";
 
 /**
  * Per-request job tool registry: each tool closes over the composition root's
@@ -152,7 +176,8 @@ const ANIMATION_DESCRIPTION =
  * Research remains available without a search-provider key; the role's
  * existing user-toggle filtering still applies outside this registry. The
  * animation tool joins only while ctx.animationAvailable() says the Manim
- * renderer is ready.
+ * renderer is ready; work_context only while ctx.workContextAvailable()
+ * says Work IQ is switched on, and it dispatches at most once per chat.
  */
 export function jobTools(ctx: JobToolContext): Record<string, AgentTool<any>> {
 	const tools: Record<string, AgentTool<any>> = {
@@ -200,6 +225,21 @@ export function jobTools(ctx: JobToolContext): Record<string, AgentTool<any>> {
 			),
 		};
 	}
+	if (ctx.workContextAvailable?.()) {
+		tools.work_context = {
+			name: "work_context",
+			label: "work_context",
+			description: WORK_CONTEXT_DESCRIPTION,
+			parameters: workContextInputSchema,
+			execute: serverExecute("work_context", workContextInputSchema, (input, { toolCallId }) =>
+				ctx.jobStore
+					.listJobs(ctx.chatId)
+					.some((j) => j.kind === "work_context" && j.toolCallId !== toolCallId)
+					? WORK_CONTEXT_ALREADY_ASKED
+					: dispatch(ctx, "work_context", toolCallId, WORK_CONTEXT_ACK, input),
+			),
+		};
+	}
 	return tools;
 }
 
@@ -208,5 +248,6 @@ export type DemoInput = Static<typeof demoInputSchema>;
 export type VisualInput = Static<typeof visualInputSchema>;
 export type PdfInput = Static<typeof pdfInputSchema>;
 export type AnimationInput = Static<typeof animationInputSchema>;
+export type WorkContextInput = Static<typeof workContextInputSchema>;
 /** Any job tool's input (the spawn seam's payload). */
-export type JobInput = ResearchInput | DemoInput | VisualInput | PdfInput | AnimationInput;
+export type JobInput = ResearchInput | DemoInput | VisualInput | PdfInput | AnimationInput | WorkContextInput;

@@ -41,6 +41,7 @@ What you learn builds up as propositions and reasoning chains in a knowledge gra
 | **Talk** | Dictation through Deepgram | *Planned:* dictation through **Azure Speech**, then a hands-free **voice mode** (speech-to-text → Copilot teacher → neural voice). Until then, Deepgram dictation works with your own key. |
 | **Web research** | Tavily or Brave | **Available now:** **Copilot's built-in web search**, with no key. A Tavily or Brave key is optional: it takes over when a Copilot search fails, or you can choose it in **Settings → Agent**. |
 | **Animations** | SVG figures and interactive demos | **Available now, optional:** short animated explanations written with [Manim](https://www.manim.community/) and rendered on your computer in Docker, plus Manim figures for typeset math. Turn it on in **Settings → Providers → Animations**. |
+| **Work context** | Not used | **Available now, optional, off by default:** before the first question, Cairn can ask [Work IQ](https://github.com/microsoft/work-iq) which parts of the subject your Microsoft 365 work (email, meetings, chats, documents) already touches, so the questions start in the right place. The topics are only a starting guess and never count as things you know. Set it up in **Settings → Providers → Work IQ**, then switch it on in **Settings → Agent**. |
 | **Azure** | Not used | *Planned, optional:* `azd up` deploys into **your own** subscription, and Cairn signs in with your `az login` (Microsoft Entra ID), so no Azure keys are stored. |
 | **Install** | Desktop downloads | *Now:* run from source. *Planned:* a local web app started with one `npx` command, then a desktop app. |
 | **Later** | | Opt-in suggestions for what to learn from Microsoft 365 work context (Work IQ), search over company docs (Azure AI Search), a shared team gateway |
@@ -51,6 +52,7 @@ What you learn builds up as propositions and reasoning chains in a knowledge gra
 - **Node.js 22.12 or newer** (or 20.19+)
 - No separate sign-in tool: Cairn has its own **Sign in with GitHub**. A [GitHub CLI](https://cli.github.com) sign-in (`gh auth login`) or a token in `COPILOT_GITHUB_TOKEN` works too.
 - *Optional, for animations:* [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine on Linux), running Linux containers. Cairn downloads the Manim renderer, about 500 MB, only when you choose **Install renderer** in **Settings → Providers → Animations**.
+- *Optional, for Work IQ:* a work account with a **Microsoft 365 Copilot** license. You accept the Work IQ license and sign in once, in a terminal (**Settings → Providers → Work IQ** lists the commands), and your Microsoft 365 admin may need to approve Work IQ for your organization once.
 - *Optional, later for voice:* an Azure subscription, the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) and the [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
 
 Without Azure, Cairn still teaches by text.
@@ -93,6 +95,7 @@ Notes:
 - Your GitHub sign-in stays in your system keychain, kept by the GitHub Copilot runtime. Cairn stores no GitHub credentials.
 - Research queries go to GitHub Copilot's web search, which GitHub runs on Bing. They go to Tavily or Brave, and dictation audio to Deepgram, only if you add that key. With the planned Azure voice, speech goes to your own Azure Speech resource.
 - Animations render on your computer, in a Docker container with no network access and no access to your files. The renderer image comes from Docker Hub, once, when you install it.
+- Work IQ is off unless you switch it on. When it's on, the subject of a session goes to Microsoft 365 Copilot under your own sign-in, once per session, and Cairn saves only the short list of topics it returns, not its full answer. Each question may use your organization's Copilot Credits.
 - Cairn runs no servers of its own and includes no analytics.
 
 ## Development
