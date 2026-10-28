@@ -12,12 +12,19 @@ import { mediaUrl, type AnimationResult, type ArtifactPartProps } from "@/src/co
 /**
  * Animation artifact card (M13): the tool part's output is the dispatch
  * ack, so the tool-call box is the DispatchCard; the MP4 itself plays from
- * the steer message via AnimationOutputCard. The file is served by the
- * chat's media route, never inlined into the record.
+ * the steer message via AnimationOutputCard (or from the box while the
+ * learner holds the delivery). The file is served by the chat's media
+ * route, never inlined into the record.
  */
 export function AnimationCard({ part }: ArtifactPartProps) {
 	if (part.state !== "output-available") return null;
-	return <DispatchCard toolCallId={part.toolCallId} kind="animation" />;
+	return (
+		<DispatchCard
+			toolCallId={part.toolCallId}
+			kind="animation"
+			renderHeld={(result) => <AnimationOutputCard output={result} />}
+		/>
+	);
 }
 
 /** The video itself — exported: the steer card renders the delivered artifact. */

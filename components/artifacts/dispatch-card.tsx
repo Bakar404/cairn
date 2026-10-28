@@ -1,8 +1,8 @@
 "use client";
 
-import { useContext } from "react";
+import { useContext, type ReactNode } from "react";
 import { CheckIcon, SettingsIcon, XIcon } from "lucide-react";
-import { JobsContext } from "@/components/jobs-context";
+import { HeldResultsContext, JobsContext } from "@/components/jobs-context";
 import { ChatActionsContext } from "@/components/chat";
 import { isModelsRefusal, isProviderKeyRefusal, type JobKind, type JobRecord } from "@/src/core";
 import { BrailleSpinner } from "@/components/braille-spinner";
@@ -18,6 +18,11 @@ import { BrailleSpinner } from "@/components/braille-spinner";
  *   done/error  → quiet one-liner ("finished" / "failed") — the artifact
  *                 itself arrives in the steer message right below, so the
  *                 box must not duplicate it.
+ *
+ * One exception: while the learner HOLDS the delivery (an unanswered
+ * question or a dismissal tail, HeldResultsContext), no steer exists yet,
+ * so a kind that passes renderHeld shows its artifact under the
+ * one-liner. Once the steer lands the hold drops, and the box goes quiet.
  */
 const KIND_LABEL: Record<JobKind, string> = {
 	research: "Research agent",
@@ -28,8 +33,19 @@ const KIND_LABEL: Record<JobKind, string> = {
 	work_context: "Work IQ",
 };
 
-export function DispatchCard({ toolCallId, kind }: { toolCallId: string; kind: JobKind }) {
+export function DispatchCard({
+	toolCallId,
+	kind,
+	renderHeld,
+}: {
+	toolCallId: string;
+	kind: JobKind;
+	/** The kind's artifact, for a result the learner holds. Teacher-facing
+	 *  kinds (research, pdf, Work IQ) omit it. */
+	renderHeld?: (result: unknown) => ReactNode;
+}) {
 	const jobs = useContext(JobsContext);
+	const held = useContext(HeldResultsContext);
 	const job = jobs.find((j) => j.toolCallId === toolCallId) ?? null;
 	const label = KIND_LABEL[kind];
 
@@ -49,7 +65,7 @@ export function DispatchCard({ toolCallId, kind }: { toolCallId: string; kind: J
 		return <DispatchRefusedCard label={label} line="needs GitHub Copilot" button="Connect Copilot" />;
 	}
 	const failed = job.status === "error";
-	return (
+	const settled = (
 		<div
 			className="flex items-center gap-2 text-xs text-muted-foreground"
 			data-testid="dispatch-settled"
@@ -57,6 +73,13 @@ export function DispatchCard({ toolCallId, kind }: { toolCallId: string; kind: J
 			{failed ? <XIcon className="size-3.5 text-red-500" /> : <CheckIcon className="size-3.5" />}
 			<span className="font-medium uppercase tracking-wide">{label}</span>
 			<span>{failed ? "failed" : "finished"}</span>
+		</div>
+	);
+	if (failed || !renderHeld || !held.has(job.id)) return settled;
+	return (
+		<div data-testid="dispatch-held">
+			{settled}
+			{renderHeld(job.result)}
 		</div>
 	);
 }

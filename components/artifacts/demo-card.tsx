@@ -82,10 +82,17 @@ export function reduceDemoBridgeState(state: DemoBridgeState, data: unknown): De
 
 /** The demo tool-call box: the part's output is the dispatch ack — the box
  * is the DispatchCard (live status via the chat view's jobs feed). The demo
- * itself renders from the steer message via DemoOutputCard. */
+ * itself renders from the steer message via DemoOutputCard (or from the box
+ * while the learner holds the delivery). */
 export function DemoCard({ part }: ArtifactPartProps) {
 	if (part.state !== "output-available") return null;
-	return <DispatchCard toolCallId={part.toolCallId} kind="demo" />;
+	return (
+		<DispatchCard
+			toolCallId={part.toolCallId}
+			kind="demo"
+			renderHeld={(result) => <DemoOutputCard output={result} />}
+		/>
+	);
 }
 
 /** The demo artifact — exported: the steer card renders the delivered
