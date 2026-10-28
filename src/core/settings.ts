@@ -262,6 +262,11 @@ export interface AgentSettings {
 	 *  tool-toggles map. Absent = enabled (the toggle discipline); the
 	 *  effective gate composes graph.enabled AND this switch. */
 	graphTools?: { enabled?: boolean };
+	/** Work IQ (M10): lets the prober ask Microsoft 365 Copilot, once per
+	 *  session, which parts of a subject the learner's work already touches.
+	 *  OPT-IN — absent = OFF (unlike the other toggles): it sends the topic
+	 *  to the learner's Microsoft 365 tenant. Consumers use workIqEnabled. */
+	workIq?: { enabled?: boolean };
 	/** System-prompt override SWITCHES keyed by segment path (absent key =
 	 *  off). Switch-on requires the override file to exist (enforced by the
 	 *  route); the switch is explicit so users keep a file on disk but run
@@ -532,6 +537,13 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 		const enabled = (raw.graphTools as Record<string, unknown>).enabled;
 		if (enabled === undefined) out.graphTools = {};
 		else if (typeof enabled === "boolean") out.graphTools = { enabled };
+	}
+	// Work IQ (M10): the same lenient read side — a bad shape drops the key
+	// and the default OFF resumes.
+	if (raw.workIq !== null && typeof raw.workIq === "object" && !Array.isArray(raw.workIq)) {
+		const enabled = (raw.workIq as Record<string, unknown>).enabled;
+		if (enabled === undefined) out.workIq = {};
+		else if (typeof enabled === "boolean") out.workIq = { enabled };
 	}
 	return out;
 }

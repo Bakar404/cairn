@@ -8,6 +8,7 @@ import { parseHTML } from "linkedom";
 import { SettingsDialogBody } from "../components/settings/settings-dialog.tsx";
 import { KeysSection } from "../components/settings/keys-section.tsx";
 import { AnimationRenderer } from "../components/settings/animation-renderer.tsx";
+import { WorkIqConnection } from "../components/settings/workiq-connection.tsx";
 
 const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { window: dom.window, document: dom.document, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true, localStorage: { getItem: () => null, setItem() {} } });
@@ -31,7 +32,7 @@ test("Providers is the first/default page; General is last and other pages keep 
 	assert.match(html, />Providers<\/button>/);
 });
 
-test("Providers lists the GitHub Copilot connection under Models, then the tool keys and the animation renderer; other saved variables stay masked/read-only last", async () => {
+test("Providers lists the GitHub Copilot connection under Models, then the tool keys, the animation renderer and Work IQ; other saved variables stay masked/read-only last", async () => {
 	globalThis.fetch = async (url) => {
 		if (url === "/api/copilot") return Response.json({ state: "signed-in", login: "octocat" });
 		if (url === "/api/copilot/accounts") return Response.json({ accounts: [{ id: "s1", login: "octocat", host: "https://github.com", active: true, source: "gh" }] });
@@ -52,10 +53,12 @@ test("Providers lists the GitHub Copilot connection under Models, then the tool 
 	await act(async () => {});
 
 	const headings = [...document.querySelectorAll('[data-testid^="group-"] > p')].map((el) => el.textContent);
-	assert.deepEqual(headings, ["Models", "Dictation", "Search", "Animations", "Other saved keys"]);
+	assert.deepEqual(headings, ["Models", "Dictation", "Search", "Animations", "Work IQ", "Other saved keys"]);
 	assert.equal(byTest("copilot-status").textContent, "Signed in as @octocat");
 	assert.equal(byTest("manim-status").textContent, "Ready");
 	assert.equal(document.querySelector('[data-testid="manim-install"]'), null, "nothing to install");
+	assert(byTest("workiq-connection").closest('[data-testid="group-workiq"]'));
+	assert.equal(byTest("workiq-status").textContent, "Not tested", "Work IQ is only asked when the learner tests it");
 	assert(byTest("key-deepgram_api_key").closest('[data-testid="group-dictation"]'));
 	assert(byTest("key-tavily_api_key").closest('[data-testid="group-search"]'));
 	assert(byTest("key-brave_api_key").closest('[data-testid="group-search"]'));
@@ -92,4 +95,38 @@ test("Animations: Install starts the one-time download and the row turns to inst
 	assert.equal(byTest("manim-status").textContent, "Installing · 2 of 11 layers");
 	assert.equal(document.querySelector('[data-testid="manim-install"]'), null);
 	assert.equal(byTest("manim-check").hasAttribute("disabled"), true, "no re-check while downloading");
+});
+
+test("Work IQ: Test connection asks once at a time and shows why it failed, then that it connected", async () => {
+	const calls: string[] = [];
+	let reply: (body: unknown) => void = () => {};
+	globalThis.fetch = (url, init) => {
+		calls.push(`${init?.method ?? "GET"} ${String(url)}`);
+		return new Promise<Response>((resolve) => (reply = (body) => resolve(Response.json(body))));
+	};
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () => root!.render(<WorkIqConnection />));
+	const click = () =>
+		act(async () => {
+			byTest("workiq-test").dispatchEvent(new dom.window.Event("click", { bubbles: true, cancelable: true }));
+		});
+
+	await click();
+	assert.deepEqual(calls, ["POST /api/workiq"]);
+	assert.equal(byTest("workiq-status").textContent, "Testing… (can take a minute)");
+	assert.equal(byTest("workiq-test").hasAttribute("disabled"), true, "one test at a time");
+	const error = "Work IQ stopped before answering (exit code 1). Work IQ said: EULA not accepted";
+	await act(async () => reply({ ok: false, error }));
+	await act(async () => {});
+	assert.equal(byTest("workiq-status").textContent, "Couldn't connect");
+	assert.equal(byTest("workiq-error").textContent, error);
+
+	await click();
+	await act(async () => reply({ ok: true }));
+	await act(async () => {});
+	assert.deepEqual(calls, ["POST /api/workiq", "POST /api/workiq"]);
+	assert.equal(byTest("workiq-status").textContent, "Connected");
+	assert.equal(document.querySelector('[data-testid="workiq-error"]'), null);
 });

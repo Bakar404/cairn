@@ -28,12 +28,14 @@ import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { manimRenderer } from "./manim.ts";
+import { workIqClient } from "./workiq.ts";
 import { providerKeyPresent } from "./keys.ts";
 import {
 	extractionEnabled,
 	graphToolsEnabled,
 	resolveConversationSpec,
 	resolveRoleSpec,
+	workIqEnabled,
 } from "../core/settings-resolution.ts";
 import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, type ProviderKeyMissing } from "../core/settings.ts";
 import { beginTurn, endTurn } from "./turn-liveness.ts";
@@ -103,6 +105,9 @@ const jobRunner = createJobRunner({
 	// M13: animation jobs render on the Docker-backed Manim renderer, and
 	// visual jobs may draw Manim stills with it.
 	manim: manimRenderer,
+	// M10: Work IQ, read fresh per job — null while it's switched off in
+	// Settings (a switch flipped between dispatch and run lands).
+	workIq: () => (workIqEnabled(effectiveSettings()) ? workIqClient : null),
 });
 
 /** The process's first Manim status check, awaited once and never for
@@ -445,6 +450,8 @@ export async function handleChatInput(
 						jobStore: stores.jobStore,
 						spawn: (job, input) => void jobRunner.runJob(job.id, input),
 						searchAvailable,
+						// M10: Work IQ switched on = the prober may ask it once.
+						workContextAvailable: () => workIqEnabled(effective),
 						// The map reader (wave 7): the prober reads the learner's
 						// knowledge graph through tools when the gate opens —
 						// graph master switch AND the agent.graphTools toggle.

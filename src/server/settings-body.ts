@@ -195,6 +195,15 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 		}
 		settings.graphTools = graphTools.enabled === undefined ? {} : { enabled: graphTools.enabled };
 	}
+	// Work IQ (M10): same strict write side. Absent = OFF (opt-in).
+	if (raw.workIq !== undefined) {
+		const workIq = asRecord(raw.workIq);
+		if (!workIq) return { ok: false, error: "workIq must be an object" };
+		if (workIq.enabled !== undefined && typeof workIq.enabled !== "boolean") {
+			return { ok: false, error: "workIq.enabled must be a boolean" };
+		}
+		settings.workIq = workIq.enabled === undefined ? {} : { enabled: workIq.enabled };
+	}
 	return { ok: true, settings };
 }
 

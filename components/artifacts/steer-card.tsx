@@ -8,6 +8,7 @@ import { DemoOutputCard } from "@/components/artifacts/demo-card";
 import { PdfBriefCard, ResearchBriefCard } from "@/components/artifacts/job-card";
 import { VisualOutputCard } from "@/components/artifacts/visual-card";
 import { AnimationOutputCard } from "@/components/artifacts/animation-card";
+import { WorkContextOutputCard } from "@/components/artifacts/work-context-card";
 
 /**
  * The sub-agent result delivery card (contracts.ts "THE ASYNC PROTOCOL" §4).
@@ -25,6 +26,8 @@ import { AnimationOutputCard } from "@/components/artifacts/animation-card";
  *   demo / visual — the artifact itself (sandboxed iframe / sanitized SVG,
  *     or a Manim still served as PNG).
  *   animation — the rendered MP4 in a native video player (M13).
+ *   work_context — Work IQ's topics (M10): a quiet one-liner that expands
+ *     to the list, framed as where the probe starts — never a verdict.
  *     The sub-agent's verification notes are model-facing glue and do NOT
  *     render; only a failure note does.
  */
@@ -66,6 +69,8 @@ export function SubagentSteerCard({ message }: { message: LhViewMessage }) {
 			return (
 				<AnimationOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />
 			);
+		case "work_context":
+			return <WorkContextOutputCard output={data.result} />;
 	}
 }
 
@@ -76,7 +81,7 @@ function AbortedBadge({ kind }: { kind: string }) {
 	return (
 		<div data-testid="job-aborted-badge" className="flex items-center gap-2 text-xs text-muted-foreground">
 			<CircleX className="size-3.5" />
-			<span className="font-medium uppercase tracking-wide">{kind}</span>
+			<span className="font-medium uppercase tracking-wide">{kind === "work_context" ? "Work IQ" : kind}</span>
 			<span>aborted by the learner</span>
 		</div>
 	);

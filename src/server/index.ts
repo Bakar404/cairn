@@ -14,6 +14,9 @@ export * from "./jobs.ts";
 // The Manim renderer (M13): Docker status + install for Settings, and the
 // chat media files the animation/visual makers save.
 export * from "./manim.ts";
+// Work IQ (M10): the stdio MCP adapter the job runner asks through, and the
+// Settings connection test.
+export * from "./workiq.ts";
 export * from "./stores.ts";
 export { readRenderSettings, writeRenderSettings } from "../store/render-settings.ts";
 // The settings record + prompt overrides (settings-storage wave, 2026-09-19).
