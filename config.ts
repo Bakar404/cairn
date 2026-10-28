@@ -29,6 +29,10 @@ export const PATHS = {
 	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */
 	debug: path.join(DATA_ROOT, "debug"),
+	/** Rendered media (Manim animations and stills), one folder per chat:
+	 *  data/media/<chatId>/ — served by the chat media route, deleted with
+	 *  the chat. */
+	media: path.join(DATA_ROOT, "media"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────
@@ -50,6 +54,7 @@ export type ModelRole =
 	| "researcher"
 	| "demoBuilder"
 	| "visualMaker"
+	| "animationMaker"
 	| "pdfReader"
 	| "extractor"
 	| "auditor";

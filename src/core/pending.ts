@@ -75,8 +75,9 @@ export const JOB_TOOLS = ["research", "demo", "visual"] as const;
  *  key = 400 with the supported list); the read-side sanitizer stays
  *  lenient for forward-compat. The names are the MODEL-FACING tool names
  *  (research, not researcher; pdf is the PDF-reader dispatch, sources v0
- *  2026-09). */
-export const TOGGLEABLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
+ *  2026-09; animation is the Manim maker, which also needs its renderer
+ *  installed before it registers). */
+export const TOGGLEABLE_TOOLS = ["research", "demo", "visual", "pdf", "animation"] as const;
 
 /** The keys the settings WRITE side accepts in agent.tools: the plain
  *  toggleables PLUS the quizzing-mechanics switch (`explain: true` arms
@@ -145,6 +146,7 @@ const ACTIVITY_LABELS: Record<string, string> = {
 	research: "Dispatching research…",
 	demo: "Building a demo…",
 	visual: "Making a visual…",
+	animation: "Making an animation…",
 	pdf: "Reading a PDF…",
 	plan_init: "Drawing up the plan…",
 	probe_done: "Concluding the assessment…",

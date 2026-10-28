@@ -218,8 +218,9 @@ export function slotsConfigured(models: ModelsSettings | undefined): boolean {
 }
 
 /** Which slot a role draws from (model slots wave, 2026-09-20). Includes the
- *  conversation pair and pdfReader (not BackgroundModelRoles — the slot
- *  tier spans every role; only background roles surface per-role overrides). */
+ *  conversation pair, pdfReader and animationMaker (not BackgroundModelRoles
+ *  — the slot tier spans every role; only background roles surface per-role
+ *  overrides). */
 export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	prober: "strong",
 	teacher: "strong",
@@ -228,6 +229,7 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	extractor: "cheap",
 	auditor: "cheap",
 	visualMaker: "vision",
+	animationMaker: "vision",
 	pdfReader: "vision",
 };
 

@@ -65,6 +65,9 @@ export * from "./settings.ts";
 export type { ChatDeleteMode, ChatDeletionStats } from "./graph-deletion.ts";
 export * from "./settings-resolution.ts";
 export * from "./search.ts"; // search port (search wave, 2026-09-20)
+// manim.ts (M13): the animation renderer port + media URL helper — types
+// and pure helpers; the docker adapter lives in src/server/manim.ts.
+export * from "./manim.ts";
 export * from "./session-find.ts";
 export * from "./session-navigation.ts";
 // auth-keys.ts (auth-keys wave, 2026-09-19): the curated key catalog +
