@@ -11,11 +11,12 @@
  *  - Env-owned rows (a real environment variable owns the name — dev
  *    .env.local or launch env) render READ-ONLY + dimmed, no paste field:
  *    a paste box on a key the UI cannot make live would mislead.
- *  - Groups: Models (the GitHub Copilot connection), Dictation, Search,
- *    Animations (the Manim renderer in Docker, M13 — a status row, no
- *    key), Work IQ (setup steps + Test connection, M10 — no key either).
- *    Unknown variables found in the key file stay masked/read-only in a
- *    last "Other saved keys" group.
+ *  - Groups: Models (the GitHub Copilot connection), Keys (the curated
+ *    catalog — rendered only when it holds entries; empty since dictation
+ *    and keyed search retired 2026-10-27), Animations (the Manim renderer
+ *    in Docker, M13 — a status row, no key), Work IQ (setup steps + Test
+ *    connection, M10 — no key either). Unknown variables found in the key
+ *    file stay masked/read-only in a last "Other saved keys" group.
  *
  * API: GET /api/keys (masked statuses), PUT /api/keys/:id (shape-gated
  * 400s land inline), DELETE. Saves take effect immediately. Plaintext
@@ -36,8 +37,7 @@ interface KeysResponse {
 
 /** The curated tools group, pinned by id (the catalog owns the copy;
  *  these ids are the contract). Derived from the catalog (search wave,
- *  2026-09-20: the Google CSE pair retired, Tavily + Brave joined) — the
- *  section can never drift from core/auth-keys.ts again. */
+ *  2026-09-20) — the section can never drift from core/auth-keys.ts. */
 const TOOL_IDS = AUTH_KEYS.map((k) => k.id) as readonly string[];
 
 /** The classification driving the table groups. Pure — exported for
@@ -218,8 +218,8 @@ function KeyTableRow({
 }
 
 export function KeysSection({
-	/** A deep-linked row to unfold on arrival (zero-keys wave): the
-	 *  dictation error's click lands here on DEEPGRAM_API_KEY. Followed
+	/** A deep-linked row (a key id) to unfold on arrival (zero-keys wave):
+	 *  a surface whose key is missing links straight to its row. Followed
 	 *  while mounted too — the settings dialog's while-open retarget
 	 *  pattern. undefined = nothing seeded. */
 	initialRow,
@@ -303,26 +303,28 @@ export function KeysSection({
 				<CopilotConnection />
 			</SettingsGroup>
 
-			{(["Dictation", "Search"] as const).map((label) => <SettingsGroup key={label} label={label} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
-				{toolRows.filter((status) => label === "Dictation" ? status.id === "DEEPGRAM_API_KEY" : status.id !== "DEEPGRAM_API_KEY").map((status) => (
-					<KeyTableRow
-						key={status.id}
-						label={status.info?.label ?? status.id}
-						docsUrl={status.info?.docsUrl}
-						status={status}
-						expanded={openRow === status.id}
-						onToggle={() => setOpenRow(openRow === status.id ? null : status.id)}
-						onSave={async (v) => {
-							const err = await saveKey(status.id, v);
-							if (!err) setOpenRow(null);
-							return err;
-						}}
-						onCancel={() => setOpenRow(null)}
-						onDelete={() => deleteKey(status.id)}
-						testid={`key-${status.id.toLowerCase()}`}
-					/>
-				))}
-			</SettingsGroup>)}
+			{toolRows.length > 0 && (
+				<SettingsGroup label="Keys" testid="group-keys">
+					{toolRows.map((status) => (
+						<KeyTableRow
+							key={status.id}
+							label={status.info?.label ?? status.id}
+							docsUrl={status.info?.docsUrl}
+							status={status}
+							expanded={openRow === status.id}
+							onToggle={() => setOpenRow(openRow === status.id ? null : status.id)}
+							onSave={async (v) => {
+								const err = await saveKey(status.id, v);
+								if (!err) setOpenRow(null);
+								return err;
+							}}
+							onCancel={() => setOpenRow(null)}
+							onDelete={() => deleteKey(status.id)}
+							testid={`key-${status.id.toLowerCase()}`}
+						/>
+					))}
+				</SettingsGroup>
+			)}
 
 			<SettingsGroup label="Animations" testid="group-animations">
 				<AnimationRenderer />

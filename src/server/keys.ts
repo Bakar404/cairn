@@ -2,10 +2,9 @@
  * The auth/keys composition (auth-keys wave, 2026-09-19): the server-side
  * key manager behind GET/PUT/DELETE /api/keys.
  *
- * THE ENV SEAM (the architecture keystone): every consumer — the
- * sub-agents, web.ts, the STT route — reads
+ * THE ENV SEAM (the architecture keystone): every consumer reads
  * process.env directly, and the agent layer may not import the store
- * layer. Instead of rewiring five consumers across lanes, the store
+ * layer. Instead of rewiring consumers across lanes, the store
  * REFLECTS itself into the child's env: at boot (idempotent, anchored on
  * globalThis like the extraction registry) every file var UNSET in the
  * real env is fill-gapped into process.env, and each save/delete updates
@@ -160,9 +159,9 @@ export function keyStatuses(): AuthKeyStatus[] {
 }
 
 /** The live value for one var, env-first (the env-wins rule) — the canonical
- *  read for consumers that don't live behind the @/src/server barrel (the
- *  STT route was the one cold-boot hole: a first-ever request to it would
- *  otherwise read env before any fill-gap ran). */
+ *  read for consumers that don't live behind the @/src/server barrel (a
+ *  route's first-ever request could otherwise read env before any
+ *  fill-gap ran — the cold-boot hole). */
 export function keyValue(id: string): string | undefined {
 	// The fresh-user switch: ONLY the file store counts (belt-and-
 	// suspenders — the boot deletion already emptied the env; this guards

@@ -98,9 +98,9 @@ const jobRunner = createJobRunner({
 	providerKeyMissing: (provider, tier) =>
 		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
 	// Search port wave (2026-09-20): the researcher's web_search runs on the
-	// injected port — resolved FRESH per job (key rotations land immediately).
-	// null = honestly unavailable; the dispatch-level drop (below) uses the
-	// same signal so keyless servers never see the research tool at all.
+	// injected port — resolved FRESH per job (a Copilot sign-in or model
+	// change lands immediately). null = honestly unavailable; the
+	// dispatch-level drop (below) uses the same signal.
 	searchProvider,
 	// M13: animation jobs render on the Docker-backed Manim renderer, and
 	// visual jobs may draw Manim stills with it.

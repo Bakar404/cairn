@@ -173,7 +173,7 @@ const WORK_CONTEXT_DESCRIPTION =
  * context (chatId + jobStore + the spawn seam), so concurrent chats never
  * share state. chat-handler wires it each turn; tests wire their own.
  *
- * Research remains available without a search-provider key; the role's
+ * Research remains available while web search is unavailable; the role's
  * existing user-toggle filtering still applies outside this registry. The
  * animation tool joins only while ctx.animationAvailable() says the Manim
  * renderer is ready; work_context only while ctx.workContextAvailable()

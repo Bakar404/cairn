@@ -1,60 +1,38 @@
 /**
  * The search-provider port (search port + model slots wave, 2026-09-20).
  *
- * Search engines are pluggable behind ONE seam: the settings record names a
- * preferred engine (agent.search.engine — optional), keys live in the auth
- * store (TAVILY_API_KEY / BRAVE_API_KEY — curated catalog), and the server
- * composes the live adapter. The Google CSE engine retired with this wave
- * (closed to new customers; dies Jan 2027) — replaced by Tavily + Brave.
+ * Web search sits behind ONE seam: the server composes the live adapter
+ * (src/server/search.ts) and the agent-layer tool depends on this port
+ * only. Since 2026-10-27 the one engine is GitHub Copilot's hosted web
+ * search — no key, live while Copilot is signed in and the researcher
+ * runs on a Copilot model. The keyed Tavily/Brave engines and the
+ * agent.search.engine preference retired; a future engine is one more
+ * SearchProviderId plus its adapter.
  *
- * Owner decisions baked here:
- *  - NO default engine in the factory record: a keyed engine is live iff
- *    its key is present. With a key, the engine auto-activates (the user never
- *    chooses an engine to make search work — setting the key is enough);
- *    agent.search.engine is only an explicit preference.
- *  - GitHub Copilot's hosted web search comes first when nothing is
- *    pinned and Copilot is signed in; a keyed engine backs it up.
- *  - Nothing silently falls back: no engine live = search is honestly
- *    unavailable (the tool says so; the researcher sub-agent is disabled
- *    by the agent layer on the same signal — that rewiring is the Teacher
- *    stream's, on this port).
+ * Nothing silently falls back: no engine live = search is honestly
+ * unavailable (the tool says so).
  *
- * Pure types + protocol docs only (browser-safe, no node imports): the
- * adapters are server-side (src/server/search.ts) and arrive as injected
- * dependencies — the agent-layer tool depends on THIS port only.
+ * Pure types + protocol docs only (browser-safe, no node imports).
  */
 
 /** One search result row — the shape every adapter must produce (the
- *  researcher's tool contract; same fields the old Google adapter emitted). */
+ *  researcher's tool contract). */
 export interface SearchHit {
 	title: string;
 	url: string;
 	snippet: string;
 }
 
-/** The keyed engines a user can choose (agent.search.engine). */
-export type SearchEngineId = "tavily" | "brave";
-
 /** Every engine that can serve a search. "copilot" is GitHub Copilot's
- *  hosted web search: it needs no key, is used automatically while
- *  Copilot is signed in, and is never stored as a choice. */
-export type SearchProviderId = SearchEngineId | "copilot";
+ *  hosted web search: it needs no key and is used while Copilot is
+ *  signed in. */
+export type SearchProviderId = "copilot";
 
-/** A live search engine: an id (for status/labels) + one operation. The
- *  adapters own their wire protocol (fetch, timeouts, error mapping) —
- *  callers see only this. `search` throws on failure (adapters map HTTP
- *  errors to clear Error messages); the tool layer catches and reports. */
+/** A live search engine: an id (for labels) + one operation. The
+ *  adapters own their wire protocol (timeouts, error mapping) — callers
+ *  see only this. `search` throws on failure (adapters map errors to
+ *  clear Error messages); the tool layer catches and reports. */
 export interface SearchProvider {
 	id: SearchProviderId;
 	search(query: string, count: number): Promise<SearchHit[]>;
-}
-
-/** Why search is (un)available — the honest status the UI and the tool
- *  layer explain from. `engine` is the ACTIVE engine when live. */
-export interface SearchStatus {
-	available: boolean;
-	/** The active engine (null when unavailable). */
-	engine: SearchProviderId | null;
-	/** The one-line reason for the state (status text for the UI). */
-	reason: string;
 }

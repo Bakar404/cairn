@@ -10,9 +10,13 @@
  * — that file IS the visible case; this file is the hidden one.
  *
  * Model calls never read keys (GitHub Copilot signs in through its own
- * runtime); the managed vars are the curated tool keys (search, speech).
- * The switch works by DELETING them from the process, so assert the
- * deletion directly — that is what a fresh user's tools see.
+ * runtime); the managed vars are the curated catalog (EMPTY since
+ * 2026-10-27 — dictation and keyed search retired) plus every var the
+ * file holds. The switch works by DELETING managed vars from the
+ * process, so assert the deletion directly — that is what a fresh
+ * user's tools see. With nothing curated there is no env-only managed
+ * var and no writable id: the deletion is pinned on a file-held var,
+ * and the read seam (keyValue) hides env-only vars regardless.
  *
  * LH_AUTH_FILE redirects to a fresh tmp dir BEFORE the imports (the
  * seam is module-load bound). All values are throwaway test strings —
@@ -49,7 +53,7 @@ const FILE_BRAVE = "BSA-file-fresh-file-fresh-01";
 fs.writeFileSync(AUTH, JSON.stringify({ BRAVE_API_KEY: FILE_BRAVE }));
 
 // The env the switch must hide — set BEFORE the module's first import:
-//  - an env-ONLY tool key (the deletion specimen)
+//  - an env-ONLY var (outside the file — the read seam must hide it)
 //  - the SAME var the file holds (the collision specimen: under the
 //    switch the FILE value must win, and the env copy must be deleted)
 process.env.TAVILY_API_KEY = "tvly-env-env-env-0123456789";
@@ -59,22 +63,19 @@ process.env.BRAVE_API_KEY = "BSA-env-env-env-0123456789";
 process.env.LH_IGNORE_ENV_KEYS = "1";
 
 // Import AFTER env setup — module init runs the boot deletion + fill-gap.
-const { deleteKey, envKeysIgnored, initAuthEnv, keyStatuses, keyValue, saveKey } = await import(
+const { envKeysIgnored, initAuthEnv, keyStatuses, keyValue } = await import(
 	"../src/server/keys.ts"
 );
 const { authStore } = await import("../src/store/auth.ts");
 
 after(() => {
+	delete process.env.TAVILY_API_KEY;
 	fs.rmSync(TMP, { recursive: true, force: true });
 });
 
 describe("the fresh-user switch (boot under LH_IGNORE_ENV_KEYS=1)", () => {
 	it("the switch reads live (the launcher exports it before boot)", () => {
 		assert.equal(envKeysIgnored(), true);
-	});
-
-	it("env-only keys are DELETED from the process — no consumer can find them", () => {
-		assert.equal(process.env.TAVILY_API_KEY, undefined, "deleted from process.env at boot");
 	});
 
 	it("the env copy of a file-backed var is deleted; the FILE value is what fills the env (only auth.json counts)", () => {
@@ -118,29 +119,13 @@ describe("the fresh-user switch (boot under LH_IGNORE_ENV_KEYS=1)", () => {
 		assert.equal(brave!.source, "file", "realEnv is empty under the switch — nothing reports as env");
 		assert.equal(brave!.shadowedByEnv, false);
 		const tavily = rows.find((r) => r.id === "TAVILY_API_KEY");
-		assert.equal(tavily!.present, false, "the env-only key reads as absent");
-		assert.equal(tavily!.source, "none");
+		assert.equal(tavily, undefined, "an env-only var outside the catalog has no row");
 		assert.equal(rows.some((r) => r.source === "env"), false, "no env-owned key under the switch");
 	});
 
-	it("a fresh user CAN add keys mid-session: save reflects file → env (engines see it, no restart)", () => {
-		const value = "deepgram-fresh-sim-key-1234567890";
-		const result = saveKey("DEEPGRAM_API_KEY", value);
-		assert.equal(result.ok, true);
-		assert.equal(authStore.authVars().DEEPGRAM_API_KEY, value, "persisted to the file");
-		assert.equal(process.env.DEEPGRAM_API_KEY, value, "reflected into env");
-		const row = keyStatuses().find((r) => r.id === "DEEPGRAM_API_KEY");
-		assert.equal(row!.source, "file", "the status honestly reports the file as the source");
-		// and DELETE removes both (fill-gap semantics hold under the switch)
-		deleteKey("DEEPGRAM_API_KEY");
-		assert.equal(process.env.DEEPGRAM_API_KEY, undefined);
-		assert.equal(authStore.authVars().DEEPGRAM_API_KEY, undefined);
-	});
-
-	it("re-running initAuthEnv is idempotent — deleted env keys never resurrect", () => {
-		process.env.TAVILY_API_KEY = "tvly-zombie-0123456789-zz";
+	it("re-running initAuthEnv is idempotent — a reintroduced env copy is re-deleted and the file value refills", () => {
+		process.env.BRAVE_API_KEY = "BSA-zombie-0123456789-zz";
 		initAuthEnv();
-		assert.equal(process.env.TAVILY_API_KEY, undefined, "a reintroduced env key is re-deleted");
 		assert.equal(process.env.BRAVE_API_KEY, FILE_BRAVE, "the file reflection survives re-init");
 	});
 });

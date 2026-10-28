@@ -22,8 +22,8 @@ export function usePopoverDismiss(
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
 				// Claim the Esc (keyboard wave A): the window-level dismiss
-				// chain must not ALSO stop dictation / abort a turn under
-				// this popover. Popovers are the chain's topmost layer.
+				// chain must not ALSO abort a turn under this popover.
+				// Popovers are the chain's topmost layer.
 				e.stopPropagation();
 				close();
 			}

@@ -1,6 +1,6 @@
 /**
  * PUT /api/keys/:id — save one key; DELETE — remove it (auth-keys wave,
- * 2026-09-19). `id` is the env-var/file key name (TAVILY_API_KEY, …).
+ * 2026-09-19). `id` is the env-var/file key name.
  *
  * PUT body {value}: shape-gated (owner decision — bad pastes are 400s
  * naming the expected format, never stored; validation is SHAPE-ONLY, no

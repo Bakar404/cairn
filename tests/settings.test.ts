@@ -64,7 +64,6 @@ describe("sanitizeUserSettings", () => {
 				},
 				tools: { research: false, quiz: true },
 				prompts: { "system-prompt.md": true, "teacher/20-teaching.md": false },
-				search: { engine: "brave" },
 			},
 			models: {
 				strong: { model: { provider: "zai", id: "glm-5.3-flash" }, thinkingLevel: "low" },
@@ -176,13 +175,13 @@ describe("sanitizeUserSettings", () => {
 		assert.equal("auditor" in models, false);
 	});
 
-	it("search engine pin survives; unknown engine ids drop (auto-detect resumes) — search wave, 2026-09-20", () => {
-		const good = sanitizeUserSettings({ version: 1, agent: { search: { engine: "tavily" } } });
-		assert.deepEqual(good?.agent?.search, { engine: "tavily" });
-		const bad = sanitizeUserSettings({ version: 1, agent: { search: { engine: "google" } } });
-		assert.equal(bad?.agent?.search, undefined);
-		const notObject = sanitizeUserSettings({ version: 1, agent: { search: "tavily" } });
-		assert.equal(notObject?.agent?.search, undefined);
+	it("an old record's retired search-engine pin drops on read; the rest of the agent section survives — 2026-10-27", () => {
+		for (const search of [{ engine: "tavily" }, { engine: "brave" }, "tavily"]) {
+			const agent = sanitizeUserSettings({ version: 1, agent: { search, tools: { research: false } } })?.agent;
+			assert.ok(agent, JSON.stringify(search));
+			assert.equal("search" in agent, false);
+			assert.deepEqual(agent.tools, { research: false });
+		}
 	});
 
 	it("graphTools subsection: boolean survives; bad shapes drop (default ON resumes) — wave 7, 2026-09-23", () => {

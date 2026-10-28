@@ -214,7 +214,7 @@ export function SetupDialog({
 			if (e.key !== "Escape") return;
 			// THE ONE-ESC LAW (owner, keyboard round 2026-10-06): claim at
 			// the document level before the layered dismissal — every branch
-			// below acts, so the window chain (dictation → abort) must
+			// below acts, so the window chain (the abort fallback) must
 			// never also fire. One Esc, one action.
 			e.preventDefault();
 			e.stopPropagation();

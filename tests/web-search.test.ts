@@ -1,6 +1,6 @@
-/** Keyless research availability + the injected search port.
+/** Research availability without web search + the injected search port.
  * No network, no shared data files — the jobStore fake below is in-memory.
- * A missing search key is a recoverable tool result, not a dispatch gate.
+ * Unavailable search is a recoverable tool result, not a dispatch gate.
  */
 
 import assert from "node:assert/strict";
@@ -15,7 +15,7 @@ import type { SearchHit, SearchProvider } from "../src/core/search.ts";
 
 function stubProvider(hits: SearchHit[] = [{ title: "t", url: "https://e.com/", snippet: "s" }]): SearchProvider {
 	return {
-		id: "tavily",
+		id: "copilot",
 		async search() {
 			return hits;
 		},
@@ -28,16 +28,16 @@ describe("web_search on the injected port (web.ts)", () => {
 		assert.ok(web_search, "web_search is still exposed without a provider");
 		const out = await web_search!.execute!("c1", { query: "anything" });
 		const missing = "web_search is not available: no search engine is configured. " +
-			"Sign in to GitHub Copilot, or set a Tavily or Brave search API key in settings. Report in your brief that web search is unavailable.";
+			"Web search runs on GitHub Copilot: sign in to GitHub Copilot and choose your models in settings. Report in your brief that web search is unavailable.";
 		assert.equal(out.details, missing);
 		assert.deepEqual(out.content, [{ type: "text", text: missing }]);
-		assert.notEqual(out.isError, true, "missing keys remain ordinary recoverable text, not a native error");
+		assert.notEqual(out.isError, true, "unavailable search remains ordinary recoverable text, not a native error");
 	});
 
 	it("a live provider returns its hits (count defaults to 5)", async () => {
 		const seen: Array<{ query: string; count: number }> = [];
 		const provider: SearchProvider = {
-			id: "tavily",
+			id: "copilot",
 			async search(query, count) {
 				seen.push({ query, count });
 				return [{ title: "sigma.js", url: "https://www.sigmajs.org/", snippet: "v3 released" }];
@@ -51,17 +51,17 @@ describe("web_search on the injected port (web.ts)", () => {
 
 	it("provider errors surface as error strings, never thrown", async () => {
 		const provider: SearchProvider = {
-			id: "brave",
+			id: "copilot",
 			async search() {
-				throw new Error("Brave search API 429: rate limited");
+				throw new Error("search timed out");
 			},
 		};
 		const { web_search } = createWebTools(() => provider);
 		const out = await web_search!.execute!("c1", { query: "q" });
-		assert.match(String(out.details), /web_search failed: Brave search API 429: rate limited/);
+		assert.match(String(out.details), /web_search failed: search timed out/);
 	});
 
-	it("the resolution is FRESH per call — a key appearing mid-session takes effect", async () => {
+	it("the resolution is FRESH per call — a sign-in mid-session takes effect", async () => {
 		let provider: SearchProvider | null = null;
 		const { web_search } = createWebTools(() => provider);
 		const first = await web_search!.execute!("c1", { query: "q" });
@@ -108,9 +108,9 @@ describe("web_search on the injected port (web.ts)", () => {
 	});
 });
 
-describe("keyless researcher loop", () => {
-	it("sends the exact approved missing-credentials guidance in the researcher system prompt", async () => {
-		const approved = "If web_search reports that search is unavailable because credentials are missing, do not retry it with different queries. Use web_fetch when you have source URLs, and continue with any other available sources. If the missing search capability materially limits your work, state the limitation and the missing-key setup needed in your brief. Never invent search results or sources.";
+describe("the researcher loop without web search", () => {
+	it("sends the exact approved search-unavailable guidance in the researcher system prompt", async () => {
+		const approved = "If web_search reports that search is unavailable, do not retry it with different queries. Use web_fetch when you have source URLs, and continue with any other available sources. If the missing search capability materially limits your work, say so in your brief and note that web search needs GitHub Copilot to be signed in. Never invent search results or sources.";
 		const faux = createFauxCore({});
 		faux.setResponses([(context) => {
 			const system = context.messages.find((m) => m.role === "system");
@@ -131,7 +131,7 @@ describe("keyless researcher loop", () => {
 
 	// These scripts prove tool/loop mechanics, not real-model compliance.
 	for (const searchFirst of [true, false]) {
-		it(searchFirst ? "recovers from missing search keys by fetching a supplied URL" : "fetch-only research needs no search credentials", async () => {
+		it(searchFirst ? "recovers from unavailable search by fetching a supplied URL" : "fetch-only research needs no web search", async () => {
 			const url = "https://example.com/supplied-source";
 			const brief = `## Summary\nVerified supplied source. [Source](${url})`;
 			const steps: FauxResponseStep[] = [];
@@ -148,7 +148,7 @@ describe("keyless researcher loop", () => {
 					(context) => {
 						const result = context.messages.find((m) => m.role === "toolResult" && m.toolCallId === "search1");
 						assert.ok(result && result.role === "toolResult");
-						assert.equal(result.isError, false, "missing keys do not abort the native loop");
+						assert.equal(result.isError, false, "unavailable search does not abort the native loop");
 						assert.match(JSON.stringify(result.content), /no search engine is configured/);
 						return fetchCall();
 					},
@@ -173,7 +173,7 @@ describe("keyless researcher loop", () => {
 			try {
 				assert.equal(await runResearcherAgent(`Verify ${url}`, {
 					engine: { model: faux.getModel(), streamFn: faux.streamSimple },
-					// No search seam: this is the keyless backstop, not a search stub.
+					// No search seam: this is the no-search backstop, not a search stub.
 				}), brief);
 				assert.deepEqual(fetched, [url]);
 			} finally {
@@ -222,31 +222,31 @@ function fakeCtx(available?: () => boolean) {
 	};
 }
 
-describe("keyless research dispatch (jobTools)", () => {
+describe("research dispatch without web search (jobTools)", () => {
 	it("searchAvailable: false → research remains in the registry", () => {
 		const tools = jobTools(fakeCtx(() => false));
 		assert.ok(tools.research, "research can fetch supplied URLs without a search provider");
 		assert.ok(tools.demo && tools.visual && tools.pdf, "the search-less server keeps its other sub-agents");
 	});
 
-	it("keyless dispatch preserves the async job acknowledgement and spawn contract", async () => {
+	it("dispatch without search preserves the async job acknowledgement and spawn contract", async () => {
 		const ctx = fakeCtx(() => false);
 		const spawned: Array<{ job: JobRecord; input: unknown }> = [];
 		const tools = jobTools({ ...ctx, spawn: (job, input) => { spawned.push({ job, input }); } });
 		const input = { question: "Verify the supplied URL", context: "https://example.com/source" };
-		const out = await tools.research!.execute!("keyless-call", input);
+		const out = await tools.research!.execute!("no-search-call", input);
 		assert.match(String(out.details), /^Dispatched \(job job_1\)\./);
 		assert.match(String(out.details), /fire-and-forget/);
 		assert.equal(spawned.length, 1);
 		assert.equal(spawned[0]!.job.kind, "research");
-		assert.equal(spawned[0]!.job.toolCallId, "keyless-call");
+		assert.equal(spawned[0]!.job.toolCallId, "no-search-call");
 		assert.equal(spawned[0]!.job.status, "running");
 		assert.deepEqual(spawned[0]!.input, input);
 	});
 
 	it("searchAvailable: true → research present", () => {
 		const tools = jobTools(fakeCtx(() => true));
-		assert.ok(tools.research, "a keyed server exposes research");
+		assert.ok(tools.research, "a search-capable server exposes research");
 	});
 
 	it("absent seam = available (tests + any wiring without search)", () => {
@@ -270,7 +270,7 @@ const fakeChatStore = {
 
 const ctxBase = { chatId: "chat-gate-test", chatStore: fakeChatStore };
 
-describe("keyless role registries", () => {
+describe("role registries without web search", () => {
 	it("createTeacherTools: unavailable keeps research on the live wiring path", () => {
 		const tools = createTeacherTools({
 			...ctxBase,
@@ -278,7 +278,7 @@ describe("keyless role registries", () => {
 			spawn: () => {},
 			searchAvailable: () => false,
 		});
-		assert.ok(tools.research, "no search key is required to dispatch research");
+		assert.ok(tools.research, "web search is not required to dispatch research");
 		assert.ok(tools.demo && tools.visual && tools.pdf, "the other job tools survive");
 	});
 
@@ -289,10 +289,10 @@ describe("keyless role registries", () => {
 			spawn: () => {},
 			searchAvailable: () => true,
 		});
-		assert.ok(tools.research, "a keyed server exposes research through the teacher");
+		assert.ok(tools.research, "a search-capable server exposes research through the teacher");
 	});
 
-	it("createProberTools: research + pdf remain phase-omnipresent with or without search keys", () => {
+	it("createProberTools: research + pdf remain phase-omnipresent with or without web search", () => {
 		const on = createProberTools({
 			...ctxBase,
 			deliver: () => {},
@@ -309,11 +309,11 @@ describe("keyless role registries", () => {
 			spawn: () => {},
 			searchAvailable: () => false,
 		});
-		assert.ok(off.research, "keyless research dispatch is available in the prober too");
-		assert.ok(off.pdf && off.probe_done, "pdf is keyless — it survives; probe_done always-on");
+		assert.ok(off.research, "research dispatch without search is available in the prober too");
+		assert.ok(off.pdf && off.probe_done, "pdf needs no search — it survives; probe_done always-on");
 	});
 
-	it("createProberTools: the user toggle still drops research without search keys", () => {
+	it("createProberTools: the user toggle still drops research without web search", () => {
 		const tools = createProberTools(
 			{ ...ctxBase, deliver: () => {}, jobStore: fakeJobStore(), spawn: () => {}, searchAvailable: () => false },
 			{ research: false },
@@ -322,7 +322,7 @@ describe("keyless role registries", () => {
 		assert.ok(tools.pdf, "pdf unaffected by a research toggle");
 	});
 
-	it("createTeacherTools: the user toggle still drops research without search keys", () => {
+	it("createTeacherTools: the user toggle still drops research without web search", () => {
 		const tools = createTeacherTools(
 			{ ...ctxBase, jobStore: fakeJobStore(), spawn: () => {}, searchAvailable: () => false },
 			{ research: false },

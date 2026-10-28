@@ -8,8 +8,8 @@
  *
  * The store itself is the long-standing flat {VAR: value} auth.json map
  * (see config.AUTH_FILE): keys are identified BY their environment-variable
- * name — the same name consumers read today (TAVILY_API_KEY, …), so the
- * catalog id IS the file key and the env var, one name everywhere.
+ * name — the same name a consumer reads from process.env, so the catalog
+ * id IS the file key and the env var, one name everywhere.
  *
  * Unknown vars found in the file (outside the catalog) are PRESERVED
  * verbatim and surfaced as generic entries — forward-compat for future
@@ -29,26 +29,14 @@ export interface AuthKeyInfo {
 	docsUrl: string;
 }
 
-export const AUTH_KEYS: readonly AuthKeyInfo[] = [
-	{
-		id: "DEEPGRAM_API_KEY",
-		label: "Deepgram",
-		description: "Speech-to-text key for dictation — needs ≥ Member permission in the Deepgram console to mint tokens.",
-		docsUrl: "https://console.deepgram.com/",
-	},
-	{
-		id: "TAVILY_API_KEY",
-		label: "Tavily",
-		description: "Web-search engine for the researcher sub-agent (AI-native search API). Setting the key activates it — no engine toggle needed.",
-		docsUrl: "https://app.tavily.com/",
-	},
-	{
-		id: "BRAVE_API_KEY",
-		label: "Brave Search",
-		description: "Web-search engine for the researcher sub-agent — the alternative to Tavily. Setting the key activates it.",
-		docsUrl: "https://brave.com/search/api/",
-	},
-] as const;
+/**
+ * EMPTY since 2026-10-27: Deepgram dictation and the keyed search engines
+ * (Tavily, Brave) retired — web search runs on GitHub Copilot, so no
+ * feature needs a key today. Keys saved under the old names stay in the
+ * file and surface read-only as unknown vars. A future keyed service is
+ * one entry here; the settings page renders whatever the catalog holds.
+ */
+export const AUTH_KEYS: readonly AuthKeyInfo[] = [];
 
 const AUTH_KEY_IDS: ReadonlySet<string> = new Set(AUTH_KEYS.map((k) => k.id));
 
@@ -64,31 +52,26 @@ export type KeyShapeResult = { ok: true } | { ok: false; error: string };
  * a truncated or wrong-family key can never land in the store). Values are
  * TRIMMED first (paste hygiene); empty-after-trim always fails.
  *
- * CURATED keys carry family rules (Tavily's tvly-… prefix; Brave and
- * Deepgram publish no format — length floors + paste hygiene only).
+ * Only CURATED keys pass. Each gets the generic floor (a length minimum +
+ * no whitespace — catches truncated and multi-line pastes); a family that
+ * publishes a format (a prefix, a fixed length) adds its rule here.
  * Model access is never a key: every model call runs on the user's
  * GitHub Copilot sign-in.
  */
 export function validateKeyShape(id: string, rawValue: string): KeyShapeResult {
-	const value = rawValue.trim();
-	const nonEmpty = (min: number) =>
-		value.length >= min && !/\s/.test(value)
-			? { ok: true as const }
-			: { ok: false as const, error: `${id} must be at least ${min} characters with no whitespace` };
-	switch (id) {
-		case "TAVILY_API_KEY":
-			return value.startsWith("tvly-")
-				? nonEmpty(20)
-				: { ok: false, error: `${id} must start with "tvly-" (Tavily's key format)` };
-		case "BRAVE_API_KEY":
-			// No public format — a length floor + paste hygiene only.
-			return nonEmpty(20);
-		case "DEEPGRAM_API_KEY":
-			// No public format — the length floor only catches truncated pastes.
-			return nonEmpty(20);
-		default:
-			return { ok: false, error: `unknown key "${id}" (supported: ${[...AUTH_KEY_IDS].join(", ")})` };
+	if (!isKnownAuthKey(id)) {
+		const supported = [...AUTH_KEY_IDS];
+		return {
+			ok: false,
+			error: supported.length > 0
+				? `unknown key "${id}" (supported: ${supported.join(", ")})`
+				: `unknown key "${id}" (no keys are configurable)`,
+		};
 	}
+	const value = rawValue.trim();
+	return value.length >= 20 && !/\s/.test(value)
+		? { ok: true }
+		: { ok: false, error: `${id} must be at least 20 characters with no whitespace` };
 }
 
 /** A masked key never leaves the server as plaintext (owner decision:

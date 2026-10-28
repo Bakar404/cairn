@@ -6,6 +6,10 @@
  *  - saves/deletes take effect immediately (file + process.env together);
  *  - unknown file vars (an older build's model keys included) are
  *    preserved and surfaced, never editable.
+ * The catalog is EMPTY since 2026-10-27 (dictation and keyed search
+ * retired), so no id is writable — every save is refused; precedence,
+ * the fill-gap and the delete mechanics are pinned on file-held vars (a
+ * retired Brave key is the realistic leftover).
  *
  * LH_AUTH_FILE redirects to a fresh tmp dir BEFORE the imports (the seam is
  * module-load bound); the \"real env\" var is set before src/server/keys.ts
@@ -95,12 +99,12 @@ describe("boot fill-gap + precedence", () => {
 		assert.ok(!isWritableAuthKey("OPENROUTER_API_KEY"));
 	});
 
-	it("absent curated keys: not present, source none", () => {
-		const row = keyStatuses().find((s) => s.id === "DEEPGRAM_API_KEY")!;
-		assert.ok(!row.present);
-		assert.equal(row.source, "none");
-		assert.equal(row.masked, null);
-		assert.ok(row.info, "catalog metadata still present for the page form");
+	it("no catalog rows are synthesized — the view is exactly the file-held vars", () => {
+		assert.deepEqual(
+			keyStatuses().map((s) => s.id).sort(),
+			["BRAVE_API_KEY", "FUTURE_PLANS_TOKEN", "OPENROUTER_API_KEY"],
+		);
+		assert.ok(keyStatuses().every((s) => s.info === null), "nothing curated");
 	});
 
 	it("keyValue resolves env-first", () => {
@@ -110,58 +114,38 @@ describe("boot fill-gap + precedence", () => {
 	});
 });
 
-describe("saveKey / deleteKey (immediate effect, no restart)", () => {
-	it("save reflects into env + file (fill-gap set)", () => {
-		const value = "d".repeat(40); // throwaway, ≥ Deepgram floor
-		const r = saveKey("DEEPGRAM_API_KEY", value);
-		assert.ok(r.ok);
-		assert.equal(process.env.DEEPGRAM_API_KEY, value, "env updated immediately");
-		assert.equal(authStore.authVars().DEEPGRAM_API_KEY, value, "file updated");
-		assert.equal(r.status.source, "file", "the reflected copy is the store's — the file is its origin of truth");
-		assert.ok(!r.status.shadowedByEnv);
-	});
-
-	it("save to an env-owned var: file updated, env NOT overwritten, shadow reported", () => {
-		const r = saveKey("BRAVE_API_KEY", "BSA-newvalue-0123456789-12");
-		assert.ok(r.ok);
-		assert.equal(process.env.BRAVE_API_KEY, ENV_OWNED, "real env untouched");
-		assert.equal(authStore.authVars().BRAVE_API_KEY, "BSA-newvalue-0123456789-12", "file updated for later");
-		assert.ok(r.status.shadowedByEnv);
-	});
-
-	it("bad shape: rejected, nothing stored or reflected", () => {
+describe("saveKey / deleteKey", () => {
+	it("every save is refused while the catalog is empty — nothing stored or reflected", () => {
 		const before = JSON.stringify(authStore.authVars());
-		const r = saveKey("DEEPGRAM_API_KEY", "short");
-		assert.ok(!r.ok);
-		if (!r.ok) assert.match(r.error, /at least 20/);
+		for (const id of ["DEEPGRAM_API_KEY", "TAVILY_API_KEY", "BRAVE_API_KEY", "FUTURE_PLANS_TOKEN", "OPENAI_API_KEY"]) {
+			assert.ok(!isWritableAuthKey(id), id);
+			const r = saveKey(id, "x".repeat(40)); // throwaway, never a real secret
+			assert.ok(!r.ok, id);
+			if (!r.ok) assert.match(r.error, new RegExp(`unknown key "${id}"`));
+		}
 		assert.equal(JSON.stringify(authStore.authVars()), before);
-		assert.equal(process.env.DEEPGRAM_API_KEY, "d".repeat(40));
+		assert.equal(process.env.DEEPGRAM_API_KEY, undefined);
+		assert.equal(process.env.OPENAI_API_KEY, undefined);
+		assert.equal(process.env.BRAVE_API_KEY, ENV_OWNED);
 	});
 
-	it("unknown id: rejected with the supported list", () => {
-		const r = saveKey("FUTURE_PLANS_TOKEN", "anything-at-all-here");
-		assert.ok(!r.ok);
-		if (!r.ok) assert.match(r.error, /FUTURE_PLANS_TOKEN/);
-	});
-
+	// The route gates ids (writable only); the delete mechanics themselves
+	// are id-agnostic, so they're pinned on file-held vars.
 	it("delete removes env + file for fill-gap vars", () => {
-		const row = deleteKey("DEEPGRAM_API_KEY");
-		assert.ok(!row.present);
-		assert.equal(process.env.DEEPGRAM_API_KEY, undefined, "env copy was ours — removed");
-		assert.ok(!("DEEPGRAM_API_KEY" in authStore.authVars()));
+		deleteKey("FUTURE_PLANS_TOKEN");
+		assert.equal(process.env.FUTURE_PLANS_TOKEN, undefined, "env copy was ours — removed");
+		assert.ok(!("FUTURE_PLANS_TOKEN" in authStore.authVars()));
 	});
 
 	it("delete of an env-owned var: file copy gone, env remains (env wins)", () => {
-		const row = deleteKey("BRAVE_API_KEY");
-		assert.equal(row.source, "env");
-		assert.ok(row.present, "still live from the real env");
-		assert.ok(!row.shadowedByEnv, "nothing left in the file to shadow");
+		deleteKey("BRAVE_API_KEY");
+		assert.ok(!("BRAVE_API_KEY" in authStore.authVars()));
 		assert.equal(process.env.BRAVE_API_KEY, ENV_OWNED);
 	});
 
 	it("re-running initAuthEnv is idempotent — deleted vars never resurrect", () => {
 		initAuthEnv();
-		assert.equal(process.env.DEEPGRAM_API_KEY, undefined, "file entry gone → no re-fill");
+		assert.equal(process.env.FUTURE_PLANS_TOKEN, undefined, "file entry gone → no re-fill");
 	});
 
 	describe("model-provider keys (GitHub Copilot is the only model connection)", () => {
@@ -169,20 +153,6 @@ describe("saveKey / deleteKey (immediate effect, no restart)", () => {
 			const rows = keyStatuses().map((s) => s.id);
 			assert.ok(!rows.includes("OPENAI_API_KEY"), "never saved → no row");
 			assert.ok(!rows.includes("ZAI_API_KEY"));
-		});
-
-		it("a provider key save is rejected — nothing stored or reflected", () => {
-			const r = saveKey("OPENAI_API_KEY", "sk-throwaway-openai-0123456789"); // never a real secret
-			assert.ok(!r.ok);
-			assert.equal(process.env.OPENAI_API_KEY, undefined);
-			assert.ok(!("OPENAI_API_KEY" in authStore.authVars()));
-		});
-
-		it("isWritableAuthKey: the curated tool keys only", () => {
-			for (const id of ["DEEPGRAM_API_KEY", "TAVILY_API_KEY", "BRAVE_API_KEY"]) assert.ok(isWritableAuthKey(id), id);
-			for (const id of ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "FUTURE_PLANS_TOKEN", "ANTHROPIC_AUTH_TOKEN"]) {
-				assert.ok(!isWritableAuthKey(id), id);
-			}
 		});
 	});
 });
@@ -194,7 +164,7 @@ describe("resolveKeyStatuses (pure projection)", () => {
 			{ BRAVE_API_KEY: "BSA-same-value-throwaway-01234" },
 			new Set(["BRAVE_API_KEY"]),
 		).find((s) => s.id === "BRAVE_API_KEY")!;
-		assert.ok(row, "the curated id is always in the projection");
+		assert.ok(row, "the file-held id is in the projection");
 		assert.equal(row.source, "env");
 		assert.ok(!row.shadowedByEnv, "same value both places: redundant, not shadowed");
 	});

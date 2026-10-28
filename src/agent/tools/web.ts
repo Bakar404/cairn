@@ -20,11 +20,13 @@ import TurndownService from "turndown";
  *
  * SEARCH REWIRING (search port wave, 2026-09-20): the Google CSE backend is
  * retired — web_search now runs on the injected search port (core/search.ts).
- * The live adapter (Tavily/Brave — server/search.ts) arrives as a DEPENDENCY
- * (import law: this tool depends on the core port, never server code). NO
- * silent fallback (owner decision): provider absent → search is honestly
- * unavailable, and the composition root drops the research dispatch tool on
- * the same signal (the jobTools seam, src/agent/tools/jobs.ts).
+ * The live adapter (GitHub Copilot's hosted web search — server/search.ts;
+ * the keyed Tavily/Brave adapters retired 2026-10-27) arrives as a
+ * DEPENDENCY (import law: this tool depends on the core port, never server
+ * code). NO silent fallback (owner decision): provider absent → search is
+ * honestly unavailable, and the composition root drops the research
+ * dispatch tool on the same signal (the jobTools seam,
+ * src/agent/tools/jobs.ts).
  *
  * Tool contract: NEVER throw into the agent loop — missing provider and
  * every failure path return a clear error STRING as the tool output, so the
@@ -148,7 +150,7 @@ export function createWebTools(search: () => SearchProvider | null): Record<stri
 				if (!provider) {
 					return (
 						"web_search is not available: no search engine is configured. " +
-						"Sign in to GitHub Copilot, or set a Tavily or Brave search API key in settings. Report in your brief that web search is unavailable."
+						"Web search runs on GitHub Copilot: sign in to GitHub Copilot and choose your models in settings. Report in your brief that web search is unavailable."
 					);
 				}
 				try {

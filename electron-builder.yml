@@ -118,15 +118,11 @@ mac:
       arch:
         - arm64
   # Locale trim (payload wave, 2026-09-24): English-only app — cuts
-  # every non-en .lproj from the frameworks (the STT/mic entitlements
-  # don't depend on locales). Revisit only if localization ever lands.
+  # every non-en .lproj from the frameworks. Revisit only if localization
+  # ever lands.
   electronLanguages:
     - en
   category: public.app-category.education
-  # Laid for the STT milestone (researcher-verified): the TCC mic prompt
-  # reads this string; macOS asks regardless of Electron's own handlers.
-  extendInfo:
-    NSMicrophoneUsageDescription: "Cairn uses the microphone only for speech-to-text input into your sessions."
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   # Signing + notarization (flipped 2026-10-08): identity auto-detects the

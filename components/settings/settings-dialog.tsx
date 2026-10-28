@@ -65,10 +65,9 @@ const SECTIONS = [
 type SectionId = (typeof SECTIONS)[number]["id"];
 
 /** `open(section?, row?)` — the optional ROW deep-links into the Keys
- *  section with that row unfolded (zero-keys wave: the dictation error's
- *  click lands on the Deepgram row). `row` is the KEY ID (the env-var
- *  name, e.g. DEEPGRAM_API_KEY — KeysSection's openRow state), not the
- *  row's testid. */
+ *  section with that row unfolded (zero-keys wave: a surface whose key is
+ *  missing lands the learner on its row). `row` is the KEY ID (the
+ *  env-var name — KeysSection's openRow state), not the row's testid. */
 const DialogContext = createContext<{ open: (section?: string, row?: string) => void }>({ open: () => {} });
 
 /** AppShell-level mount: the sidebar row and the mod+, chord call this.
@@ -208,8 +207,8 @@ export function SettingsDialogBody({
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
 				// THE ONE-ESC LAW (owner, keyboard round 2026-10-06): claim
-				// at the document level — the window chain (dictation →
-				// abort) must not also act. One Esc, one action.
+				// at the document level — the window chain (the abort
+				// fallback) must not also act. One Esc, one action.
 				e.preventDefault();
 				e.stopPropagation();
 				onClose();

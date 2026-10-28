@@ -27,7 +27,6 @@ import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
-import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
@@ -546,9 +545,8 @@ export function Chat({
 
 	const [text, setText] = useState("");
 	/* The composer's value MIRROR ("nothing gets lost" round, owner
-	 * 2026-10-01): a dictation flush lands via setState, which a closure
-	 * waiting through `await finish()` cannot observe in time. Kept
-	 * current at every write site via applyText. */
+	 * 2026-10-01): the send paths read the ref, never a stale closure.
+	 * Kept current at every write site via applyText. */
 	const textRef = useRef("");
 	const applyText = useCallback((v: string) => {
 		textRef.current = v;
@@ -622,9 +620,6 @@ export function Chat({
 		// (setMessages/clearError are stable per useChat instance — the
 		//  dep pair [error, chatId] is what the flow actually keys on.)
 	}, [error, chatId]);
-	// Voice dictation (STT wave, 2026-09-17): finals append at the end of
-	// the current text (the page owns the separator, dictate-flush style);
-	// interims ghost in the stats bar's middle slot next to the meter.
 	// TAB CYCLES THE CHAT'S FIELDS (owner, keyboard round 2026-10-06):
 	// reading-thinking → the active dock's field → the composer, in
 	// visual order, forward-only with wrap; Tab from anywhere else
@@ -641,36 +636,12 @@ export function Chat({
 		];
 	}, []);
 	useFieldCycle(cycleChatFields);
-	const dictation = useDictation({
-		// Ref-first (see textRef): the join is computed from the mirror so a
-		// send resuming after `await finish()` reads the dictated tail.
-		append: (t) => applyText(joinDictation(textRef.current, t)),
-	});
-	/* When a dictation run ends, the bare composer takes focus (owner
-	 * 2026-10-01) — the hands are already on the keyboard from the stop.
-	 * Falling edge of `active` only (idle→idle never focuses), and ONLY the
-	 * composer: with a question pending the Composer is unmounted, the ref
-	 * is null, and the thinking field is left alone by design. */
-	const dictationWasActiveRef = useRef(false);
-	const composerInputRef = useRef<HTMLTextAreaElement>(null);
-	useEffect(() => {
-		if (dictation.active) {
-			dictationWasActiveRef.current = true;
-		} else if (dictationWasActiveRef.current) {
-			dictationWasActiveRef.current = false;
-			composerInputRef.current?.focus();
-		}
-	}, [dictation.active]);
 
 	// Jobs never gate the composer (contracts.ts "THE ASYNC PROTOCOL" §4): job
 	// tools resolve with an ack mid-turn, so the learner can interject while
 	// sub-agents run — a feature, not a race: the wake pipeline queues steers
 	// until the current turn ends. Only a QUESTION pending or a turn in
 	// flight (client or server-side wake turn) gates sending.
-	// A LIVE dictation also makes the composer sendable (owner 2026-10-01):
-	// the spoken text is deferred in the run's buffer — Enter must be able
-	// to trigger the finish-first send (see onSend), not be gated out by an
-	// empty textarea. If nothing was said, the send is a harmless no-op.
 	// Steering (2026-10-03): a turn in flight no longer gates the composer —
 	// Enter while a turn runs STEERS it (the quiet queue above the composer);
 	// a pending question still owns the interaction (the dock replaces the
@@ -682,7 +653,7 @@ export function Chat({
 	// affordance).
 	const [compacting, setCompacting] = useState(initiallyCompacting);
 	const canSend =
-		(text.trim().length > 0 || dictation.active) && !pending && !activeProblem && !compacting;
+		text.trim().length > 0 && !pending && !activeProblem && !compacting;
 
 	/* THE PRACTICE PAUSE (owner round 16): between problems — practice
 	 * kind, nothing active, nothing in flight, and at least one problem
@@ -1131,15 +1102,7 @@ export function Chat({
 
 	const onSend = () => {
 		if (pending || compacting) return;
-		/* FINISH DICTATION FIRST (owner, 2026-10-01): a learner who keeps
-		 * talking right through Enter must not lose the tail — stop the run,
-		 * let the last finals land in the composer, then send the REF value
-		 * (the flush lands via setState, invisible to this closure). */
-		if (!dictation.active) {
-			doSteerOrSend();
-			return;
-		}
-		void dictation.finish().then(doSteerOrSend);
+		doSteerOrSend();
 	};
 	const doSend = () => {
 		if (busy || pending || compacting) return;
@@ -1614,8 +1577,6 @@ export function Chat({
 					contextTokens={contextTokens}
 					pricing={pricing}
 					onReserve={setDockReserve}
-					dictationSlot={<DictationBar dictation={dictation} />}
-					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
 						zeroKeys ? (
@@ -1644,11 +1605,9 @@ export function Chat({
 							busy={busy}
 							value={text}
 							onChange={applyText}
-							inputRef={composerInputRef}
 							onSend={onSend}
 							onStop={abortInFlightTurn}
 							canSend={canSend}
-							onEscape={dictation.active ? dictation.cancel : undefined}
 							// The pause affordance (owner round 16): the placeholder
 							// IS the hint — empty state, exactly where Enter-on-empty
 							// applies.
@@ -1812,8 +1771,8 @@ export function probeArrivalExpanded(isAtBottom: boolean): boolean {
 
 /**
  * The geometry-mute's growth rule (flicker round, 2026-09-26): a reserve
- * GROWTH while a question is pending is the dock stretching (the dictation
- * flush landing many lines at once) — the spacer lands in that commit, the
+ * GROWTH while a question is pending is the dock stretching (many lines
+ * landing at once) — the spacer lands in that commit, the
  * smooth catch-up lags by exactly the growth, and that lag is our own
  * motion, not the learner leaving, so the fold machine ignores scroll
  * events for the mute window after (reproduced d≈152 > COLLAPSE_DIST).
@@ -1845,8 +1804,6 @@ function DockOverlay({
 	onReserve,
 	plan,
 	onOpenPlan,
-	dictationSlot,
-	dictationCancel,
 	setupCta,
 	queuedSteers,
 }: {
@@ -1886,12 +1843,6 @@ function DockOverlay({
 	plan?: React.ReactNode;
 	/** Opens the full-DAG popup (the marginalia + chip share it). */
 	onOpenPlan: () => void;
-	/** The dictation strip (STT wave): rendered in the stats bar's middle
-	 *  slot — the mic button + live meter (components/dictation.tsx). */
-	dictationSlot?: React.ReactNode;
-	/** Esc in a pending question's field stops dictation (the strip is the
-	 *  stats bar's; the stop belongs to the page-owned hook, threaded down). */
-	dictationCancel?: () => void;
 	/** The queued-steer indicator's lines (composer steering, 2026-10-03):
 	 *  already filtered by visibleQueuedSteers — only undrained steers. */
 	queuedSteers: QueuedSteerLine[];
@@ -2098,7 +2049,7 @@ function DockOverlay({
 		// 2026-09-26): the spacer's height lands in this commit, the smooth
 		// catch-up lags it by the growth amount, and the position machine
 		// used to read that lag as the learner leaving — form → bar → form
-		// (the dictation flush, reproduced d≈152 > COLLAPSE_DIST). Stamp the
+		// (many lines landing at once, reproduced d≈152 > COLLAPSE_DIST). Stamp the
 		// mute right where the spacer grows: it covers the scroll events of
 		// THIS growth no matter how long after the field stretched (the
 		// field grows on its own render; the offer lands on the NEXT
@@ -2140,10 +2091,8 @@ function DockOverlay({
 	expandAndRevealRef.current = expandAndReveal;
 	// ENTER OPENS THE WAITING CHECK (owner, keyboard round 2026-10-06):
 	// while a question waits with the dock CLOSED — behind its reveal
-	// invitation or collapsed by scroll — Enter is never dead. Any live
-	// dictation FINISHES FIRST (the flush lands in the reading-thinking
-	// field, its live claim — the nothing-gets-lost law), then the check
-	// opens. A typing surface or a focused button owns its own Enter (the
+	// invitation or collapsed by scroll — Enter is never dead: it opens
+	// the check. A typing surface or a focused button owns its own Enter (the
 	// reading-thinking field opens from INSIDE when the check is closed;
 	// a focused button activates natively) — this listener claims only
 	// the dead case: plain focus with Enter doing nothing.
@@ -2162,9 +2111,7 @@ function DockOverlay({
 			)
 				return;
 			e.preventDefault();
-			void finishDictation().then(() => {
-				expandAndRevealRef.current();
-			});
+			expandAndRevealRef.current();
 		};
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
@@ -2283,24 +2230,13 @@ function DockOverlay({
 					    line dies when its card lands (visibleQueuedSteers). */}
 					<QueuedSteersBody steers={queuedSteers} />
 					{/* The reading-thinking field (owner 2026-10-03): mounted while a
-					    teach-phase check waits — the same cue that collapses it. It
-					    claims dictated speech until the learner reveals the check
-					    (the dock reclaims then). Rides the check answer on submit. */}
+					    teach-phase check waits — the same cue that collapses it.
+					    Rides the check answer on submit. */}
 					{pending && requiresReveal && (
 						<ReadingThinkingField
 							value={readingThinking}
 							onChange={onReadingThinking}
-							onEscape={dictationCancel}
-							onOpen={
-								!expanded
-									? () => {
-											void finishDictation().then(() => {
-												expandAndRevealRef.current();
-											});
-										}
-									: undefined
-							}
-							claim={revealPending}
+							onOpen={!expanded ? () => expandAndRevealRef.current() : undefined}
 						/>
 					)}
 					<div ref={shellRef} className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">
@@ -2321,8 +2257,6 @@ function DockOverlay({
 									onSubmit={onSubmitAnswer}
 									initialDraft={initialQuestionDraft}
 									onSaveDraft={onSaveQuestionDraft}
-									onEscape={dictationCancel}
-									dictationClaim={!revealPending}
 									compactionRunning={compactionRunning}
 								/>
 							) : practice ? (
@@ -2335,7 +2269,6 @@ function DockOverlay({
 										void suppressFoldDuringReveal();
 									}}
 									onSubmit={onSubmitThinking}
-									onEscape={dictationCancel}
 									compactionRunning={compactionRunning}
 								/>
 							) : (
@@ -2350,7 +2283,6 @@ function DockOverlay({
 						turns={turns}
 						contextTokens={contextTokens}
 						pricing={pricing}
-						dictationSlot={dictationSlot}
 						chatId={chatId}
 					/>
 					{/* The scroll-down disc (moved here from the Conversation,
