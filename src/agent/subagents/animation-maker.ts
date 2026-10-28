@@ -7,7 +7,7 @@ import { releaseCopilotSessions } from "../copilot/index.ts";
 import type { AnimationResult, AnimationToolInput } from "../../core/contracts.ts";
 import { MANIM_MAX_SECONDS, type ManimRenderer } from "../../core/manim.ts";
 import { providerSafePng } from "./headless.ts";
-import { applyExactEdit, lookMessage, nudgeMessage, streamOnce, textOf, toolCallsOf, toolText } from "./maker-kit.ts";
+import { applyExactEdit, issueLines, layoutReport, lookMessage, nudgeMessage, streamOnce, textOf, toolCallsOf, toolText } from "./maker-kit.ts";
 
 /**
  * The animation-maker sub-agent (M13): writes ONE short Manim scene from the
@@ -17,7 +17,10 @@ import { applyExactEdit, lookMessage, nudgeMessage, streamOnce, textOf, toolCall
  *
  * The visual maker's loop shape and doctrine (visual-maker.ts): one raw
  * model call per iteration, tool results written by this loop, and the
- * preview's contact sheet (six frames, start to end) fed back as an image.
+ * preview's contact sheet (the moments the scene settles into, then the
+ * final frame) fed back as an image, with the renderer's layout check in
+ * the tool result. Finishing while that check still reports problems in
+ * the final scene earns one reminder per scene.
  * Nothing is delivered unlooked — finishing with an unpreviewed scene
  * previews it first, and the final render is always of the scene the model
  * last looked at. Out of turns, the newest scene a model call looked at
@@ -35,7 +38,7 @@ export interface AnimationMakerOptions {
 	jobId: string;
 	/** Test seam: scripted engine; production uses the animationMaker role. */
 	engine?: PiEngine;
-	/** Max model rounds (write/preview cycles + final answer). Default 10;
+	/** Max model rounds (write/preview cycles + final answer). Default 14;
 	 *  a preview made in the last round gets one extra call to look at it. */
 	maxIterations?: number;
 	/** Live activity-line callback (updates the job record). */
@@ -62,16 +65,20 @@ Your three tools:
   old_text must appear EXACTLY ONCE; it is replaced by new_text. Call write_scene first. For anything
   beyond a one-spot fix, write_scene the whole file again.
 - render_preview({}) — render the scene quickly at low quality. Its contact sheet arrives as an image
-  in the message right after the tool result: six frames in a 3 × 2 grid, read left to right, top to
-  bottom, each captioned with its time; the last one is the final frame.
-Tools called in one turn run in the order you call them, and turns are limited: put write_scene (or
-edit_scene) and render_preview in the SAME turn.
+  in the message right after the tool result: up to nine frames — the moment the scene settles after
+  each beat, then the final frame — read left to right, top to bottom, each captioned with its time.
+  The tool result also lists the layout problems the renderer measured: text spilling out of its box,
+  texts overlapping, labeled boxes overlapping, text hidden under a shape or crossed by a line, too
+  small, cut off by the frame, or never shown because it comes after the last play or wait.
+Tools called in one turn run in the order you call them, and turns are limited: make every fix in ONE
+turn (several edit_scene calls, or one write_scene) and put render_preview in that SAME turn.
 
 THE ONE RULE THAT MATTERS MOST: verify by looking. You are done only when you have LOOKED at a preview
 of your FINAL scene and confirmed every beat is true to the brief. A render that succeeds only proves
 the code ran. When you look:
 - Does each beat appear, in order, with every position, value, direction and label correct?
 - Is anything overlapping, cut off by the frame edge, too small to read, or left over from an earlier beat?
+- Did the layout check list problems? Fix every one: it measures what a small frame hides.
 - Does the final frame show the idea's end state clearly? It becomes the video's poster.
 
 When you finish, the full-quality video is rendered from the scene you last previewed. If that render
@@ -91,13 +98,35 @@ The scene file — always this shape:
   - FAINT #D9D9D9: grids and guide lines;
   - ACCENT #2563EB: the one thing the animation is about;
   - ACCENT2 #EA580C: only when two things must be told apart.
-- Text(...) for words, MathTex(...) for math (LaTeX is installed). Generous sizes.
 - The frame is 14.2 × 8 units centred on the origin; keep everything within x ±6.5, y ±3.6.
 - Points are 3-D: np.array([x, y, 0]) or x * RIGHT + y * UP. A 2-tuple such as move_to((0, 1.5)) fails.
 - Length: 5 to 40 seconds, never more than ${MANIM_MAX_SECONDS}. Pace the beats with run_time and
   self.wait so each can be read, and end with self.wait(1) or self.wait(2) so the end state holds.
 - One idea, fewest elements. FadeOut what is no longer needed so the frame never gets crowded.
 - Deterministic: no randomness, files, network or input — the renderer has none.
+
+A clean frame — what makes an animation look careful rather than rough:
+- Text(...) for words and plain numbers: the house sans font is already set, so pass no font=.
+  MathTex(...) only for real math (LaTeX is installed). Titles 40-48, labels 28-36, never below 24 —
+  even where the brief says "small". Scaling a group down shrinks its text too.
+- Size every box from its label, never a fixed width:
+    label = Text("capital", font_size=32)
+    box = SurroundingRectangle(label, buff=0.2, corner_radius=0.1, color=INK)
+  or, for a row of boxes of one height, RoundedRectangle(width=label.width + 0.5, height=0.9,
+  corner_radius=0.1) with label.move_to(box). Keep each pair as VGroup(box, label), box first, and
+  move, copy, fade and transform the whole group, so no label is ever left behind or lost.
+- Lay out with arrange, next_to, align_to and to_edge rather than typed coordinates. Build the final
+  layout first and reveal it over time: e.g. create all eight token boxes, arrange the whole row, show
+  the first five, and bring each later one in as it arrives — the row never runs off the frame or needs
+  re-centering or shrinking. If a group is wider than 12 units, scale_to_fit_width(12) before showing it.
+- Transform(a, b) reshapes a into b and leaves a on screen (b itself is never added: keep using a);
+  ReplacementTransform(a, b) leaves b on screen; TransformFromCopy(a, b) keeps a and adds b.
+- One caption slot, at to_edge(DOWN, buff=0.5). Change the caption with ReplacementTransform(old, new),
+  never by writing a second one on top.
+- Put each value next to what it measures — value.next_to(bar, UP, buff=0.1) — and grow bars with
+  GrowFromEdge(bar, DOWN).
+- Indicate, Circumscribe and Flash already use the accent. After each beat, hold 0.5 to 1.5 s with
+  self.wait so it can be read.
 
 Your FINAL message: 1-2 sentences of notes for the teacher (what the animation shows and any caveats) —
 NEVER the code itself. If you genuinely cannot make a correct animation of the brief, say exactly that
@@ -112,6 +141,9 @@ const OUT_OF_TURNS_MESSAGE =
 const LIMIT_NOTE = "Iteration limit reached — delivering the last previewed animation.";
 const EARLIER_VERSION_NOTE =
 	"Iteration limit reached — delivering the last version the maker looked at; it ran out of turns before looking at its later changes.";
+const LAYOUT_GATE_MESSAGE = "Before you finish: the layout check still reports these problems in your final scene:";
+const LAYOUT_GATE_ASK =
+	"Fix them and preview again — or, if one is deliberate, reply with your notes again and say why.";
 
 const SCENE_EDIT = { write: "write_scene", render: "render_preview", noun: "scene" };
 
@@ -146,7 +178,7 @@ export function createAnimationTools(): Record<string, Tool> {
 		render_preview: {
 			name: "render_preview",
 			description:
-				"Render the current scene at low quality and show you a contact sheet of six frames, start to end, with its length. No arguments.",
+				"Render the current scene at low quality and show you a contact sheet of the moments it settles into, then its final frame, with its length and any layout problems the renderer measured. No arguments.",
 			parameters: Type.Object({}),
 		},
 	};
@@ -155,7 +187,7 @@ export function createAnimationTools(): Record<string, Tool> {
 export async function runAnimationMaker(input: AnimationToolInput, opts: AnimationMakerOptions): Promise<AnimationResult> {
 	const title = input.title.trim() || "Animation";
 	const brief = input.brief.trim() || "(no brief)";
-	const maxIterations = opts.maxIterations ?? 10;
+	const maxIterations = opts.maxIterations ?? 14;
 	const failed = (why: string): AnimationResult => ({ title, video: null, notes: `FAILED: ${why}` });
 
 	const status = await opts.manim.status();
@@ -182,6 +214,10 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 	let lastLooked: string | null = null;
 	/** The latest render's error, cleared by a successful preview. */
 	let lastError: string | null = null;
+	/** The layout check's findings for the previewed scene. */
+	let previewIssues: string[] = [];
+	/** The scene a finish was last reminded of its layout problems (once per scene). */
+	let remindedScene: string | null = null;
 	let finalText = "";
 
 	const render = (code: string, mode: "preview" | "final") =>
@@ -193,9 +229,9 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 			...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
 		});
 
-	/** Preview a scene: the contact sheet and length, or what went wrong
-	 *  (kept as lastError until a preview succeeds). */
-	const preview = async (code: string): Promise<{ png: Buffer; durationSec: number } | { error: string }> => {
+	/** Preview a scene: the contact sheet, length and layout findings, or
+	 *  what went wrong (kept as lastError until a preview succeeds). */
+	const preview = async (code: string): Promise<{ png: Buffer; durationSec: number; issues: string[] } | { error: string }> => {
 		const out = await render(code, "preview");
 		const durationSec = out.durationSec ?? 0;
 		if (!out.ok || !out.pngBase64) {
@@ -204,7 +240,7 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 			lastError = `the animation runs ${durationSec.toFixed(1)} s and the limit is ${MANIM_MAX_SECONDS} s. Shorten it: fewer beats, shorter run_time and waits.`;
 		} else {
 			lastError = null;
-			return { png: providerSafePng(Buffer.from(out.pngBase64, "base64")), durationSec };
+			return { png: providerSafePng(Buffer.from(out.pngBase64, "base64")), durationSec, issues: out.issues ?? [] };
 		}
 		return { error: lastError };
 	};
@@ -264,8 +300,21 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 						continue;
 					}
 					previewed = currentScene;
+					previewIssues = shot.issues;
+					// This look carries the layout check: it is the scene's reminder.
+					if (shot.issues.length) remindedScene = currentScene;
 					const look = lastTurn ? OUT_OF_TURNS_MESSAGE : UNLOOKED_FINISH_MESSAGE;
-					messages = [...messages, lookMessage(`${look} (${shot.durationSec.toFixed(1)} s)`, shot.png)];
+					messages = [
+						...messages,
+						lookMessage(`${look} (${shot.durationSec.toFixed(1)} s)${layoutReport(shot.issues)}`, shot.png),
+					];
+					continue;
+				}
+				// Layout gate: the check still reports problems in the final scene.
+				// One reminder per scene; a deliberate choice is the model's call.
+				if (previewIssues.length && remindedScene !== currentScene && !lastTurn) {
+					remindedScene = currentScene;
+					messages = [...messages, nudgeMessage(`${LAYOUT_GATE_MESSAGE}\n${issueLines(previewIssues)}\n${LAYOUT_GATE_ASK}`)];
 					continue;
 				}
 				const out = await deliver(currentScene, finalText);
@@ -319,12 +368,14 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 					}
 					sheet = shot.png;
 					previewed = currentScene;
-					opts.onActivity?.(`render_preview: inspecting a ${shot.durationSec.toFixed(1)} s preview`);
+					previewIssues = shot.issues;
+					const flagged = shot.issues.length ? ` (${shot.issues.length} layout problem${shot.issues.length === 1 ? "" : "s"})` : "";
+					opts.onActivity?.(`render_preview: inspecting a ${shot.durationSec.toFixed(1)} s preview${flagged}`);
 					toolResults.push(
 						toolText(
 							call.id,
 							call.name,
-							`Rendered — ${shot.durationSec.toFixed(1)} s long. The contact sheet follows in the next message. Look at it.`,
+							`Rendered — ${shot.durationSec.toFixed(1)} s long. The contact sheet follows in the next message. Look at it.${layoutReport(shot.issues)}`,
 						),
 					);
 				} else {

@@ -595,21 +595,35 @@ function saveMedia(chatId: string, file: string, data: Buffer, mime: MediaRef["m
 	return ref;
 }
 
+/** The runner's layout findings: at most a dozen short strings. */
+function issuesOf(result: Record<string, unknown>): string[] {
+	if (!Array.isArray(result.issues)) return [];
+	return result.issues
+		.filter((item): item is string => typeof item === "string")
+		.map((item) => item.trim().slice(0, 400))
+		.filter(Boolean)
+		.slice(0, 12);
+}
+
 /** Turn the runner's files into the mode's result, saving what the chat
  *  keeps: a still, or the video and its poster. */
 function collect(req: ManimRenderRequest, files: Map<string, Buffer>, result: Record<string, unknown>): ManimRenderResult {
 	const durationSec = positive(result.durationSec);
+	const issues = issuesOf(result);
 	if (req.mode === "preview") {
 		const sheet = files.get("sheet.png");
 		if (!sheet || !isPng(sheet)) return { ok: false, error: "The renderer didn't return the preview frames." };
-		return durationSec === undefined
-			? { ok: true, pngBase64: sheet.toString("base64") }
-			: { ok: true, pngBase64: sheet.toString("base64"), durationSec };
+		const out: ManimRenderResult = { ok: true, pngBase64: sheet.toString("base64") };
+		if (durationSec !== undefined) out.durationSec = durationSec;
+		if (issues.length) out.issues = issues;
+		return out;
 	}
 	if (req.mode === "still") {
 		const still = files.get("still.png");
 		if (!still || !isPng(still)) return { ok: false, error: "The renderer didn't return the picture." };
-		return { ok: true, still: saveMedia(req.chatId, `${req.jobId}.png`, still, "image/png"), pngBase64: still.toString("base64") };
+		const out: ManimRenderResult = { ok: true, still: saveMedia(req.chatId, `${req.jobId}.png`, still, "image/png"), pngBase64: still.toString("base64") };
+		if (issues.length) out.issues = issues;
+		return out;
 	}
 	const video = files.get("video.mp4");
 	if (!video || !isMp4(video)) return { ok: false, error: "The renderer didn't return the video." };
@@ -829,6 +843,10 @@ MEDIA = os.path.join(WORK, "media")
 SCENE = os.path.join(WORK, "scene.py")
 MODE = sys.argv[1] if len(sys.argv) > 1 else "preview"
 QUALITY = {"preview": "low_quality", "final": "medium_quality", "still": "high_quality"}
+# A contact sheet shows up to eight settled moments plus the final frame;
+# the layout check reports at most a dozen problems.
+SHEET_FRAMES = 9
+MAX_ISSUES = 12
 
 # Frames go to the real stdout. Everything else (Manim's console, LaTeX,
 # ffmpeg) is pointed at stderr, so nothing can corrupt a frame.
@@ -913,6 +931,362 @@ def newest_video():
     return max(found, key=os.path.getmtime) if found else ""
 
 
+# ─── The layout check ──────────────────────────────────────────────────────
+# A contact sheet is small, so the flaws that make a lesson look careless
+# are measured instead: text spilling out of its box, texts drawn over each
+# other, text hidden under a filled shape or crossed by a line, text too
+# small to read, anything cut off by the frame edge, labeled boxes cutting
+# into each other, and (in the final frame) boxes in a row left without
+# their label. A preview checks the frame each play() and wait() settles
+# into, and keeps their times to pick the contact sheet's frames; it also
+# names text made or added after the last of them, which never reaches the
+# video. Every check ends with the final frame, the only one a still has.
+# Best effort: nothing here can fail a render.
+
+SEGMENTS = []  # (start, end, is_wait) of each play() and wait(), in seconds
+ISSUES = []
+_SEEN = set()
+_MADE = []  # texts made since the last play() or wait() ended
+_SHOWN = set()  # ids of what was on screen when it ended
+
+
+def watch_plays():
+    """Wrap Scene.play (wait() goes through it) to record each segment and
+    check the frame it settles into, and Text and MarkupText to keep the
+    texts made after it."""
+    from manim import MarkupText, Scene, Text, Wait
+
+    original = Scene.play
+
+    def play(self, *args, **kwargs):
+        try:
+            start = float(self.renderer.time)
+        except Exception:
+            start = None
+        result = original(self, *args, **kwargs)
+        del _MADE[:]
+        try:
+            _SHOWN.clear()
+            _SHOWN.update(id(m) for m in self.get_mobject_family_members())
+        except Exception:
+            pass
+        if start is not None:
+            try:
+                end = float(self.renderer.time)
+                SEGMENTS.append((start, end, len(args) == 1 and isinstance(args[0], Wait)))
+                check_frame(self, end)
+            except Exception:
+                pass
+        return result
+
+    Scene.play = play
+    for cls in (Text, MarkupText):
+        _keep_made(cls)
+
+
+def _keep_made(cls):
+    made = cls.__init__  # already carries cairn_style's defaults
+
+    def __init__(self, *args, **kwargs):
+        made(self, *args, **kwargs)
+        _MADE.append(self)
+
+    cls.__init__ = __init__
+
+
+def check_frame(scene, when, final=False):
+    try:
+        _check_frame(scene, when, final)
+    except Exception:
+        pass
+
+
+def check_unshown(scene):
+    """Manim writes frames only while play() or wait() runs, so text made or
+    added after the last one is missing from the video, often the summary
+    the scene was building to."""
+    try:
+        from manim import DecimalNumber, MarkupText, Paragraph, SingleStringMathTex, Text
+        kinds = (Text, MarkupText, Paragraph, SingleStringMathTex, DecimalNumber)
+        late, visited = list(_MADE), set()
+
+        def walk(mob):
+            if id(mob) in visited:
+                return
+            visited.add(id(mob))
+            if isinstance(mob, kinds):
+                if id(mob) not in _SHOWN:
+                    late.append(getattr(mob, "lines_text", mob))  # a Paragraph's words
+                return
+            for sub in mob.submobjects:
+                walk(sub)
+
+        for mob in list(scene.mobjects) + list(getattr(scene, "foreground_mobjects", [])):
+            walk(mob)
+        names = []
+        for mob in late:
+            name = _named(mob)
+            if name not in names:
+                names.append(name)
+        if names:
+            if len(names) > 3:
+                listed = ", ".join(names[:3]) + " and %d more" % (len(names) - 3)
+            else:
+                listed = " and ".join([", ".join(names[:-1]), names[-1]]) if len(names) > 1 else names[0]
+            _note(None, ("unshown",),
+                  "%s never appear%s: the video ends with the last play() or wait(), so text made or "
+                  "added after it is missing. Show it with self.play(FadeIn(...)), then end with "
+                  "self.wait(1)." % (listed, "s" if len(names) == 1 else ""))
+    except Exception:
+        pass
+
+
+def _note(when, key, message):
+    if key in _SEEN or len(ISSUES) >= MAX_ISSUES:
+        return
+    _SEEN.add(key)
+    ISSUES.append(("At %.1f s: " % when if when is not None else "") + message)
+
+
+def _drawn(mob):
+    """Whether mob's own fill or outline shows."""
+    try:
+        if mob.get_fill_opacity() > 0.05:
+            return True
+        return mob.get_stroke_opacity() > 0.05 and mob.get_stroke_width() > 0.01
+    except Exception:
+        return False
+
+
+def _filled(mob):
+    try:
+        return mob.get_fill_opacity() >= 0.5
+    except Exception:
+        return False
+
+
+def _extent(points):
+    lo, hi = points.min(axis=0), points.max(axis=0)
+    return (float(lo[0]), float(lo[1]), float(hi[0]), float(hi[1]))
+
+
+def _area(box):
+    return max(box[2] - box[0], 0.0) * max(box[3] - box[1], 0.0)
+
+
+def _middle(box):
+    return ((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0)
+
+
+def _contains(box, point):
+    return box[0] < point[0] < box[2] and box[1] < point[1] < box[3]
+
+
+def _inside(inner, outer):
+    return (inner[0] >= outer[0] - 0.02 and inner[2] <= outer[2] + 0.02
+            and inner[1] >= outer[1] - 0.02 and inner[3] <= outer[3] + 0.02)
+
+
+def _overlaps(a, b):
+    return a[0] <= b[2] and b[0] <= a[2] and a[1] <= b[3] and b[1] <= a[3]
+
+
+def _shrink(box, factor):
+    x, y = _middle(box)
+    w, h = (box[2] - box[0]) * factor / 2.0, (box[3] - box[1]) * factor / 2.0
+    return (x - w, y - h, x + w, y + h)
+
+
+def _cut_off(box, frame):
+    """Partly in the frame and partly out of it (wholly outside is unseen)."""
+    seen = box[0] < frame[2] and box[2] > frame[0] and box[1] < frame[3] and box[3] > frame[1]
+    return seen and (box[0] < frame[0] - 0.02 or box[2] > frame[2] + 0.02
+                     or box[1] < frame[1] - 0.02 or box[3] > frame[3] + 0.02)
+
+
+def _crosses(line, box):
+    """Whether the line's path runs through the box (Liang-Barsky on the
+    segments between its anchors)."""
+    points = line.points
+    for i in range(0, len(points) - 3, 4):
+        x0, y0 = float(points[i][0]), float(points[i][1])
+        dx, dy = float(points[i + 3][0]) - x0, float(points[i + 3][1]) - y0
+        lo, hi = 0.0, 1.0
+        for p, q in ((-dx, x0 - box[0]), (dx, box[2] - x0), (-dy, y0 - box[1]), (dy, box[3] - y0)):
+            if abs(p) < 1e-12:
+                if q < 0:
+                    lo, hi = 1.0, 0.0
+            elif p < 0:
+                lo = max(lo, q / p)
+            else:
+                hi = min(hi, q / p)
+        if lo <= hi:
+            return True
+    return False
+
+
+def _a(kind):
+    return ("an " if kind[:1] in "AEIOU" else "a ") + kind
+
+
+def _named(mob):
+    """How a message names a text: its words, or its number."""
+    for attr in ("original_text", "tex_string", "text"):
+        value = getattr(mob, attr, None)
+        if isinstance(value, str) and value.strip():
+            value = " ".join(value.split())
+            return '"%s"' % (value if len(value) <= 28 else value[:25] + "...")
+    number = getattr(mob, "number", None)
+    if isinstance(number, (int, float)):
+        return "the number %g" % number
+    return _a(type(mob).__name__)
+
+
+def _at(box):
+    return "at (%.1f, %.1f)" % _middle(box)
+
+
+def _check_frame(scene, when, final):
+    import numpy as np
+    from manim import (Circle, DecimalNumber, Line, MarkupText, NumberPlane, Paragraph, Rectangle,
+                       SingleStringMathTex, Text, VMobject)
+
+    camera = scene.renderer.camera
+    if any(cls.__name__ == "ThreeDCamera" for cls in type(camera).__mro__):
+        return  # points are projected; their x and y are not the picture's
+    x, y = float(camera.frame_center[0]), float(camera.frame_center[1])
+    w, h = camera.frame_width / 2.0, camera.frame_height / 2.0
+    frame = (x - w, y - h, x + w, y + h)
+    edge = "keep everything within x %.1f..%.1f, y %.1f..%.1f" % (
+        frame[0] + 0.6, frame[2] - 0.6, frame[1] + 0.4, frame[3] - 0.4)
+
+    texts = []   # (draw order of its last part, mob, extent, has a filled backdrop)
+    shapes = []  # (draw order, mob, extent of its own outline)
+    skip, grid = set(), set()
+    for order, mob in enumerate(scene.get_mobject_family_members()):
+        if id(mob) in skip:
+            continue
+        if isinstance(mob, NumberPlane):
+            grid.update(id(part) for part in mob.get_family())
+        if isinstance(mob, (Text, MarkupText, Paragraph, SingleStringMathTex, DecimalNumber)):
+            family = mob.get_family()
+            skip.update(id(part) for part in family[1:])
+            drawn = [part.points for part in family if len(part.points) and _drawn(part)]
+            if drawn:
+                box = _extent(np.vstack(drawn))
+                if _area(box) > 1e-6:
+                    backdrop = any(isinstance(part, Rectangle) and _filled(part) for part in family[1:])
+                    texts.append((order + len(family) - 1, mob, box, backdrop))
+        elif isinstance(mob, VMobject) and len(mob.points) and _drawn(mob):
+            shapes.append((order, mob, _extent(mob.points)))
+    texts = texts[:60]
+
+    held = {}  # id of the box a text sits in -> (extent, the texts it holds)
+    for order, mob, box, backdrop in texts:
+        name = _named(mob)
+        where = "%s %s" % (name, _at(box))
+        middle = _middle(box)
+        area = _area(box)
+        try:
+            size = float(mob.font_size)
+        except Exception:
+            size = 0.0
+        if 1.0 < size < 23.5:
+            _note(when, ("small", name), "%s is too small to read (font_size %d): use 24 or more." % (where, round(size)))
+        if _cut_off(box, frame):
+            _note(when, ("frame", name), "%s is cut off by the edge of the frame: %s." % (where, edge))
+        holder = None
+        for _order, shape, s_box in shapes:
+            if isinstance(shape, (Rectangle, Circle)) and _contains(s_box, middle) and _area(s_box) >= 0.5 * area:
+                if holder is None or _area(s_box) < _area(holder[1]):
+                    holder = (shape, s_box)
+        if holder is not None:
+            s_box = holder[1]
+            if isinstance(holder[0], Rectangle):
+                held.setdefault(id(holder[0]), (s_box, []))[1].append(name)
+            spill = max(s_box[0] - box[0], box[2] - s_box[2], s_box[1] - box[1], box[3] - s_box[3])
+            if spill > 0.03:
+                _note(when, ("spill", name),
+                      "%s spills %.2f past the edge of its %s: size the box from the text, e.g. "
+                      "SurroundingRectangle(label, buff=0.2) or width=label.width + 0.5."
+                      % (where, spill, "circle" if isinstance(holder[0], Circle) else "box"))
+        if backdrop:
+            continue
+        for s_order, shape, s_box in shapes:
+            if s_order > order and _filled(shape) and _contains(s_box, middle) and _area(s_box) >= 0.25 * area:
+                _note(when, ("hidden", name),
+                      "%s is hidden under %s drawn after it: add the text after the shape, e.g. "
+                      "VGroup(box, label) with the box first." % (where, _a(type(shape).__name__)))
+                break
+        inner = _shrink(box, 0.7)
+        for _order, shape, s_box in shapes:
+            if isinstance(shape, Line) and shape.get_stroke_width() >= 3 and _overlaps(s_box, inner) and _crosses(shape, inner):
+                _note(when, ("crossed", name),
+                      "%s is crossed by %s: move the label clear of it, e.g. next_to(line, UP, buff=0.15), "
+                      "or end the line before the text (buff)." % (where, _a(type(shape).__name__)))
+                break
+
+    for i in range(len(texts)):
+        for j in range(i + 1, len(texts)):
+            a, b = texts[i][2], texts[j][2]
+            shared = max(min(a[2], b[2]) - max(a[0], b[0]), 0.0) * max(min(a[3], b[3]) - max(a[1], b[1]), 0.0)
+            if min(a[2], b[2]) - max(a[0], b[0]) <= 0.05 or min(a[3], b[3]) - max(a[1], b[1]) <= 0.05:
+                continue
+            if shared < 0.15 * min(_area(a), _area(b)):
+                continue
+            first, second = _named(texts[i][1]), _named(texts[j][1])
+            key = ("overlap",) + tuple(sorted((first, second)))
+            if first == second and shared > 0.8 * (_area(a) + _area(b) - shared):
+                _note(when, key,
+                      "%s %s is drawn twice in the same place, a leftover copy: after Transform(a, b) keep "
+                      "using a (b is never added), or use ReplacementTransform; FadeOut copies you no longer "
+                      "need." % (first, _at(a)))
+            else:
+                _note(when, key,
+                      "%s %s and %s %s overlap: move them apart, e.g. arrange(..., buff=0.3) or "
+                      "next_to(..., buff=0.25), or FadeOut the old one first." % (first, _at(a), second, _at(b)))
+
+    # Boxes that hold labels must not cut into each other (one inside another is fine).
+    held = list(held.values())
+    for i in range(len(held)):
+        for j in range(i + 1, len(held)):
+            (a, a_names), (b, b_names) = held[i], held[j]
+            across = min(a[2], b[2]) - max(a[0], b[0])
+            down = min(a[3], b[3]) - max(a[1], b[1])
+            if across <= 0.05 or down <= 0.05 or _inside(a, b) or _inside(b, a):
+                continue
+            first, second = a_names[0], b_names[0]
+            _note(when, ("boxes",) + tuple(sorted((first, second))),
+                  "The boxes around %s %s and %s %s overlap by %.2f: place a box beside another with "
+                  "next_to(other, RIGHT, buff=0.2), or arrange the row; move_to(point) puts the box's "
+                  "centre on the point." % (first, _at(a), second, _at(b), min(across, down)))
+
+    for _order, shape, s_box in shapes:
+        if id(shape) not in grid and _cut_off(s_box, frame):
+            kind = type(shape).__name__
+            _note(when, ("frame", kind), "%s %s is cut off by the edge of the frame: %s." % (_a(kind), _at(s_box), edge))
+
+    if final:
+        boxes = [s_box for _order, shape, s_box in shapes if isinstance(shape, Rectangle) and 0.05 <= _area(s_box) <= 6.0]
+        holding = [any(_contains(s_box, _middle(t[2])) for t in texts) for s_box in boxes]
+        done = set()
+        for i, s_box in enumerate(boxes):
+            if i in done:
+                continue
+            tall = s_box[3] - s_box[1]
+            row = [j for j, other in enumerate(boxes)
+                   if abs(_middle(other)[1] - _middle(s_box)[1]) < 0.15 and abs((other[3] - other[1]) - tall) <= 0.25 * tall + 0.05]
+            done.update(row)
+            empty = [j for j in row if not holding[j]]
+            if empty and len(row) - len(empty) >= 2:
+                spots = ", ".join("(%.1f, %.1f)" % _middle(boxes[j]) for j in empty[:4])
+                _note(when, ("empty", round(_middle(s_box)[1], 1)),
+                      "%d of the %d boxes in the row at y = %.1f are empty at the end, at %s: the label meant "
+                      "for each never arrived. Keep each box and its label in one VGroup and move, copy or "
+                      "transform the group (ignore this if they are meant to be empty)."
+                      % (len(empty), len(row), _middle(s_box)[1], spots))
+
+
 def render():
     """Render the scene: a PIL image (still) or the video's path."""
     check_scene()
@@ -933,6 +1307,8 @@ def render():
             "write_to_movie": MODE != "still",
         }
         with tempconfig(options):
+            if MODE == "preview":
+                watch_plays()
             spec = importlib.util.spec_from_file_location("scene", SCENE)
             module = importlib.util.module_from_spec(spec)
             sys.modules["scene"] = module
@@ -943,7 +1319,11 @@ def render():
                 # The camera's final frame, whether or not the scene played
                 # anything (Manim saves no image for a scene without plays).
                 scene.renderer.update_frame(scene)
+                check_frame(scene, None, final=True)
                 return scene.renderer.camera.get_image()
+            if MODE == "preview":
+                check_unshown(scene)
+                check_frame(scene, float(scene.renderer.time), final=True)
             writer = getattr(scene.renderer, "file_writer", None)
             out = str(getattr(writer, "movie_file_path", "") or "")
     except SystemExit:
@@ -972,11 +1352,71 @@ def video_duration(path):
         return end
 
 
-def sample_frames(path):
-    """Five frames at 1/6 .. 5/6 of the video, plus the last frame."""
+def spread(items, k):
+    """k of items, evenly spread and keeping the first and the last."""
+    if k <= 0:
+        return []
+    if len(items) <= k:
+        return list(items)
+    if k == 1:
+        return [items[-1]]
+    return [items[int(round(i * (len(items) - 1) / (k - 1.0)))] for i in range(k)]
+
+
+def settled_moments(duration):
+    """When the preview stands still, for the contact sheet: the start of
+    each wait() after an animation, then the instants one animation hands
+    over to the next. The sheet adds the final frame itself."""
+    holds, handovers = [], []
+    for k, (start, _end, is_wait) in enumerate(SEGMENTS):
+        if start >= duration - 0.05:
+            continue
+        if is_wait:
+            # A wait after a wait shows nothing new; trailing waits show
+            # the final frame.
+            if (k > 0 and SEGMENTS[k - 1][2]) or all(s[2] for s in SEGMENTS[k:]):
+                continue
+            holds.append(start)
+        elif k > 0 and not SEGMENTS[k - 1][2]:
+            handovers.append(start)
+    picks = spread(holds, SHEET_FRAMES - 1)
+    picks = sorted(picks + spread(handovers, SHEET_FRAMES - 1 - len(picks)))
+    if len(picks) < 3:
+        # Too few beats to go by (or none recorded): add evenly spaced times
+        # that show something the sheet doesn't yet.
+        for k in range(1, 6):
+            t = duration * k / 6.0
+            if not _shown(t, picks):
+                picks.append(t)
+        picks = sorted(picks)[:SHEET_FRAMES - 1]
+    return picks
+
+
+def _shown(t, picks):
+    """Whether the frame at t looks like one the sheet already has: within
+    0.4 s of a picked moment, or of a run of waits that is picked (or ends
+    the video, which the final frame shows)."""
+    if any(abs(t - p) < 0.4 for p in picks):
+        return True
+    k = 0
+    while k < len(SEGMENTS):
+        if SEGMENTS[k][2]:
+            first = k
+            while k + 1 < len(SEGMENTS) and SEGMENTS[k + 1][2]:
+                k += 1
+            start, end = SEGMENTS[first][0], SEGMENTS[k][1]
+            if start - 0.4 < t < end + 0.4 and (
+                    k == len(SEGMENTS) - 1 or any(abs(start - p) < 1e-3 for p in picks)):
+                return True
+        k += 1
+    return False
+
+
+def sample_frames(path, settled=False):
+    """The frames at the settled moments (if asked), and the final frame."""
     import av
     duration = video_duration(path)
-    targets = [duration * k / 6.0 for k in range(1, 6)]
+    targets = settled_moments(duration) if settled else []
     picks = []
     last = None
     last_t = 0.0
@@ -984,38 +1424,43 @@ def sample_frames(path):
         stream = container.streams.video[0]
         width = stream.codec_context.width
         height = stream.codec_context.height
+        rate = float(stream.average_rate or stream.guessed_rate or 15)
         for frame in container.decode(stream):
             t = float(frame.time) if frame.time is not None else last_t
-            while targets and t + 1e-6 >= targets[0]:
+            if targets and t + 0.5 / rate >= targets[0]:
                 picks.append((t, frame.to_image()))
-                targets.pop(0)
+                while targets and t + 0.5 / rate >= targets[0]:
+                    targets.pop(0)
             last, last_t = frame, t
     if last is None:
         fail("The rendered video has no frames.")
-    final = last.to_image()
-    while len(picks) < 5:
-        picks.append((last_t, final))
-    return (duration or last_t), width, height, picks[:5], (last_t, final)
+    picks = [(t, image) for t, image in picks if t < last_t - 1e-6]
+    return (duration or last_t), width, height, picks, (last_t, last.to_image())
 
 
 def contact_sheet(shots):
+    """The shots in rows of three, each captioned with its time; the last
+    one is the final frame."""
     from PIL import Image, ImageDraw, ImageFont
-    cols, rows, thumb_w, pad, label = 3, 2, 400, 8, 22
+    count = len(shots)
+    cols = min(3, count)
+    rows = (count + cols - 1) // cols
+    thumb_w, pad, label = 480, 8, 24
     first = shots[0][1]
     thumb_h = max(1, round(first.height * thumb_w / first.width))
     sheet = Image.new("RGB", (cols * thumb_w + (cols + 1) * pad, rows * (label + thumb_h) + (rows + 1) * pad), "#EEEEEE")
     draw = ImageDraw.Draw(sheet)
     try:
-        font = ImageFont.load_default(size=16)
+        font = ImageFont.load_default(size=18)
     except Exception:
         font = ImageFont.load_default()
-    for i, (t, image) in enumerate(shots[:cols * rows]):
+    for i, (t, image) in enumerate(shots):
         x = pad + (i % cols) * (thumb_w + pad)
         y = pad + (i // cols) * (label + thumb_h + pad)
         sheet.paste(image.convert("RGB").resize((thumb_w, thumb_h)), (x, y + label))
         draw.rectangle([x - 1, y + label - 1, x + thumb_w, y + label + thumb_h], outline="#BBBBBB")
-        caption = ("end, t = %.1f s" if i == cols * rows - 1 else "t = %.1f s") % t
-        draw.text((x, y + 2), caption, fill="#1F1F1F", font=font)
+        caption = ("end, t = %.1f s" if i == count - 1 else "t = %.1f s") % t
+        draw.text((x, y + 3), caption, fill="#1F1F1F", font=font)
     return sheet
 
 
@@ -1032,14 +1477,15 @@ def main():
     try:
         if MODE == "still":
             emit_file("still.png", png_bytes(rendered))
-            finish(ok=True, width=rendered.width, height=rendered.height)
-        duration, width, height, picks, last = sample_frames(rendered)
+            finish(ok=True, width=rendered.width, height=rendered.height, issues=ISSUES)
         if MODE == "preview":
+            duration, width, height, picks, last = sample_frames(rendered, settled=True)
             emit_file("sheet.png", png_bytes(contact_sheet(picks + [last])))
-        else:
-            with open(rendered, "rb") as fh:
-                emit_file("video.mp4", fh.read())
-            emit_file("poster.png", png_bytes(last[1]))
+            finish(ok=True, durationSec=round(duration, 2), width=width, height=height, issues=ISSUES)
+        duration, width, height, _picks, last = sample_frames(rendered)
+        with open(rendered, "rb") as fh:
+            emit_file("video.mp4", fh.read())
+        emit_file("poster.png", png_bytes(last[1]))
         finish(ok=True, durationSec=round(duration, 2), width=width, height=height)
     except BaseException as exc:
         fail("Cairn couldn't read the render: " + error_text(exc))
@@ -1079,6 +1525,22 @@ _DEFAULTS = [(name, INK) for name in (
 for _name, _color in _DEFAULTS:
     try:
         getattr(manim, _name).set_default(color=_color)
+    except Exception:
+        pass
+
+# Text with no font falls back to Pango's default family, a serif. The
+# house font is a clean sans; a scene can still pass font=... itself.
+FONT = "Noto Sans"
+for _name in ("Text", "MarkupText"):
+    try:
+        getattr(manim, _name).set_default(font=FONT)
+    except Exception:
+        pass
+
+# Emphasis in the accent: Manim's yellow is unreadable on paper.
+for _name in ("Indicate", "Circumscribe", "Flash"):
+    try:
+        getattr(manim, _name).set_default(color=ACCENT)
     except Exception:
         pass
 `;
