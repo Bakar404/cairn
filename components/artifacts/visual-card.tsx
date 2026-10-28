@@ -15,7 +15,8 @@ import { mediaUrl, type ArtifactPartProps, type VisualResult } from "@/src/core"
  * Visual artifact card (W6 → ack protocol): the tool part's output is the
  * dispatch ack, so the tool-call box is the DispatchCard (live status via
  * the chat view's jobs feed). The SVG itself renders from the steer message
- * (sub-agent result delivery) via VisualOutputCard.
+ * (sub-agent result delivery) via VisualOutputCard, or from the box while
+ * the learner holds the delivery.
  *
  * Both display modes use an SVG image document: generated markup and its
  * styles never join the app's DOM. Downloads still contain the original SVG.
@@ -39,7 +40,13 @@ export function svgNaturalWidth(svg: string): number | null {
 
 export function VisualCard({ part }: ArtifactPartProps) {
 	if (part.state !== "output-available") return null;
-	return <DispatchCard toolCallId={part.toolCallId} kind="visual" />;
+	return (
+		<DispatchCard
+			toolCallId={part.toolCallId}
+			kind="visual"
+			renderHeld={(result) => <VisualOutputCard output={result} />}
+		/>
+	);
 }
 
 /** The figure itself — exported: the steer card renders the delivered artifact. */

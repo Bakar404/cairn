@@ -13,7 +13,8 @@
  *   5. the job runner: animation and visual jobs end to end, and the
  *      honest failure when the server has no renderer
  *   6. the cards: the video player and its failure/offline states, the
- *      inverted steer, Manim stills in the figure card, pngFigureSvg
+ *      inverted steer, the held delivery, Manim stills in the figure card,
+ *      pngFigureSvg
  *
  * Runs under an isolated LH_DATA_DIR (jobs and chats are written to disk):
  * the seam is set before any config-loading import, so the store, runner,
@@ -37,7 +38,7 @@ import { SubagentSteerCard } from "../components/artifacts/steer-card.tsx";
 import { artifactRenderers } from "../components/artifacts/index.ts";
 import { slugFilename } from "../components/artifacts/download.ts";
 import { ChatActionsContext } from "../components/chat.tsx";
-import { JobsContext } from "../components/jobs-context.ts";
+import { HeldResultsContext, JobsContext, heldResultJobIds } from "../components/jobs-context.ts";
 import { applyExactEdit } from "../src/agent/subagents/maker-kit.ts";
 import {
 	buildSubagentSteer,
@@ -48,6 +49,8 @@ import {
 	type VisualResult,
 } from "../src/core/contracts.ts";
 import { MANIM_IMAGE, mediaUrl, type ManimRenderer, type ManimRenderRequest, type ManimStatus } from "../src/core/manim.ts";
+import { newAnswerResult, newUserMessage, type LhMessage } from "../src/core/native-messages.ts";
+import { dismissedAnswer } from "../src/core/question-core.ts";
 import { projectView } from "../src/core/view.ts";
 import type { PiEngine } from "../src/agent/models.ts";
 import type { HeadlessApi } from "../src/agent/subagents/headless.ts";
@@ -765,6 +768,88 @@ describe("animation and still cards", () => {
 		assert.match(offline, /Animation ready: How a hash table resizes\. Open the session to play it\./);
 		assert.ok(!offline.includes("<video"), "no player without a chat to serve the file");
 		assert.match(renderToStaticMarkup(<AnimationOutputCard output="oops" />), /the result could not be displayed/);
+	});
+
+	describe("a result the learner holds (an unanswered question or a dismissal)", () => {
+		const now = new Date().toISOString();
+		const job = (over: Partial<JobRecord> = {}): JobRecord => ({
+			id: "job_h1",
+			kind: "animation",
+			chatId: "chat_1",
+			toolCallId: "call_anim",
+			status: "done",
+			activity: "delivered",
+			createdAt: now,
+			updatedAt: now,
+			result: RESULT,
+			delivery: { kind: "result", status: "pending" },
+			...over,
+		});
+		const asking = {
+			id: "a1",
+			role: "assistant",
+			content: [
+				{ type: "toolCall", id: "call_anim", name: "animation", arguments: {} },
+				{ type: "toolCall", id: "call_q", name: "quiz", arguments: {} },
+			],
+			timestamp: 0,
+		} as unknown as LhMessage;
+		const ack = {
+			id: "r_anim",
+			role: "toolResult",
+			toolCallId: "call_anim",
+			toolName: "animation",
+			content: [{ type: "text", text: "Dispatched (job job_h1)." }],
+			isError: false,
+			timestamp: 0,
+		} as unknown as LhMessage;
+		const quizOpen: LhMessage[] = [{ ...newUserMessage("topic"), id: "u1" }, asking, ack];
+		const answered: LhMessage[] = [...quizOpen, { ...newAnswerResult("call_q", "quiz", { ok: true }), id: "r_q" }];
+		const dismissed: LhMessage[] = [
+			...quizOpen,
+			{ ...newAnswerResult("call_q", "quiz", dismissedAnswer("quiz", "Which token comes next?")), id: "d_q" },
+		];
+		const steer = buildSubagentSteer({ id: "job_h1", kind: "animation", toolCallId: "call_anim" }, RESULT);
+
+		it("holds a finished, undelivered result only behind a question or a dismissal", () => {
+			assert.deepEqual([...heldResultJobIds([job()], quizOpen)], ["job_h1"], "the unanswered check holds the steer");
+			assert.deepEqual([...heldResultJobIds([job()], dismissed)], ["job_h1"], "so does a dismissal tail");
+			assert.equal(heldResultJobIds([job()], answered).size, 0, "nothing holds it: the steer is a moment away");
+			assert.equal(heldResultJobIds([job()], [...quizOpen, steer as unknown as LhMessage]).size, 0, "the steer landed");
+			for (const over of [
+				{ delivery: { kind: "result", status: "delivered" } },
+				{ delivery: undefined },
+				{ status: "running", result: undefined },
+				{ status: "error", delivery: { kind: "abort", status: "pending" } },
+			] as Partial<JobRecord>[]) {
+				assert.equal(heldResultJobIds([job(over)], quizOpen).size, 0, JSON.stringify(over));
+			}
+		});
+
+		it("the dispatch card plays a held video under its one-liner, and stays quiet otherwise", () => {
+			const part = {
+				type: "tool-animation",
+				state: "output-available",
+				toolCallId: "call_anim",
+				input: { title: "T", brief: "b" },
+				output: "Dispatched (job job_h1).",
+			};
+			const card = (held: ReadonlySet<string>) =>
+				inChat(
+					<JobsContext.Provider value={[job()]}>
+						<HeldResultsContext.Provider value={held}>
+							<AnimationCard part={part as never} />
+						</HeldResultsContext.Provider>
+					</JobsContext.Provider>,
+				);
+			const held = card(new Set(["job_h1"]));
+			assert.match(held, /data-testid="dispatch-held"/);
+			assert.match(held, /Animation agent.*finished/s);
+			assert.ok(held.includes(`src="${mediaUrl("chat_1", "job_c1.mp4")}"`));
+			const quiet = card(new Set());
+			assert.match(quiet, /data-testid="dispatch-settled"/);
+			assert.ok(!quiet.includes("<video"), "the steer card owns the artifact");
+		});
 	});
 
 	it("a Manim still shows in the figure card from the media route, with a PNG download", () => {

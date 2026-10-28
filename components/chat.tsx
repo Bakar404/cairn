@@ -28,7 +28,7 @@ import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { useFieldCycle } from "@/components/field-cycle";
-import { JobsContext } from "@/components/jobs-context";
+import { HeldResultsContext, JobsContext, heldResultJobIds } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import {
@@ -940,6 +940,9 @@ export function Chat({
 	// (duplicate message ids). So: a settle during a busy turn defers the
 	// sync; the next idle fetch adopts the finished record.
 	const [jobs, setJobs] = useState<JobRecord[]>([]);
+	// Finished artifacts the learner holds (an unanswered question or a
+	// dismissal tail): their dispatch cards show them until the steer lands.
+	const heldResults = useMemo(() => heldResultJobIds(jobs, nativeMessages), [jobs, nativeMessages]);
 	const localStreamRef = useRef(false);
 	localStreamRef.current = localStream;
 	const jobStatusRef = useRef<Map<string, string>>(new Map());
@@ -1152,6 +1155,7 @@ export function Chat({
 			}}
 		>
 		<JobsContext.Provider value={jobs}>
+		<HeldResultsContext.Provider value={heldResults}>
 		{/* The session surface: the transcript column (header + scroller) and
 		    the plan-tree panel as full-height SIBLINGS — the panel spans top to
 		    bottom exactly like the left sidebar, and the header (name + phase
@@ -1654,6 +1658,7 @@ export function Chat({
 				</div>
 			</div>
 		</div>
+		</HeldResultsContext.Provider>
 		</JobsContext.Provider>
 		</SessionMermaidContext.Provider>
 		{/* The BYOK setup flow (owner, 2026-09-22): one mount serves the
