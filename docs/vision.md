@@ -160,7 +160,7 @@ The note field is not an auxiliary input — it's the channel where the learner 
 
 **Dictation is a requirement, not a luxury** — yapping means talking, not typing. What it requires on the web:
 1. **Capture:** `getUserMedia` + AudioWorklet → 16 kHz linear16 PCM (browser-native; replaces the pi extension's sox/`rec`).
-2. **Transport + transcription:** the pi `dictate` extension's proven recipe ports directly — Deepgram streaming (`nova-3`, `smart_format`, `punctuate`, `endpointing=300`), per-utterance finals. Architecture: a server route mints a **short-lived Deepgram token**, the browser connects to Deepgram's WSS directly (API key never touches the client). On-device whisper (transformers.js/WebGPU) is the private/offline alternative — deferred unless Deepgram disappoints.
+2. **Transport + transcription:** the pi `dictate` extension's proven recipe ports directly — Deepgram streaming (`nova-3`, `smart_format`, `punctuate`, `endpointing=300`), per-utterance finals. Architecture: a server route mints a **short-lived Deepgram token**, the browser connects to Deepgram's WSS directly (API key never touches the client). On-device whisper (transformers.js/WebGPU) is the private/offline alternative — deferred unless Deepgram disappoints. *(Superseded 2026-10-27: Cairn removed the Deepgram build; dictation returns later on a different speech service — Azure Speech is planned.)*
 3. **UX:** mic button in the composer blob; live level meter (AnalyserNode — the pi extension's responsive visuals rebuilt for web); transcript lands in the textarea/field, editable before send; Escape cancels; **a finished dictation is never lost** (carried over from the pi extension's hard-won UX lessons).
 
 ### It is not a chat — the presentation principle (direction, 2026-08-22 — LOW PRIORITY)
@@ -251,7 +251,7 @@ The teacher's context window and attention are precious — it has the lesson to
 6b. **Researcher tool** — fact verification for the teacher (§2.5); cheap port of proven pi pieces. **✅ Wave 1 (W2): async job protocol, live activity card, sourced brief, teacher continuation. Live-verified.**
 7. **Presentation fixes** — LaTeX delimiters, line breaks, mermaid integration. **✅ Wave 1 (W3): \(…\)/\[…\] contract ($ literal forever), remark-breaks, dark mermaid + styled streamdown chrome. Live-verified.**
 8. **Structural-identity candidates** (from §2 ideation, pending selection): sectioned lesson-document transcript, gated progression, typed blocks, session-state strip.
-9. **Later:** dictation (Deepgram token-mint + AudioWorklet capture), frontier expansion + what-next queries (new territory / repairs / conversions), spaced repetition on the event ledger, practice exercises, Electron.
+9. **Later:** dictation (on a speech service other than Deepgram — Azure Speech is planned; the Deepgram build was removed 2026-10-27), frontier expansion + what-next queries (new territory / repairs / conversions), spaced repetition on the event ledger, practice exercises, Electron.
 
 ---
 

@@ -85,24 +85,13 @@ describe("AgentSection (thin SSR)", () => {
 		assert.ok(html.includes('data-testid="group-models"'), "Models sub-group");
 		assert.ok(html.includes('data-testid="group-tools"'), "Tools sub-group");
 		assert.ok(html.includes('data-testid="group-prompts"'), "System prompts sub-group");
-	});
-
-	it("the search-engine row renders with its live reason (search wave 2026-09-20)", () => {
-		const html = renderToStaticMarkup(<AgentSection agent={undefined} models={undefined} graph={undefined} onSectionChange={() => {}} onModelsChange={() => {}} />);
-		assert.ok(html.includes('data-testid="search-engine-row"'), "the row");
-		assert.ok(html.includes('data-testid="search-engine-trigger"'), "the trigger");
-		// SSR: /api/search never fired → no reason line yet, trigger reads Automatic
-		assert.ok(html.includes("Automatic"), "unset engine reads Automatic");
-		// the explicit preference shows the chosen engine in the trigger
-		const html2 = renderToStaticMarkup(
-			<AgentSection agent={{ search: { engine: "tavily" } }} models={undefined} graph={undefined} onSectionChange={() => {}} onModelsChange={() => {}} />,
-		);
-		assert.ok(html2.includes("Tavily"), "pinned engine visible in the trigger");
+		// web search runs on GitHub Copilot only — the engine row is retired (2026-10-27)
+		assert.ok(!html.includes('data-testid="search-engine-row"'), "no search-engine row");
 	});
 
 	it("the prober graph-tools row: FIRST in the Tools group, default ON, its own key (wave 7)", () => {
 		// Default state: graph on, graphTools absent → ON, the describing
-		// hint rides (the search-row hint discipline).
+		// hint rides.
 		const html = renderToStaticMarkup(<AgentSection agent={undefined} models={undefined} graph={undefined} onSectionChange={() => {}} onModelsChange={() => {}} />);
 		const toolsGroup = html.split('data-testid="group-tools"')[1] ?? "";
 		const rows = [...toolsGroup.matchAll(/data-testid="(graph-tools-row|tool-row-\w+)"/g)].map((m) => m[1]);
@@ -111,7 +100,7 @@ describe("AgentSection (thin SSR)", () => {
 		assert.ok(html.includes("Lets the tutor consult your knowledge map between sessions"), "the describing hint");
 		assert.ok((html.split('data-testid="graph-tools-row"')[1] ?? "").includes('aria-checked="true"'), "absent = on");
 		const rowHtml = html.split('data-testid="graph-tools-row"')[1]?.split('data-testid="tool-row-')[0] ?? "";
-		assert.ok(!rowHtml.includes("opacity-40"), "lit while the graph is on (the search row may dim — no keys in SSR)");
+		assert.ok(!rowHtml.includes("opacity-40"), "lit while the graph is on");
 	});
 
 	it("graph disabled dims the graph-tools row with the honest hint (the predicate composes)", () => {

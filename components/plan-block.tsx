@@ -758,11 +758,10 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 
 	// Esc closes — claimed at the DOCUMENT level (THE ONE-ESC LAW, owner
 	// keyboard round 2026-10-06): a surfaced layer's Esc is exactly one
-	// action. The window-level chain (dictation cancel → abort) is the
-	// fallback for when NOTHING is surfaced; a window listener here could
-	// never stop it — same-node listeners all fire — which was the
-	// plan-open-while-dictating double-act (Esc closed the plan AND
-	// cancelled the dictation).
+	// action. The window-level abort chain is the fallback for when
+	// NOTHING is surfaced; a window listener here could never stop it —
+	// same-node listeners all fire — so Esc would close the plan AND
+	// reach the chain underneath (the double-act this claim fixed).
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {

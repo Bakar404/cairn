@@ -170,7 +170,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
 				// Claim the Esc (keyboard wave A): the window-level chain must
-				// not ALSO stop dictation / abort the turn under this menu.
+				// not ALSO abort the turn under this menu.
 				e.stopPropagation();
 				setOpen(null);
 			}

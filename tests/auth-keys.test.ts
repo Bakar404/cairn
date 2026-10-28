@@ -1,8 +1,8 @@
 /**
- * The curated auth-key catalog + shape rules (auth-keys wave, 2026-09-19;
- * search wave 2026-09-20: the Google CSE pair retired, Tavily + Brave in)
+ * The curated auth-key catalog + shape rules (auth-keys wave, 2026-09-19)
  * — PURE module, so this file owns no fs. Owner decisions being pinned:
- *  - the catalog is exactly the three known keys, ids = env-var names;
+ *  - the catalog is EMPTY since 2026-10-27 (Deepgram dictation and the
+ *    keyed search engines retired; web search runs on GitHub Copilot);
  *  - validation is SHAPE-ONLY (no live pings) and bad pastes are 400s;
  *  - masking is last-4 + length — plaintext never leaves the store.
  */
@@ -12,63 +12,19 @@ import { describe, it } from "node:test";
 import { AUTH_KEYS, isKnownAuthKey, maskKey, validateKeyShape } from "../src/core/auth-keys.ts";
 
 describe("the catalog", () => {
-	it("is exactly the three CURATED app-service keys (provider keys live in the provider table)", () => {
-		assert.deepEqual(
-			AUTH_KEYS.map((k) => k.id),
-			["DEEPGRAM_API_KEY", "TAVILY_API_KEY", "BRAVE_API_KEY"],
-		);
-		for (const k of AUTH_KEYS) {
-			assert.ok(k.label.length > 0, `${k.id} has a label`);
-			assert.ok(k.description.length > 0, `${k.id} has a description`);
-			assert.ok(k.docsUrl.startsWith("https://"), `${k.id} has a docs link`);
+	it("is empty — the retired service keys and every provider key are unknown", () => {
+		assert.deepEqual(AUTH_KEYS, []);
+		for (const id of ["DEEPGRAM_API_KEY", "TAVILY_API_KEY", "BRAVE_API_KEY", "GOOGLE_SEARCH_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY", ""]) {
+			assert.ok(!isKnownAuthKey(id), id);
 		}
-		// OPENROUTER_API_KEY graduated to the provider table (owner decision,
-		// provider-keys interlude) — not curated anymore. The Google CSE
-		// pair retired with its engine (search wave, 2026-09-20).
-		assert.ok(!isKnownAuthKey("OPENROUTER_API_KEY"));
-		assert.ok(!isKnownAuthKey("GOOGLE_SEARCH_API_KEY"), "the CSE pair is retired");
-		assert.ok(!isKnownAuthKey("GOOGLE_CSE_ID"));
-	});
-
-	it("isKnownAuthKey: catalog yes, everything else no", () => {
-		assert.ok(isKnownAuthKey("DEEPGRAM_API_KEY"));
-		assert.ok(isKnownAuthKey("TAVILY_API_KEY"));
-		assert.ok(isKnownAuthKey("BRAVE_API_KEY"));
-		assert.ok(!isKnownAuthKey("OPENROUTER_API_KEY"));
-		assert.ok(!isKnownAuthKey("OPENAI_API_KEY"), "provider vars are a separate surface");
-		assert.ok(!isKnownAuthKey("FUTURE_PLANS_TOKEN"));
-		assert.ok(!isKnownAuthKey(""));
 	});
 });
 
-describe("validateKeyShape (the 400 gate — curated keys)", () => {
-	it("Tavily: tvly- prefix required, length floor past it", () => {
-		assert.ok(validateKeyShape("TAVILY_API_KEY", "tvly-abc123def456ghi78").ok);
-		assert.ok(!validateKeyShape("TAVILY_API_KEY", "sk-or-v1-abcdefghij").ok, "wrong family");
-		assert.ok(!validateKeyShape("TAVILY_API_KEY", "tvly-").ok, "prefix alone is a truncation");
-		assert.ok(!validateKeyShape("TAVILY_API_KEY", "  ").ok, "empty fails");
-	});
-
-	it("Brave: no public format — a ≥20-char truncation guard, no whitespace", () => {
-		assert.ok(validateKeyShape("BRAVE_API_KEY", "b".repeat(40)).ok);
-		assert.ok(!validateKeyShape("BRAVE_API_KEY", "b".repeat(19)).ok, "truncated paste");
-		assert.ok(!validateKeyShape("BRAVE_API_KEY", "has whitespace here").ok);
-	});
-
-	it("Deepgram: no public format — a ≥20-char truncation guard, no whitespace", () => {
-		assert.ok(validateKeyShape("DEEPGRAM_API_KEY", "a".repeat(40)).ok);
-		assert.ok(!validateKeyShape("DEEPGRAM_API_KEY", "a".repeat(19)).ok, "truncated paste");
-		assert.ok(!validateKeyShape("DEEPGRAM_API_KEY", "a b c d e f g h i j k l m n o p q r s").ok, "whitespace");
-	});
-
-	it("trims surrounding paste whitespace before checking", () => {
-		assert.ok(validateKeyShape("DEEPGRAM_API_KEY", `  ${"d".repeat(40)}  `).ok);
-	});
-
-	it("unknown ids are rejected with the supported list", () => {
-		const r = validateKeyShape("SOMETHING_ELSE", "whatever");
+describe("validateKeyShape (the 400 gate)", () => {
+	it("a retired id is an unknown key, and the message reads well with nothing configurable", () => {
+		const r = validateKeyShape("TAVILY_API_KEY", "tvly-abc123def456ghi78");
 		assert.ok(!r.ok);
-		if (!r.ok) assert.match(r.error, /SOMETHING_ELSE.*DEEPGRAM_API_KEY/);
+		if (!r.ok) assert.equal(r.error, 'unknown key "TAVILY_API_KEY" (no keys are configurable)');
 	});
 });
 

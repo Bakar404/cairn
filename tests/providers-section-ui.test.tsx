@@ -32,7 +32,7 @@ test("Providers is the first/default page; General is last and other pages keep 
 	assert.match(html, />Providers<\/button>/);
 });
 
-test("Providers lists the GitHub Copilot connection under Models, then the tool keys, the animation renderer and Work IQ; other saved variables stay masked/read-only last", async () => {
+test("Providers lists the GitHub Copilot connection under Models, then the animation renderer and Work IQ; other saved variables (a retired search key included) stay masked/read-only last", async () => {
 	globalThis.fetch = async (url) => {
 		if (url === "/api/copilot") return Response.json({ state: "signed-in", login: "octocat" });
 		if (url === "/api/copilot/accounts") return Response.json({ accounts: [{ id: "s1", login: "octocat", host: "https://github.com", active: true, source: "gh" }] });
@@ -43,6 +43,7 @@ test("Providers lists the GitHub Copilot connection under Models, then the tool 
 			keys: [
 				{ id: "FUTURE_VAR", info: null, present: true, masked: "…abcd", source: "file", shadowedByEnv: false },
 				{ id: "OPENAI_API_KEY", info: null, present: true, masked: "…wxyz", source: "file", shadowedByEnv: false },
+				{ id: "TAVILY_API_KEY", info: null, present: true, masked: "…5678", source: "file", shadowedByEnv: false },
 			],
 		});
 	};
@@ -53,17 +54,15 @@ test("Providers lists the GitHub Copilot connection under Models, then the tool 
 	await act(async () => {});
 
 	const headings = [...document.querySelectorAll('[data-testid^="group-"] > p')].map((el) => el.textContent);
-	assert.deepEqual(headings, ["Models", "Dictation", "Search", "Animations", "Work IQ", "Other saved keys"]);
+	assert.deepEqual(headings, ["Models", "Animations", "Work IQ", "Other saved keys"]);
 	assert.equal(byTest("copilot-status").textContent, "Signed in as @octocat");
 	assert.equal(byTest("manim-status").textContent, "Ready");
 	assert.equal(document.querySelector('[data-testid="manim-install"]'), null, "nothing to install");
 	assert(byTest("workiq-connection").closest('[data-testid="group-workiq"]'));
 	assert.equal(byTest("workiq-status").textContent, "Not tested", "Work IQ is only asked when the learner tests it");
-	assert(byTest("key-deepgram_api_key").closest('[data-testid="group-dictation"]'));
-	assert(byTest("key-tavily_api_key").closest('[data-testid="group-search"]'));
-	assert(byTest("key-brave_api_key").closest('[data-testid="group-search"]'));
+	assert.equal(document.querySelector('[data-testid="group-keys"]'), null, "no key rows while the catalog is empty");
 	assert(byTest("group-unknown-keys").parentElement?.lastElementChild === byTest("group-unknown-keys"));
-	for (const id of ["FUTURE_VAR", "OPENAI_API_KEY"]) {
+	for (const id of ["FUTURE_VAR", "OPENAI_API_KEY", "TAVILY_API_KEY"]) {
 		assert(byTest(`unknown-${id}`).closest('[data-testid="group-unknown-keys"]'));
 		assert(!byTest(`unknown-${id}`).querySelector("input, button"), "read-only");
 	}

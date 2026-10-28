@@ -724,7 +724,7 @@ function SessionsSidebar() {
 							// the app per the Enter law; the query stays for
 							// re-searching). Esc leaves the search (owner,
 							// keyboard wave): blur back to normal, and claim the
-							// key so the window Esc chain (dictation / abort)
+							// key so the window Esc chain (the abort fallback)
 							// doesn't also fire.
 							onKeyDown={(e) => {
 								if (e.key === "Escape") {

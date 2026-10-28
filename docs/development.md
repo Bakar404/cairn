@@ -43,8 +43,6 @@ Secrets and machine-specific paths only. Model choice and thinking budgets are t
 | Variable | Purpose |
 |---|---|
 | `COPILOT_GITHUB_TOKEN` | optional — a GitHub token for Copilot; without it the Copilot SDK uses the GitHub CLI / Copilot CLI sign-in |
-| `TAVILY_API_KEY` / `BRAVE_API_KEY` | optional — the researcher's `web_search` runs on GitHub Copilot's hosted web search with no key; a Tavily or Brave key takes over when a Copilot search fails, or replaces it when chosen in settings |
-| `DEEPGRAM_API_KEY` | optional — dictation (STT token minting; audio streams browser→Deepgram, never through the server) |
 | `CHROME_PATH` | optional system Chrome fallback for demo verification; the app's own browser helper is primary (nothing is downloaded) |
 
 The packaged desktop app takes tool keys from `userData/auth.json` (mode 0600, read/written directly by the server via `LH_AUTH_FILE`). PDFs render natively with pdfjs/Skia; SVGs use resvg. Manim animations and stills need Docker (Docker Desktop, or Docker Engine on Linux) and no environment variable: the adapter uses `docker` on PATH, then Docker Desktop's standard install location.
@@ -116,7 +114,7 @@ flowchart TB
 app/                            Next.js App Router — pages + 16 thin API route handlers
 components/                     session + home UI, question dock, plan panel, graph
                                 canvas + view, artifact renderers (registry: artifacts/),
-                                dictation, activity dock, keyboard machine
+                                activity dock, keyboard machine
 src/
   agent/
     system-prompt.md            base teaching behavior (the methodology)
@@ -126,7 +124,7 @@ src/
     tools/plan.ts               plan_init (author-once mermaid plan, deterministic parser)
     tools/probe.ts              probe_done (probe→teach handoff seam)
     tools/jobs.ts               research / demo / visual tool surfaces
-    tools/web.ts                web_search (Copilot · Tavily · Brave) + web_fetch (researcher only)
+    tools/web.ts                web_search (Copilot) + web_fetch (researcher only)
     subagents/                  researcher · demo-builder · visual-maker
                                 · pdf-reader,
                                 extraction pipeline (extractor/auditor + merger handoff),
@@ -181,7 +179,7 @@ pricing-generation step: Pi AI's catalog and public calculator are the authority
 
 **Practice (problem sets).** A node selection resolves to the STORED reasoning chains it fully contains (a chain rides iff every member is selected; unchained nodes ride as singletons); the `/practice` creation dialog picks a birth-session cluster (the graph view's own groups) and freezes its propositions + chains into a self-contained `ProblemSet`. Three named-level axes steer generation (ladder rung 0–4, cue distance 0–2, Theory|Application — never a number to interpolate; defaults Direct exercise · Adjacent context · Theory), plus an optional free-form note the agents weigh but need not follow. Creation has two entries: the cluster picker on `/practice`, or the graph view's chain table — a full-bleed sortable table of every reasoning chain, grouped by birth cluster under the shared top bar, selecting chips, chains, or whole clusters, whose floating selection bar shows the exact `N nodes → M chains` the agents will receive — handing a free-form node selection to the same dialog — and carries the fenced Delete action, making it the graph's management view (whole-cluster cleanup through the same full-death confirm dialog). A partitioner agent covers every chain exactly once, one generator per partition writes problems against the owner's problem-engineering framework (commit-before-pose: statement + solution + rubric together), and grading is **strengthening, not assessment** — one attempt per problem with its own submit button, instant solution/rubric reveal, then a score 0–10 with brief reasoning landing live; nothing ever written back to the graph. Runs are registry-backed background jobs on the activity dock (no steer, never wakes the teacher); sets live in `data/practice`, crash-swept on boot.
 
-**Dictation.** Optional speech-to-text: the server mints short-lived Deepgram tokens; audio streams browser→Deepgram over WebSocket, never through the server. Without a saved Deepgram key the mic button reads "Set up dictation" and opens Settings → Providers at the Deepgram row; the page never calls the token route until a key is saved.
+**Dictation** is not built in: the Deepgram dictation was removed on 2026-10-27, and voice input is planned on a different speech service.
 
 ## Testing
 

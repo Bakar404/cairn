@@ -5,7 +5,7 @@
 Cairn finds out what you already understand, plans a path to your goal and teaches one reasoning step at a time. Like stones in a cairn, each new idea rests on one you already have, and a persistent knowledge graph carries the path from one session to the next.
 
 > [!IMPORTANT]
-> **Early stage.** Every model call and web search already runs on your GitHub Copilot subscription. Azure voice and the one-command install are still planned, so for now you run Cairn from source, and dictation uses your own Deepgram key if you add one.
+> **Early stage.** Every model call and web search already runs on your GitHub Copilot subscription. Azure voice and the one-command install are still planned, so for now you run Cairn from source, and there is no built-in dictation.
 
 ## Built on LearnHarness
 
@@ -38,8 +38,8 @@ What you learn builds up as propositions and reasoning chains in a knowledge gra
 | | LearnHarness | Cairn |
 | --- | --- | --- |
 | **Models** | Your own API keys (30+ providers) or a subscription sign-in | **Available now:** your **GitHub Copilot** plan, through the official [GitHub Copilot SDK](https://github.com/github/copilot-sdk). It is the only model connection, and there are no model keys. |
-| **Talk** | Dictation through Deepgram | *Planned:* dictation through **Azure Speech**, then a hands-free **voice mode** (speech-to-text → Copilot teacher → neural voice). Until then, Deepgram dictation works with your own key. |
-| **Web research** | Tavily or Brave | **Available now:** **Copilot's built-in web search**, with no key. A Tavily or Brave key is optional: it takes over when a Copilot search fails, or you can choose it in **Settings → Agent**. |
+| **Talk** | Dictation through Deepgram | *Planned:* dictation through **Azure Speech**, then a hands-free **voice mode** (speech-to-text → Copilot teacher → neural voice). Until then, Cairn has no built-in dictation. |
+| **Web research** | Tavily or Brave | **Available now:** **Copilot's built-in web search**, with no key. It is the only search engine. |
 | **Animations** | SVG figures and interactive demos | **Available now, optional:** short animated explanations written with [Manim](https://www.manim.community/) and rendered on your computer in Docker, plus Manim figures for typeset math. Turn it on in **Settings → Providers → Animations**. |
 | **Work context** | Not used | **Available now, optional, off by default:** before the first question, Cairn can ask [Work IQ](https://github.com/microsoft/work-iq) which parts of the subject your Microsoft 365 work (email, meetings, chats, documents) already touches, so the questions start in the right place. The topics are only a starting guess and never count as things you know. Set it up in **Settings → Providers → Work IQ**, then switch it on in **Settings → Agent**. |
 | **Azure** | Not used | *Planned, optional:* `azd up` deploys into **your own** subscription, and Cairn signs in with your `az login` (Microsoft Entra ID), so no Azure keys are stored. |
@@ -93,7 +93,7 @@ Notes:
 - Chats, the knowledge graph and settings stay on your machine as plain files you can inspect.
 - Model requests go to GitHub Copilot under your account and your organization's Copilot policies.
 - Your GitHub sign-in stays in your system keychain, kept by the GitHub Copilot runtime. Cairn stores no GitHub credentials.
-- Research queries go to GitHub Copilot's web search, which GitHub runs on Bing. They go to Tavily or Brave, and dictation audio to Deepgram, only if you add that key. With the planned Azure voice, speech goes to your own Azure Speech resource.
+- Research queries go to GitHub Copilot's web search, which GitHub runs on Bing. With the planned Azure voice, speech goes to your own Azure Speech resource.
 - Animations render on your computer, in a Docker container with no network access and no access to your files. The renderer image comes from Docker Hub, once, when you install it.
 - Work IQ is off unless you switch it on. When it's on, the subject of a session goes to Microsoft 365 Copilot under your own sign-in, once per session, and Cairn saves only the short list of topics it returns, not its full answer. Each question may use your organization's Copilot Credits.
 - Cairn runs no servers of its own and includes no analytics.
