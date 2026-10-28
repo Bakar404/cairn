@@ -341,8 +341,66 @@ describe("the animation maker (fake renderer, scripted model)", () => {
 			assert.ok(!manim.modes().includes("final"), "an unlooked scene is never rendered for delivery");
 		};
 		await refusedFor([{ toolCalls: [write("w1")] }], 1);
-		// The preview on the last turn reaches no model call.
-		await refusedFor([{ toolCalls: [write("w1")] }, { toolCalls: [preview("p1")] }], 2);
+	});
+
+	it("a preview made on the last turn gets one more call to look at it, and that look's notes ship", async () => {
+		const manim = fakeManim();
+		const { engine, contexts } = scriptedModel([
+			{ toolCalls: [write("w1")] },
+			{ toolCalls: [preview("p1")] },
+			{ text: "A dot fades in at the origin and holds." },
+		]);
+		const result = await runAnimationMaker(BRIEF, { manim: manim.renderer, ...ANIM_IDS, engine, maxIterations: 2 });
+		assert.equal(contexts.length, 3, "two turns, then one call to look");
+		assert.ok(shown(contexts[2], "That was your last turn to change the scene, so this is your final preview."));
+		assert.ok(contexts[2]!.includes(SHEET_B64));
+		assert.deepEqual(manim.modes(), ["preview", "final"]);
+		assert.equal(result.video?.file, "job_a1.mp4");
+		assert.equal(result.notes, "A dot fades in at the origin and holds.");
+
+		// Changes asked for in that look are not made: the looked-at scene ships.
+		const late = fakeManim();
+		const b = scriptedModel([
+			{ toolCalls: [write("w1")] },
+			{ toolCalls: [preview("p1")] },
+			{ toolCalls: [write("w2", SCENE.replace("self.wait(1)", "self.wait(2)"))] },
+		]);
+		const kept = await runAnimationMaker(BRIEF, { manim: late.renderer, ...ANIM_IDS, engine: b.engine, maxIterations: 2 });
+		assert.deepEqual(late.modes(), ["preview", "final"]);
+		assert.equal(late.renders[1]!.code, SCENE);
+		assert.equal(kept.notes, "Iteration limit reached — delivering the last previewed animation.");
+	});
+
+	it("out of turns with changes it never looked at, the newest scene the model looked at ships", async () => {
+		const manim = fakeManim();
+		const { engine } = scriptedModel([
+			{ toolCalls: [write("w1"), preview("p1")] },
+			{ toolCalls: [write("w2", SCENE.replace("self.wait(1)", "self.wait(2)"))] },
+		]);
+		const result = await runAnimationMaker(BRIEF, { manim: manim.renderer, ...ANIM_IDS, engine, maxIterations: 2 });
+		assert.deepEqual(manim.modes(), ["preview", "final"]);
+		assert.equal(manim.renders[1]!.code, SCENE, "the final render is the looked-at scene, not the unseen rewrite");
+		assert.equal(result.video?.file, "job_a1.mp4");
+		assert.equal(
+			result.notes,
+			"Iteration limit reached — delivering the last version the maker looked at; it ran out of turns before looking at its later changes.",
+		);
+	});
+
+	it("with nothing looked at, the iteration-limit failure ends with the last render error", async () => {
+		const traceback = [
+			"scene.py line 12, in construct",
+			"    label.move_to((0, 1.5))",
+			"(raised inside manim/mobject/mobject.py line 2036, in move_to)".repeat(6),
+			"ValueError: operands could not be broadcast together with shapes (2,) (3,)",
+		].join("\n");
+		const renderer: ManimRenderer = { ...fakeManim().renderer, render: async () => ({ ok: false, error: traceback }) };
+		const { engine } = scriptedModel([{ toolCalls: [write("w1"), preview("p1")] }]);
+		const result = await runAnimationMaker(BRIEF, { manim: renderer, ...ANIM_IDS, engine, maxIterations: 1 });
+		assert.equal(result.video, null);
+		const notes = result.notes ?? "";
+		assert.ok(notes.startsWith("FAILED: iteration limit (1) reached without an animation the maker had looked at. Last render error: …"), notes);
+		assert.ok(notes.endsWith("ValueError: operands could not be broadcast together with shapes (2,) (3,)"), "the exception survives");
 	});
 });
 

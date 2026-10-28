@@ -20,7 +20,9 @@ import { applyExactEdit, lookMessage, nudgeMessage, streamOnce, textOf, toolCall
  * preview's contact sheet (six frames, start to end) fed back as an image.
  * Nothing is delivered unlooked — finishing with an unpreviewed scene
  * previews it first, and the final render is always of the scene the model
- * last looked at.
+ * last looked at. Out of turns, the newest scene a model call looked at
+ * ships (a preview made on the last turn gets one more call to look at
+ * it); with none, the failure names the last render error.
  *
  * Failure semantics: { title, video: null, notes: "FAILED: …" }.
  */
@@ -33,7 +35,8 @@ export interface AnimationMakerOptions {
 	jobId: string;
 	/** Test seam: scripted engine; production uses the animationMaker role. */
 	engine?: PiEngine;
-	/** Max model rounds (write/preview cycles + final answer). Default 10. */
+	/** Max model rounds (write/preview cycles + final answer). Default 10;
+	 *  a preview made in the last round gets one extra call to look at it. */
 	maxIterations?: number;
 	/** Live activity-line callback (updates the job record). */
 	onActivity?: (line: string) => void;
@@ -61,6 +64,8 @@ Your three tools:
 - render_preview({}) — render the scene quickly at low quality. Its contact sheet arrives as an image
   in the message right after the tool result: six frames in a 3 × 2 grid, read left to right, top to
   bottom, each captioned with its time; the last one is the final frame.
+Tools called in one turn run in the order you call them, and turns are limited: put write_scene (or
+edit_scene) and render_preview in the SAME turn.
 
 THE ONE RULE THAT MATTERS MOST: verify by looking. You are done only when you have LOOKED at a preview
 of your FINAL scene and confirmed every beat is true to the brief. A render that succeeds only proves
@@ -88,6 +93,7 @@ The scene file — always this shape:
   - ACCENT2 #EA580C: only when two things must be told apart.
 - Text(...) for words, MathTex(...) for math (LaTeX is installed). Generous sizes.
 - The frame is 14.2 × 8 units centred on the origin; keep everything within x ±6.5, y ±3.6.
+- Points are 3-D: np.array([x, y, 0]) or x * RIGHT + y * UP. A 2-tuple such as move_to((0, 1.5)) fails.
 - Length: 5 to 40 seconds, never more than ${MANIM_MAX_SECONDS}. Pace the beats with run_time and
   self.wait so each can be read, and end with self.wait(1) or self.wait(2) so the end state holds.
 - One idea, fewest elements. FadeOut what is no longer needed so the frame never gets crowded.
@@ -101,8 +107,20 @@ const LOOK_MESSAGE =
 	"Here is the contact sheet of your preview — inspect every frame critically (order of beats, positions, labels, clipping, readability):";
 const UNLOOKED_FINISH_MESSAGE =
 	"You finished without looking at a preview of your final scene. Here is its contact sheet. If every beat is correct and clean, reply with just your notes; otherwise fix the scene and preview again.";
+const OUT_OF_TURNS_MESSAGE =
+	"That was your last turn to change the scene, so this is your final preview. Here is its contact sheet. Reply with just your notes for the teacher: what the animation shows, and anything in it that is still wrong.";
+const LIMIT_NOTE = "Iteration limit reached — delivering the last previewed animation.";
+const EARLIER_VERSION_NOTE =
+	"Iteration limit reached — delivering the last version the maker looked at; it ran out of turns before looking at its later changes.";
 
 const SCENE_EDIT = { write: "write_scene", render: "render_preview", noun: "scene" };
+
+/** A render error on one line for the job's notes, keeping its end (where
+ *  Python's exception is). */
+function briefError(error: string): string {
+	const flat = error.replace(/\s+/g, " ").trim();
+	return flat.length > 300 ? `…${flat.slice(-300)}` : flat;
+}
 
 /** The wire declarations: this loop executes them itself (the preview
  *  feeds the image-in-the-loop message), so they carry no execute. */
@@ -151,7 +169,7 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 		`Brief for ONE short animation titled "${title}" (from the teacher, verbatim — it is everything you know):`,
 		brief,
 		"",
-		"Write the scene, preview it, look at it, iterate until correct, then finish with your notes.",
+		`Write the scene, preview it, look at it, iterate until correct, then finish with your notes. You have ${maxIterations} turns (a turn is one reply, however many tools it calls).`,
 	].join("\n");
 
 	let messages: Message[] = [{ role: "user", content: prompt, timestamp: Date.now() }];
@@ -160,6 +178,10 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 	let previewed: string | null = null;
 	/** The scene whose contact sheet a model call has received. */
 	let looked: string | null = null;
+	/** The newest scene any model call has looked at (survives later changes). */
+	let lastLooked: string | null = null;
+	/** The latest render's error, cleared by a successful preview. */
+	let lastError: string | null = null;
 	let finalText = "";
 
 	const render = (code: string, mode: "preview" | "final") =>
@@ -171,17 +193,20 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 			...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
 		});
 
-	/** Preview a scene: the contact sheet and length, or what went wrong. */
+	/** Preview a scene: the contact sheet and length, or what went wrong
+	 *  (kept as lastError until a preview succeeds). */
 	const preview = async (code: string): Promise<{ png: Buffer; durationSec: number } | { error: string }> => {
 		const out = await render(code, "preview");
-		if (!out.ok || !out.pngBase64) return { error: out.error ?? "the preview returned no picture" };
 		const durationSec = out.durationSec ?? 0;
-		if (durationSec > MANIM_MAX_SECONDS) {
-			return {
-				error: `the animation runs ${durationSec.toFixed(1)} s and the limit is ${MANIM_MAX_SECONDS} s. Shorten it: fewer beats, shorter run_time and waits.`,
-			};
+		if (!out.ok || !out.pngBase64) {
+			lastError = out.error ?? "the preview returned no picture";
+		} else if (durationSec > MANIM_MAX_SECONDS) {
+			lastError = `the animation runs ${durationSec.toFixed(1)} s and the limit is ${MANIM_MAX_SECONDS} s. Shorten it: fewer beats, shorter run_time and waits.`;
+		} else {
+			lastError = null;
+			return { png: providerSafePng(Buffer.from(out.pngBase64, "base64")), durationSec };
 		}
-		return { png: providerSafePng(Buffer.from(out.pngBase64, "base64")), durationSec };
+		return { error: lastError };
 	};
 
 	/** Render the final video of the scene the model last looked at. */
@@ -202,6 +227,8 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 		for (let iteration = 0; iteration < maxIterations; iteration++) {
 			// This call receives every contact sheet added so far.
 			looked = previewed;
+			if (looked) lastLooked = looked;
+			const lastTurn = iteration === maxIterations - 1;
 			const result = await streamOnce(
 				engine,
 				INSTRUCTIONS,
@@ -237,13 +264,17 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 						continue;
 					}
 					previewed = currentScene;
-					messages = [...messages, lookMessage(`${UNLOOKED_FINISH_MESSAGE} (${shot.durationSec.toFixed(1)} s)`, shot.png)];
+					const look = lastTurn ? OUT_OF_TURNS_MESSAGE : UNLOOKED_FINISH_MESSAGE;
+					messages = [...messages, lookMessage(`${look} (${shot.durationSec.toFixed(1)} s)`, shot.png)];
 					continue;
 				}
 				const out = await deliver(currentScene, finalText);
 				if ("error" in out) {
-					// The model must fix the scene and look again before the next try.
+					// The model must fix the scene and look again before the next try;
+					// out of turns, this scene is not tried again.
 					previewed = null;
+					lastLooked = null;
+					lastError = out.error;
 					messages = [
 						...messages,
 						nudgeMessage(`The full-quality render failed:\n${out.error}\nFix the scene, preview it again, then finish.`),
@@ -302,17 +333,37 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 			}
 			// Message order: assistant tool-calls → tool results → contact sheet.
 			messages = [...messages, ...toolResults];
-			if (sheet) messages = [...messages, lookMessage(LOOK_MESSAGE, sheet)];
+			if (sheet) messages = [...messages, lookMessage(lastTurn ? OUT_OF_TURNS_MESSAGE : LOOK_MESSAGE, sheet)];
 		}
 
-		// Iteration limit: deliver the last scene only if a model call saw its
-		// contact sheet. A preview made on the last turn was never looked at.
-		if (currentScene && previewed === currentScene && looked === currentScene) {
-			const out = await deliver(currentScene, finalText || "Iteration limit reached — delivering the last previewed animation.");
+		// Out of turns. A preview of the current scene made on the last turn
+		// gets one more call, to look at it and write the notes; any tool calls
+		// in its reply are not run.
+		if (currentScene && previewed === currentScene && looked !== currentScene) {
+			opts.onActivity?.("looking at the final preview");
+			const result = await streamOnce(
+				engine,
+				INSTRUCTIONS,
+				messages,
+				toolDeclarations,
+				sessionId,
+				reasoning,
+				opts.abortSignal,
+				providerEventObserver(opts.chatId, "job:animationMaker"),
+			);
+			opts.onUsage?.(result.usage);
+			lastLooked = currentScene;
+			finalText = toolCallsOf(result).length === 0 ? textOf(result) : "";
+		}
+		// Deliver the newest scene a model call looked at — never an unlooked one.
+		if (lastLooked) {
+			const notes = lastLooked === currentScene ? finalText || LIMIT_NOTE : EARLIER_VERSION_NOTE;
+			const out = await deliver(lastLooked, notes);
 			if (!("error" in out)) return out;
 			return failed(`iteration limit (${maxIterations}) reached, and the final render failed — ${out.error}`);
 		}
-		return failed(`iteration limit (${maxIterations}) reached without an animation the maker had looked at.`);
+		const why = lastError ? ` Last render error: ${briefError(lastError)}` : "";
+		return failed(`iteration limit (${maxIterations}) reached without an animation the maker had looked at.${why}`);
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		return failed(`the maker crashed — ${msg}`);
