@@ -8,6 +8,7 @@ import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
 import { discardChatDeliveries } from "./jobs.ts";
+import { deleteChatMedia } from "./manim.ts";
 
 /**
  * Server-side chat entries for the transport layer (app/api/chats*,
@@ -129,6 +130,8 @@ export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): P
 	if (stores.chatStore.deleteChat(chatId)) {
 		discardChatDeliveries(chatId);
 		clearTurnFailure(chatId);
+		// The chat's animations and Manim stills (sync rm, never throws).
+		deleteChatMedia(chatId);
 	}
 	return { ok: true, mode, stats, jobsRemoved, graphRevision: graphRevision() };
 }

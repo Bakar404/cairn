@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { ChatActionsContext } from "@/components/chat";
 import { DownloadIcon, MaximizeIcon } from "lucide-react";
 import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
@@ -9,7 +9,7 @@ import { useSessionMermaid } from "@/components/session-overlay";
 import { downloadFile } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
 import { SvgImage } from "@/components/artifacts/svg-image";
-import type { ArtifactPartProps, VisualResult } from "@/src/core";
+import { mediaUrl, type ArtifactPartProps, type VisualResult } from "@/src/core";
 
 /**
  * Visual artifact card (W6 → ack protocol): the tool part's output is the
@@ -19,6 +19,8 @@ import type { ArtifactPartProps, VisualResult } from "@/src/core";
  *
  * Both display modes use an SVG image document: generated markup and its
  * styles never join the app's DOM. Downloads still contain the original SVG.
+ * A Manim still (M13) is a PNG from the chat's media route instead; it
+ * keeps the same chrome (invert, download, fullscreen).
  */
 
 /** The svg root's DECLARED width in px, when there is one — the natural
@@ -68,14 +70,17 @@ export function VisualOutputCard({
 			body: JSON.stringify({ input: { messageId, inverted: next } }),
 		}).catch(() => {});
 	};
-	const natural = result && typeof result.svg === "string" ? svgNaturalWidth(result.svg) : null;
-	if (!result || typeof result.svg !== "string") {
+	// A Manim still (M13) arrives as a PNG in the chat's media folder.
+	const png = result?.png && typeof result.png.file === "string" && result.png.file ? result.png : null;
+	const natural = !png && result && typeof result.svg === "string" ? svgNaturalWidth(result.svg) : null;
+	if (!result || (!png && typeof result.svg !== "string")) {
 		return (
 			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
 				Figure completed, but the result could not be displayed.
 			</div>
 		);
 	}
+	if (png) return <PngFigure file={png.file} width={png.width} height={png.height} inverted={inverted} onInvert={toggleInverted} />;
 	const failed = result.svg.length === 0;
 	if (failed) {
 		return (
@@ -153,6 +158,117 @@ export function VisualOutputCard({
 							onClick={() => overlay.openFigure(result.svg, inverted)}
 							data-testid="visual-open"
 							className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						>
+							<MaximizeIcon className="size-3.5" />
+						</button>
+					)}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+/** Wrap a PNG data URL in an svg document sized to the still, so the
+ *  fullscreen overlay (which draws svg images) can focus a Manim still.
+ *  Anything but a base64 PNG data URL → null. Pure. */
+export function pngFigureSvg(dataUrl: string, width: number, height: number): string | null {
+	if (!/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(dataUrl)) return null;
+	const w = Math.max(1, Math.round(Number.isFinite(width) ? width : 1));
+	const h = Math.max(1, Math.round(Number.isFinite(height) ? height : 1));
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><image href="${dataUrl}" width="${w}" height="${h}"/></svg>`;
+}
+
+function blobDataUrl(blob: Blob): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+		reader.onerror = () => reject(reader.error ?? new Error("Could not read the figure."));
+		reader.readAsDataURL(blob);
+	});
+}
+
+/** A Manim still (M13): the PNG plays the SVG's role — same backing, same
+ *  invert switch, same caption row. Fullscreen fetches the still from the
+ *  app window (so the desktop API capability rides along; a new tab would
+ *  open in the system browser without it) and hands the overlay an svg
+ *  wrapper. */
+function PngFigure({
+	file,
+	width,
+	height,
+	inverted,
+	onInvert,
+}: {
+	file: string;
+	width?: number;
+	height?: number;
+	inverted: boolean;
+	onInvert: (next: boolean) => void;
+}) {
+	const actions = useContext(ChatActionsContext);
+	const overlay = useSessionMermaid();
+	const imgRef = useRef<HTMLImageElement>(null);
+	const [opening, setOpening] = useState(false);
+	if (!actions?.chatId) {
+		return (
+			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground" data-testid="visual-png-offline">
+				Figure ready. Open the session to view it.
+			</div>
+		);
+	}
+	const src = mediaUrl(actions.chatId, file);
+	const control = "rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
+	const openFullscreen = async () => {
+		if (!overlay || opening) return;
+		setOpening(true);
+		try {
+			const res = await fetch(src);
+			if (!res.ok) return;
+			const svg = pngFigureSvg(
+				await blobDataUrl(await res.blob()),
+				imgRef.current?.naturalWidth || width || 1280,
+				imgRef.current?.naturalHeight || height || 720,
+			);
+			if (svg) overlay.openFigure(svg, inverted);
+		} catch {
+			// The inline still stays usable; fullscreen is a convenience.
+		} finally {
+			setOpening(false);
+		}
+	};
+	return (
+		<div className="my-4 w-full" data-testid="visual-card">
+			<div
+				className="w-full overflow-hidden rounded-lg bg-white"
+				style={{ filter: inverted ? "invert(1) hue-rotate(180deg)" : undefined }}
+				data-testid="visual-png"
+			>
+				{/* A rendered file from the media route; no Next image optimization. */}
+				{/* eslint-disable-next-line @next/next/no-img-element */}
+				<img ref={imgRef} src={src} alt="Figure" width={width} height={height} className="block h-auto w-full" draggable={false} />
+			</div>
+			<div className="mt-2 flex items-center justify-between gap-2">
+				<div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Figure</div>
+				<div className="flex items-center gap-1.5">
+					<Toggle
+						checked={inverted}
+						onChange={onInvert}
+						label="Invert figure brightness"
+						title="Invert colors"
+						discIcon={<InvertDiscIcon className="size-3" />}
+					/>
+					<a href={src} download="figure.png" aria-label="Download figure as PNG" title="Download as PNG" data-testid="visual-download" className={control}>
+						<DownloadIcon className="size-3.5" />
+					</a>
+					{overlay && (
+						<button
+							type="button"
+							aria-label="Open figure fullscreen"
+							title="Open fullscreen"
+							disabled={opening}
+							onClick={() => void openFullscreen()}
+							data-testid="visual-open"
+							className={control}
 						>
 							<MaximizeIcon className="size-3.5" />
 						</button>

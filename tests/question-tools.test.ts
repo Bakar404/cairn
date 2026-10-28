@@ -259,8 +259,9 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 		// permanently always-on (the prober's assessment + teaching doctrine
 		// are built on graded questions — the wedge danger), as are the
 		// learner-fs set, plan tools, and probe_done. The settings WRITE side
-		// validates against this list (settings-body).
-		assert.deepEqual(TOGGLEABLE_TOOLS, ["research", "demo", "visual", "pdf"]);
+		// validates against this list (settings-body). animation (M13) joins
+		// as a job tool; it is also gated on a ready Manim renderer.
+		assert.deepEqual(TOGGLEABLE_TOOLS, ["research", "demo", "visual", "pdf", "animation"]);
 	});
 
 	it("createProberTools: absent record = full set; explicit false drops exactly that tool; probe_done survives everything", () => {

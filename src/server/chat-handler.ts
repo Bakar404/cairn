@@ -27,6 +27,7 @@ import { collectToolCallIds } from "./pi/call-ids.ts";
 import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
+import { manimRenderer } from "./manim.ts";
 import { providerKeyPresent } from "./keys.ts";
 import {
 	extractionEnabled,
@@ -99,7 +100,21 @@ const jobRunner = createJobRunner({
 	// null = honestly unavailable; the dispatch-level drop (below) uses the
 	// same signal so keyless servers never see the research tool at all.
 	searchProvider,
+	// M13: animation jobs render on the Docker-backed Manim renderer, and
+	// visual jobs may draw Manim stills with it.
+	manim: manimRenderer,
 });
+
+/** The process's first Manim status check, awaited once and never for
+ *  long (Docker can be slow to answer). Later turns read the cached status
+ *  through ready(), which revalidates stale entries in the background. */
+async function warmManim(): Promise<void> {
+	const g = globalThis as { __cairnManimWarm?: Promise<unknown> };
+	g.__cairnManimWarm ??= manimRenderer.status().catch(() => undefined);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	await Promise.race([g.__cairnManimWarm, new Promise((resolve) => (timer = setTimeout(resolve, 3000)))]);
+	clearTimeout(timer);
+}
 /** The app's ONE extraction pipeline instance — both front doors share it:
  *  quiz-triggered session runs (turn-service) and notes imports
  *  (/api/graph/import) hit the same single-flight registry. */
@@ -340,6 +355,9 @@ export async function handleChatInput(
 	// Both share this whole composition (write-ahead persist, liveness,
 	// steers, usage, extraction) — only the agent differs.
 	const teaching = hasProbeDone(merged);
+	// M13: the teacher's animation tool joins only while the Manim renderer
+	// is ready — make sure this process has checked at least once.
+	if (teaching && effective.agent.tools?.animation !== false) await warmManim();
 	// BYOK (owner, 2026-09-22): the conversation chain was resolved by the
 	// turn gate above (chat.model override → strong slot → refused) — the
 	// engine build is pure from here; thinking levels clamp natively.
@@ -411,6 +429,8 @@ export async function handleChatInput(
 						// The registry drop's signal (2026-09-20): no live engine
 						// = no research tool in the teacher's registry.
 						searchAvailable,
+						// M13: no ready Manim renderer = no animation tool.
+						animationAvailable: () => manimRenderer.ready(),
 					},
 					agentOpts,
 				)

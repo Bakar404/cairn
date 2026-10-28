@@ -11,6 +11,9 @@ export * from "./graph.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";
 export * from "./commit-positions.ts";
 export * from "./jobs.ts";
+// The Manim renderer (M13): Docker status + install for Settings, and the
+// chat media files the animation/visual makers save.
+export * from "./manim.ts";
 export * from "./stores.ts";
 export { readRenderSettings, writeRenderSettings } from "../store/render-settings.ts";
 // The settings record + prompt overrides (settings-storage wave, 2026-09-19).

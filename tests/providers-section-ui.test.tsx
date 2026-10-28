@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { SettingsDialogBody } from "../components/settings/settings-dialog.tsx";
 import { KeysSection } from "../components/settings/keys-section.tsx";
+import { AnimationRenderer } from "../components/settings/animation-renderer.tsx";
 
 const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { window: dom.window, document: dom.document, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true, localStorage: { getItem: () => null, setItem() {} } });
@@ -30,11 +31,12 @@ test("Providers is the first/default page; General is last and other pages keep 
 	assert.match(html, />Providers<\/button>/);
 });
 
-test("Providers lists the GitHub Copilot connection under Models, then the tool keys; other saved variables stay masked/read-only last", async () => {
+test("Providers lists the GitHub Copilot connection under Models, then the tool keys and the animation renderer; other saved variables stay masked/read-only last", async () => {
 	globalThis.fetch = async (url) => {
 		if (url === "/api/copilot") return Response.json({ state: "signed-in", login: "octocat" });
 		if (url === "/api/copilot/accounts") return Response.json({ accounts: [{ id: "s1", login: "octocat", host: "https://github.com", active: true, source: "gh" }] });
 		if (url === "/api/copilot/login") return Response.json(null);
+		if (url === "/api/manim") return Response.json({ state: "ready", reason: "Ready. Animations render on this computer, inside Docker.", image: "manimcommunity/manim:v0.22.0" });
 		assert.equal(url, "/api/keys");
 		return Response.json({
 			keys: [
@@ -50,8 +52,10 @@ test("Providers lists the GitHub Copilot connection under Models, then the tool 
 	await act(async () => {});
 
 	const headings = [...document.querySelectorAll('[data-testid^="group-"] > p')].map((el) => el.textContent);
-	assert.deepEqual(headings, ["Models", "Dictation", "Search", "Other saved keys"]);
+	assert.deepEqual(headings, ["Models", "Dictation", "Search", "Animations", "Other saved keys"]);
 	assert.equal(byTest("copilot-status").textContent, "Signed in as @octocat");
+	assert.equal(byTest("manim-status").textContent, "Ready");
+	assert.equal(document.querySelector('[data-testid="manim-install"]'), null, "nothing to install");
 	assert(byTest("key-deepgram_api_key").closest('[data-testid="group-dictation"]'));
 	assert(byTest("key-tavily_api_key").closest('[data-testid="group-search"]'));
 	assert(byTest("key-brave_api_key").closest('[data-testid="group-search"]'));
@@ -62,4 +66,30 @@ test("Providers lists the GitHub Copilot connection under Models, then the tool 
 	}
 	assert.equal(byTest("unknown-FUTURE_VAR").textContent, "FUTURE_VAR…abcd");
 	assert.equal(document.querySelector('[data-testid="add-provider"]'), null, "no model API key entry");
+});
+
+test("Animations: Install starts the one-time download and the row turns to installing", async () => {
+	const calls: string[] = [];
+	globalThis.fetch = async (url, init) => {
+		calls.push(`${init?.method ?? "GET"} ${String(url)}`);
+		const image = "manimcommunity/manim:v0.22.0";
+		if (init?.method === "POST") return Response.json({ state: "installing", reason: "Downloading the Manim renderer (about 500 MB).", image, progress: "2 of 11 layers" });
+		return Response.json({ state: "not-installed", reason: "Docker is running. Install the Manim renderer — a one-time download of about 500 MB.", image });
+	};
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () => root!.render(<AnimationRenderer />));
+	await act(async () => {});
+	assert.equal(byTest("manim-status").textContent, "Not installed");
+	assert.match(byTest("manim-reason").textContent ?? "", /one-time download of about 500 MB/);
+
+	await act(async () => {
+		byTest("manim-install").dispatchEvent(new dom.window.Event("click", { bubbles: true, cancelable: true }));
+	});
+	await act(async () => {});
+	assert.deepEqual(calls, ["GET /api/manim", "POST /api/manim"]);
+	assert.equal(byTest("manim-status").textContent, "Installing · 2 of 11 layers");
+	assert.equal(document.querySelector('[data-testid="manim-install"]'), null);
+	assert.equal(byTest("manim-check").hasAttribute("disabled"), true, "no re-check while downloading");
 });

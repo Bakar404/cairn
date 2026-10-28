@@ -26,7 +26,7 @@ Hold the architecture along two orthogonal axes:
 | System | Owns (sole writer) | Role |
 |---|---|---|
 | **Classroom** — session engine | `data/chats/*.json` | the turn pipeline, prober→teacher, plan tree, questions, phases |
-| **Workbench** — background labor | `data/jobs/*.json` | job runner, researcher/demo-builder/visual-maker, steer delivery |
+| **Workbench** — background labor | `data/jobs/*.json`, `data/media/<chatId>/` | job runner, researcher/demo-builder/visual-maker/animation-maker, steer delivery |
 | **Library** — world model | `data/graph/*` ledgers | extraction pipeline (sole graph writer), derivation, birth-session clusters |
 | **Practice** — problem sets | `data/practice/*.json` | partitioner→generator→grader pipeline, self-contained sets (§7) |
 | **Stage** — presentation shell | nothing server-side | components/, graph canvas, docks — pure consumer via `/api/*` |
@@ -92,7 +92,7 @@ flowchart TB
 
     subgraph AGENT["AGENT — src/agent — LLM loops, deps injected"]
         TEACH["prober + teacher agents · tools · prompt fragments"]
-        SUBS["sub-agents: researcher · demo-builder · visual-maker"]
+        SUBS["sub-agents: researcher · demo-builder · visual-maker · animation-maker"]
         PIPE["extraction pipeline"]
     end
 
@@ -229,7 +229,7 @@ flowchart TB
 
     subgraph WORKBENCH["WORKBENCH — background labor (owns data/jobs)"]
         JOBRUN["job runner"]
-        SUBAGENTS["researcher · demo-builder · visual-maker"]
+        SUBAGENTS["researcher · demo-builder · visual-maker · animation-maker"]
         WAKE["wake pipeline — per-chat serialized queues on globalThis"]
     end
 
@@ -306,7 +306,7 @@ sequenceDiagram
 - **Client-side question tools** (`quiz`, `ask_user_question`) have no server execute: the call streams to the browser, the learner answers in the dock, the client grades via `question-core` and returns the verdict with `addToolOutput`, which fires the continuation. A pending quiz persisted in the record is exactly what makes **resume mid-question free**. Deterministic seeded shuffling (keyed by toolCallId) keeps server and client renders identical.
 - **The prober→teacher handoff**: the first turn(s) run the prober (floor/ceiling via quiz, goal via ask); `probe_done` (server-executed) files the assessment and queues a handoff steer; from the first `tool-probe_done` part in the transcript, the handler builds the teacher agent for every later turn. Phases (`core/phases.ts`) fold strictly: probe → plan → teach.
 - **The formal plan tree is author-once**: the teacher authors the session's dependency map with a single schema-validated `plan_init` tool (a mermaid-subset graph, parsed deterministically with line-numbered errors, validated as a DAG). Progress is never mutated — statuses (`current`/`visited`/upcoming) are **derived** from tagged quiz calls in the transcript; the tree panel and the plan blocks render that derivation.
-- **Job tools are server-executed, ack-and-steer**: `research`/`demo`/`visual` resolve immediately mid-turn with a fire-and-forget ack (the teacher keeps teaching); `spawn(job, input)` fires the background runner.
+- **Job tools are server-executed, ack-and-steer**: `research`/`demo`/`visual`/`pdf`/`animation` resolve immediately mid-turn with a fire-and-forget ack (the teacher keeps teaching); `spawn(job, input)` fires the background runner. `animation` is offered only while the Manim renderer reports ready (§8.2), so a teacher can never dispatch a job that has nowhere to render.
 - Turn services are named seams taking explicit dependencies. Extraction contains its errors, but **canonical persistence must not fail silently**: a failed input write refuses acceptance without starting an agent; `persistTurn` throws on a failed reply write. The runner reports settlement failure before `[DONE]` and releases liveness even when normal settlement fails. Steer reconciliation uses the durable record, so a later bookkeeping failure cannot replay already-saved learner input.
 - **Late attachment must still see settlement failure.** A small, memory-only notice per session precedes the settled stream terminal when the failing turn has already left the live registry. The next accepted turn, successful session deletion, or server exit clears it. Reopening seeds the existing banner from that notice and waits for ordinary learner input; dismissing the banner is not permission to automatically retry the model. No synthetic failure entry is added to the saved transcript.
 - **Recovery never blindly resends an answer.** Submitted question drafts survive optimistic unmount in memory; the existing Submit action reconciles uncertain acceptance against the canonical record and running-turn state before sending again. EOF or a rejected stream read without a terminal triggers one read-only reattachment; another transport failure shows the existing error banner rather than claiming completion. Explicit completion, cancellation, and the literal-final-entry saved-error rule remain unchanged.
@@ -336,7 +336,7 @@ The per-chat registry retains ownership across live handoff, idle-wake flight, a
 
 Recovery reads saved job input before legacy transcript lookup. Missing research questions fail honestly without invoking the researcher. Legacy running jobs with saved results become finished workers with pending delivery; legacy terminal jobs without delivery metadata remain untouched, rather than guessing that old outcomes should be replayed. Pending result and abort notices are restored before a newly registered agent's first steering poll, even without a preceding jobs-feed read. Deleting a session discards its pending delivery obligations; only live turns and computing workers block deletion. These guarantees use the existing JSON storage and single-process delivery registry, not a transactional queue or a promise of exactly-once model execution.
 
-Sub-agents **verify, never one-shot**: the demo-builder headlessly executes its HTML in system Chrome before delivery; the visual-maker renders each SVG and looks at it (needs a vision-capable model — the `vision` slot in settings).
+Sub-agents **verify, never one-shot**: the demo-builder headlessly executes its HTML in system Chrome before delivery; the visual-maker renders each SVG and looks at it (needs a vision-capable model — the `vision` slot in settings). When the Manim renderer is ready, the visual-maker may draw a Manim still instead and looks at that render the same way. The animation-maker (also the `vision` slot) renders a low-quality preview, looks at sampled frames, and iterates before the one final render. Rendered media lands in `data/media/<chatId>/` (`<jobId>.mp4`, `<jobId>-poster.png`, `<jobId>.png`); results carry only a URL to it, `GET /api/chats/[id]/media/[file]` serves it with byte ranges, and deleting the chat deletes the folder.
 
 ---
 
@@ -415,11 +415,13 @@ flowchart LR
         DG["Deepgram STT (browser-direct WebSocket)"]
         WEBT["Tavily / Brave / Jina (researcher tools)"]
         CHROME["system Chrome (headless: demo verify · SVG render)"]
+        DOCKER["Docker (optional): Manim renders — stdin/stdout, no network, no mounts"]
         DISK["data/ ledgers (via LH_DATA_DIR seam)"]
     end
     NEXT --> CP
     NEXT --> WEBT
     NEXT --> CHROME
+    NEXT --> DOCKER
     NEXT --> DISK
     REND --> DG
     REND -->|"fetch /api/*"| NEXT
@@ -438,6 +440,12 @@ Web search is the one place Copilot runs a tool itself. When no keyed engine is 
 Cairn stores no Copilot credentials and starts the runtime without `GITHUB_TOKEN`, `GH_TOKEN` or any `*_API_KEY`; auth is the SDK's own (`COPILOT_GITHUB_TOKEN`, else the accounts its account manager knows: its own keychain sign-ins, shared with the Copilot CLI, and the GitHub CLI's). `/api/copilot` reports the connection to Settings → Providers. **Sign in with GitHub** drives the runtime's own browser sign-in (`accounts.ts`, `/api/copilot/login`), and `/api/copilot/accounts` lists, switches and signs out accounts; the account adapter keeps only the fields Cairn uses (from the runtime's account info, only the plan name), so no token is stored or reaches the browser, which sees only login, host, an opaque selection id, where the account came from and the plan name. In the desktop app the same code runs inside the standalone server child; Electron main holds no credentials and only hands the sign-in page to the system browser.
 
 Slots or sessions pinned to any other provider are refused before dispatch with a pointer to Settings, and older model keys in `auth.json` are surfaced read-only and never used. Copilot calls are recorded as subscription usage, with no dollar estimate; historical calls from other providers keep their read-time prices from pi's static catalog. The server is a trusted single-user host, with no user authentication or DNS-rebinding protection. See [development](development.md#github-copilot-connection).
+
+### 8.2 Manim renderer boundary
+
+Animations and Manim stills render on the learner's computer in Docker, from the pinned image `manimcommunity/manim:v0.22.0`. The port is `src/core/manim.ts` (`ManimRenderer`: `status`, `install`, `render`); the adapter is `src/server/manim.ts`, which drives the `docker` CLI. The renderer is optional: without Docker, or before the one-time image download (about 500 MB), the `animation` tool is simply not offered and the visual-maker draws SVG only. Settings → Providers → Animations reads `GET /api/manim` and starts the download with `POST /api/manim`; nothing downloads until the learner asks.
+
+Each render is a fresh `docker run --rm -i` that takes one JSON bundle (runner, palette module, scene) on stdin and returns the MP4 or PNG on stdout. The container gets no bind mounts and no network, a read-only root with a 1 GB `/tmp`, all capabilities dropped, `no-new-privileges`, 2 GB of memory, a 256-process limit and at most 2 CPUs. Every render has a time limit, and aborting a job kills its container. Model-written Python therefore never sees the host filesystem or the network. Under `NODE_ENV=test` the adapter starts no processes; tests inject a fake `ManimRenderer`.
 
 ## 9. The foundational invariants — what ALWAYS holds
 
@@ -477,6 +485,7 @@ Slots or sessions pinned to any other provider are refused before dispatch with 
 - Two portless settings adapters re-exported through the server barrel; `observability.ts` imports `chatStore` directly. The "only `stores.ts` imports adapters" rule is documentation-only.
 - `scripts/` and `electron/` are lint-exempt; scripts act as extra composition roots (and backfills are, by design, extra graph writers); `tests/` imports freely across layers.
 - Small conventional-only sync points: `SIDEBAR_AUTOCLOSE` mirrored in `electron/main.cjs` ↔ `components/sidebar.tsx`; IPC channel names mirrored by comment; the jobs dir path hardcoded in the adapter rather than `config.ts`.
+- Rendered media is written by the Manim adapter (`src/server/manim.ts`), not by a `src/store` adapter: the bytes come straight off the renderer's stdout into `data/media/<chatId>/`, and `src/server/chats.ts` deletes that folder with the chat.
 
 ---
 
@@ -530,7 +539,7 @@ All deterministic, no network: engines are injected (pi-ai's **faux provider** �
 
 1. **Pure core units** — merger via real adapters, derivation, coverage, question grading, plan tree, phases, clusters, layout, tool-parts, prices, fuzzy search.
 2. **Server flows** — `handleChatRequest` driven end-to-end with scripted faux engines: persistence, liveness, steer claiming, the wake pipeline (409 retry, quiz deferral, idempotency), crash recovery, the data-dir seam (including a fresh child process).
-3. **Sub-agent loops** — researcher/demo-builder/visual-maker with fake headless APIs; the extraction pipeline end-to-end (audit drops, failure-checkpoints-nothing, single-flight, abort); the practice pipeline end-to-end (partition echo/coverage retries, failure isolation, semaphore width, abort mid-generation, grading, boot sweep).
+3. **Sub-agent loops** — researcher/demo-builder/visual-maker/animation-maker with fake headless APIs and a fake Manim renderer; the extraction pipeline end-to-end (audit drops, failure-checkpoints-nothing, single-flight, abort); the practice pipeline end-to-end (partition echo/coverage retries, failure isolation, semaphore width, abort mid-generation, grading, boot sweep).
 4. **Render tests** — transcript, cards, docks, composer, sidebar, coverage, stats, practice surfaces (creation dialog both modes, chain table incl. the shared-TopBar + lines-law pins, list, exam states) via React server-side rendering (`renderToStaticMarkup`), no DOM library.
 
 Gates on every change: `tsc` clean, all tests, `eslint` clean, `next build` clean.
@@ -553,6 +562,7 @@ Every place the architecture is designed to be cut — the "one file" a future c
 | Push events | `src/core/events.ts` (bus) + `src/server/events-stream.ts` (SSE seam) + `components/server-events.tsx` (the window's EventSource) | change notification, end to end |
 | Agent construction (tests) | `handleChatRequest(req, buildAgent?)` | scripted engines, no refactor |
 | Sub-agent verification | `sub-agents/headless.ts` (`headlessOverride`) | demo/SVG verification, no Chrome |
+| Animation renderer | `src/core/manim.ts` (`ManimRenderer` port) + `src/server/manim.ts` (Docker adapter) | where Manim scenes render; tests inject a fake |
 | Data location (Electron) | `LH_DATA_DIR` env (`config.ts` PATHS) | where data/ lives, nothing else |
 | Desktop host | `electron/main.cjs` | launcher/security shell only |
 

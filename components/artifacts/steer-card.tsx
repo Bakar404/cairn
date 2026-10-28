@@ -7,6 +7,7 @@ import { isSubagentFailure } from "@/src/core";
 import { DemoOutputCard } from "@/components/artifacts/demo-card";
 import { PdfBriefCard, ResearchBriefCard } from "@/components/artifacts/job-card";
 import { VisualOutputCard } from "@/components/artifacts/visual-card";
+import { AnimationOutputCard } from "@/components/artifacts/animation-card";
 
 /**
  * The sub-agent result delivery card (contracts.ts "THE ASYNC PROTOCOL" §4).
@@ -21,7 +22,9 @@ import { VisualOutputCard } from "@/components/artifacts/visual-card";
  *     too long to inline by default and the teacher's wake turn weaves it
  *     into the lesson anyway. Failures keep the failure card (the brief
  *     explains what went wrong).
- *   demo / visual — the artifact itself (sandboxed iframe / sanitized SVG).
+ *   demo / visual — the artifact itself (sandboxed iframe / sanitized SVG,
+ *     or a Manim still served as PNG).
+ *   animation — the rendered MP4 in a native video player (M13).
  *     The sub-agent's verification notes are model-facing glue and do NOT
  *     render; only a failure note does.
  */
@@ -59,6 +62,10 @@ export function SubagentSteerCard({ message }: { message: LhViewMessage }) {
 			return <DemoOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />;
 		case "visual":
 			return <VisualOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />;
+		case "animation":
+			return (
+				<AnimationOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />
+			);
 	}
 }
 

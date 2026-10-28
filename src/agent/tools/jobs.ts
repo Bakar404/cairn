@@ -22,11 +22,15 @@ export interface JobToolContext {
 	/** Fire the background runner for a fresh job — fire-and-forget. The
 	 *  input rides along because the spawn happens MID-STREAM, before
 	 *  onFinish persists the tool part — a transcript scan would race it. */
-	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
+	spawn: (job: JobRecord, input: JobInput) => void;
 	/** Search-provider availability, retained for existing composition seams.
 	 *  Research dispatch does not depend on it: web_fetch is keyless and
 	 *  web_search reports a missing provider as a recoverable tool result. */
 	searchAvailable?: () => boolean;
+	/** True while the Manim renderer is ready (M13). The animation tool is
+	 *  offered only then, so the teacher never dispatches one that can't
+	 *  run. Absent = no animation tool. */
+	animationAvailable?: () => boolean;
 }
 
 export const researchInputSchema = Type.Object({
@@ -66,16 +70,26 @@ export const pdfInputSchema = Type.Object({
 	}),
 });
 
+export const animationInputSchema = Type.Object({
+	title: Type.String({ description: "Short title for the animation card, e.g. 'How a hash table resizes'." }),
+	brief: Type.String({
+		description:
+			"The beats in order: what appears, moves, or transforms at each step, with exact values, labels, and directions — " +
+			"and what the learner should notice at each beat. The maker sees NOTHING else of the lesson, and the animation is " +
+			"silent: say which words must be on screen.",
+	}),
+});
+
 /**
  * The per-call dispatch: create the job (idempotent by toolCallId), fire the
- * runner, and return the ack. Shared by all three tools — only kind differs.
+ * runner, and return the ack. Shared by every job tool — only kind differs.
  */
 function dispatch(
 	ctx: JobToolContext,
 	kind: JobRecord["kind"],
 	toolCallId: string,
 	ack: string,
-	input: ResearchInput | DemoInput | VisualInput | PdfInput,
+	input: JobInput,
 ): string {
 	const existing = ctx.jobStore.findJobByToolCallId(ctx.chatId, toolCallId);
 	const job = existing ?? ctx.jobStore.createJob({ kind, chatId: ctx.chatId, toolCallId, input });
@@ -95,6 +109,9 @@ const VISUAL_ACK =
 const PDF_ACK =
 	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
 	"The document brief arrives as a new message when ready; weave it into the lesson and cite its pages.";
+const ANIMATION_ACK =
+	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
+	"The finished animation arrives as a new message when ready and plays in the lesson; narrate it then.";
 
 const RESEARCH_DESCRIPTION =
 	"Dispatch a background web-research agent: fact verification, current data, or niche specifics you are not certain about. " +
@@ -119,6 +136,13 @@ const PDF_DESCRIPTION =
 	"and you need its CONTENT for the lesson. The call is ASYNC and fire-and-forget — it resolves immediately and your turn " +
 	"continues; the brief arrives later as a new message. For quick looks at plain text or image files, use the read tool " +
 	"directly instead of dispatching.";
+const ANIMATION_DESCRIPTION =
+	"Dispatch a background sub-agent that writes ONE short, silent Manim animation (5–40 seconds) of an idea that UNFOLDS " +
+	"OVER TIME — a process, a transformation, a quantity changing, steps in order — previews it, LOOKS at the frames, and " +
+	"iterates until correct; the video then plays in the lesson. Use it when watching the change teaches more than a still " +
+	"picture. For one static figure use visual; for something the learner should control use demo. " +
+	"The call is ASYNC and fire-and-forget — it resolves immediately and your turn continues; the finished animation arrives " +
+	"later as a new message.";
 
 /**
  * Per-request job tool registry: each tool closes over the composition root's
@@ -126,10 +150,12 @@ const PDF_DESCRIPTION =
  * share state. chat-handler wires it each turn; tests wire their own.
  *
  * Research remains available without a search-provider key; the role's
- * existing user-toggle filtering still applies outside this registry.
+ * existing user-toggle filtering still applies outside this registry. The
+ * animation tool joins only while ctx.animationAvailable() says the Manim
+ * renderer is ready.
  */
 export function jobTools(ctx: JobToolContext): Record<string, AgentTool<any>> {
-	return {
+	const tools: Record<string, AgentTool<any>> = {
 		research: {
 			name: "research",
 			label: "research",
@@ -163,9 +189,24 @@ export function jobTools(ctx: JobToolContext): Record<string, AgentTool<any>> {
 			execute: serverExecute("pdf", pdfInputSchema, (input, { toolCallId }) => dispatch(ctx, "pdf", toolCallId, PDF_ACK, input)),
 		},
 	};
+	if (ctx.animationAvailable?.()) {
+		tools.animation = {
+			name: "animation",
+			label: "animation",
+			description: ANIMATION_DESCRIPTION,
+			parameters: animationInputSchema,
+			execute: serverExecute("animation", animationInputSchema, (input, { toolCallId }) =>
+				dispatch(ctx, "animation", toolCallId, ANIMATION_ACK, input),
+			),
+		};
+	}
+	return tools;
 }
 
 export type ResearchInput = Static<typeof researchInputSchema>;
 export type DemoInput = Static<typeof demoInputSchema>;
 export type VisualInput = Static<typeof visualInputSchema>;
 export type PdfInput = Static<typeof pdfInputSchema>;
+export type AnimationInput = Static<typeof animationInputSchema>;
+/** Any job tool's input (the spawn seam's payload). */
+export type JobInput = ResearchInput | DemoInput | VisualInput | PdfInput | AnimationInput;

@@ -12,7 +12,7 @@ import { newHandoffMessage } from "../native-messages.ts";
 
 // ─── Async sub-agent jobs (vision §2.5; plan.md Wave 0 protocol) ────────────
 
-export type JobKind = "research" | "demo" | "visual" | "pdf";
+export type JobKind = "research" | "demo" | "visual" | "pdf" | "animation";
 export type JobStatus = "running" | "done" | "error";
 
 export interface JobRecord {
@@ -140,7 +140,7 @@ export function accumulateJobUsage(
  * THE ASYNC PROTOCOL — "ack now, steer later" (the pi sub-agents model,
  * vision §2.5):
  *
- *  1. Job tools (research / demo / visual / pdf) are SERVER-EXECUTED. The model
+ *  1. Job tools (research / demo / visual / pdf / animation) are SERVER-EXECUTED. The model
  *     calls one MID-TURN; execute creates the job record, fires the
  *     background runner, and resolves IMMEDIATELY with an acknowledgement
  *     ("dispatched — continue your turn"). The teacher's turn does NOT end
@@ -219,8 +219,43 @@ export interface VisualToolInput {
 }
 
 export interface VisualResult {
-	/** Complete SVG markup (verified by the maker looking at the render). */
+	/** Complete SVG markup (verified by the maker looking at the render).
+	 *  Empty when the figure is a Manim still (`png`). */
 	svg: string;
+	/** A Manim-rendered still in the chat's media folder — present only
+	 *  when the maker drew the figure with Manim instead of SVG. */
+	png?: MediaRef;
+	notes?: string;
+}
+
+/** A rendered file in a chat's media folder (data/media/<chatId>/), served
+ *  by GET /api/chats/<chatId>/media/<file> and deleted with the chat. */
+export interface MediaRef {
+	/** Bare file name inside the chat's media folder (no path parts). */
+	file: string;
+	mime: "video/mp4" | "image/png";
+	width?: number;
+	height?: number;
+	bytes?: number;
+}
+
+/** The animation maker (Manim, rendered in Docker): a short narrated-by-
+ *  the-teacher animation for ideas that unfold over time. */
+export interface AnimationToolInput {
+	title: string;
+	/** The beats in order: what appears, moves, transforms — and what the
+	 *  learner should notice at each one. */
+	brief: string;
+}
+
+export interface AnimationResult {
+	title: string;
+	/** The final MP4 (looked at by the maker before delivery); null when
+	 *  the job failed — `notes` then says why (/^FAILED:/). */
+	video: MediaRef | null;
+	/** The last frame as a still: the player's poster image. */
+	poster?: MediaRef;
+	durationSec?: number;
 	notes?: string;
 }
 
@@ -252,6 +287,9 @@ export interface PdfResult {
 	pagesConsulted: number[];
 }
 
+/** Every job's result payload (the steer artifact). */
+export type SubagentResult = ResearchResult | DemoResult | VisualResult | PdfResult | AnimationResult;
+
 // ─── Sub-agent steer messages (THE ASYNC PROTOCOL §3–4) ─────────────────────
 //
 // Wave B (owner-approved 2026-09-26): steers are NATIVE record messages —
@@ -277,7 +315,7 @@ export interface SubagentResultMeta {
 /** The data-subagent-artifact part payload: what the UI renders. */
 export interface SubagentArtifactData {
 	kind: JobKind;
-	result: ResearchResult | DemoResult | VisualResult | PdfResult;
+	result: SubagentResult;
 	/** The learner's pinned UI state (invert switch) riding the record. */
 	ui?: { inverted?: boolean };
 }
@@ -285,7 +323,7 @@ export interface SubagentArtifactData {
 /** A result steer's marker details: the UI's meta + artifact in one
  *  payload (the projection splits it into metadata + data part). */
 export interface SteerDetails extends SubagentResultMeta {
-	result: ResearchResult | DemoResult | VisualResult | PdfResult;
+	result: SubagentResult;
 	/** LEARNER UI state pinned onto the artifact (owner, 2026-10-07): the
 	 *  invert switch's position, persisted so navigating away and back (or
 	 *  restarting) keeps it. A VIEW preference — never enters the teacher's
@@ -305,7 +343,7 @@ export function setSteerUiInverted(
 	return messages.map((m) => {
 		if (m.id !== messageId) return m;
 		const d = (m as LhMarkerMessage).details as Partial<SteerDetails> | undefined;
-		if (!d || (d.kind !== "demo" && d.kind !== "visual")) return m;
+		if (!d || (d.kind !== "demo" && d.kind !== "visual" && d.kind !== "animation")) return m;
 		return { ...m, details: { ...d, ui: { ...d.ui, inverted } } } as LhMessage;
 	});
 }
@@ -313,11 +351,8 @@ export function setSteerUiInverted(
 /** Anything the wake pipeline may queue and deliver — a native marker. */
 export type SteerMessage = LhMarkerMessage;
 
-/** Whether a result is the failure shape (html/svg empty, failure brief). */
-export function isSubagentFailure(
-	kind: JobKind,
-	result: ResearchResult | DemoResult | VisualResult | PdfResult,
-): boolean {
+/** Whether a result is the failure shape (html/svg/video empty, failure brief). */
+export function isSubagentFailure(kind: JobKind, result: SubagentResult): boolean {
 	if (kind === "research") {
 		const r = result as ResearchResult;
 		return r.sources.length === 0 && /^Research failed:/i.test(r.brief);
@@ -330,12 +365,17 @@ export function isSubagentFailure(
 		const r = result as PdfResult;
 		return /^PDF failed:/i.test(r.brief);
 	}
+	if (kind === "animation") {
+		const r = result as AnimationResult;
+		return !r.video || typeof r.video.file !== "string" || r.video.file.length === 0;
+	}
 	const r = result as VisualResult;
+	if (r.png && typeof r.png.file === "string" && r.png.file.length > 0) return false;
 	return typeof r.svg !== "string" || r.svg.length === 0;
 }
 
 /** The model-facing text of a steer: what the result IS, what to do with it. */
-function steerText(kind: JobKind, result: ResearchResult | DemoResult | VisualResult | PdfResult): string {
+function steerText(kind: JobKind, result: SubagentResult): string {
 	if (isSubagentFailure(kind, result)) {
 		if (kind === "research")
 			return `${(result as ResearchResult).brief}\n\nContinue with what you can establish and flag the uncertainty to the learner.`;
@@ -345,7 +385,18 @@ function steerText(kind: JobKind, result: ResearchResult | DemoResult | VisualRe
 			}. Fall back to explaining in prose; if the brief was the problem, re-call demo with a tighter one.`;
 		if (kind === "pdf")
 			return `${(result as PdfResult).brief}\n\nContinue with what you can establish from the session and flag the gap to the learner.`;
+		if (kind === "animation")
+			return `The animation "${(result as AnimationResult).title}" could not be made: ${
+				(result as AnimationResult).notes ?? "unknown reason"
+			}. Fall back to a figure, mermaid or prose; if the brief was the problem, re-call animation with tighter beats.`;
 		return `The figure could not be made: ${(result as VisualResult).notes ?? "unknown reason"}. Fall back to prose or mermaid, or re-call visual with a tighter brief.`;
+	}
+	if (kind === "animation") {
+		const r = result as AnimationResult;
+		const length = typeof r.durationSec === "number" ? ` (${Math.round(r.durationSec)} s)` : "";
+		return `The animation "${r.title}" is rendered${length} and plays in the lesson. Maker notes: ${
+			r.notes ?? "(none)"
+		}.\nTeach with it — tell the learner what to watch for.`;
 	}
 	if (kind === "research")
 		return `Research complete — the researcher's full brief follows. Weave it into the lesson and cite its sources when you use its findings:\n\n${(result as ResearchResult).brief}`;
@@ -367,7 +418,7 @@ function steerText(kind: JobKind, result: ResearchResult | DemoResult | VisualRe
  */
 export function buildSubagentSteer(
 	job: Pick<JobRecord, "id" | "kind" | "toolCallId">,
-	result: ResearchResult | DemoResult | VisualResult | PdfResult,
+	result: SubagentResult,
 ): SteerMessage {
 	return {
 		id: `steer_${job.id}`,
@@ -412,6 +463,8 @@ function abortText(kind: JobKind): string {
 		return "The demo job was aborted by the learner — no demo is coming. Acknowledge it in one line and teach the topic in prose instead (a re-dispatch is fine if the learner wants it).";
 	if (kind === "pdf")
 		return "The PDF reading job was aborted by the learner — no brief is coming. Acknowledge it in one line and continue without it (a re-dispatch is fine if the learner wants it).";
+	if (kind === "animation")
+		return "The animation job was aborted by the learner — no animation is coming. Acknowledge it in one line and teach without it (a re-dispatch is fine if the learner wants it).";
 	return "The figure job was aborted by the learner — no figure is coming. Acknowledge it in one line and teach without it (a re-dispatch is fine if the learner wants it).";
 }
 

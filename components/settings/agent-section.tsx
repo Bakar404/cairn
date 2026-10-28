@@ -32,9 +32,10 @@
  * engine's auto-activation); the row grays only when no search runs at
  * all — GitHub Copilot's search needs no key.
  *
- * Tools — the owner's final list (2026-09-19): research, demo, visual, pdf.
- * Absent key = enabled in the schema; the UI writes explicit booleans for
- * all four (simpler to reason about, sanitize-equivalent).
+ * Tools — the owner's final list (2026-09-19): research, demo, visual, pdf;
+ * animation joined with M13 (it also needs the Manim renderer, installed
+ * from Providers). Absent key = enabled in the schema; the UI writes an
+ * explicit boolean per tool (simpler to reason about, sanitize-equivalent).
  *
  * Prompts: GET /api/settings/prompts segments — THREE SECTIONS in the
  * owner's ruled order (2026-09-26 overhaul): Teacher first, Prober, then
@@ -86,8 +87,9 @@ const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
 const SEARCH_ENGINES = ["tavily", "brave"] as const;
 
 /** The owner's final toggleable-tool list (confirm with the user before
- *  changing — the Teacher stream settled this 2026-09-19). */
-export const TOGGLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
+ *  changing — the Teacher stream settled this 2026-09-19; animation joined
+ *  with M13). */
+export const TOGGLE_TOOLS = ["research", "demo", "visual", "pdf", "animation"] as const;
 
 /** The line under each tool row: what the tool lets the tutor do. */
 const TOOL_HINTS: Record<(typeof TOGGLE_TOOLS)[number], string> = {
@@ -95,6 +97,7 @@ const TOOL_HINTS: Record<(typeof TOGGLE_TOOLS)[number], string> = {
 	demo: "Lets the tutor build interactive demos you can try",
 	visual: "Lets the tutor draw precise figures",
 	pdf: "Lets the tutor read PDFs you point it to",
+	animation: "Lets the tutor make short animated explanations once the renderer is installed (Providers)",
 };
 
 const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];

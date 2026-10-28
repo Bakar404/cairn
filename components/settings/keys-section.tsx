@@ -11,9 +11,10 @@
  *  - Env-owned rows (a real environment variable owns the name — dev
  *    .env.local or launch env) render READ-ONLY + dimmed, no paste field:
  *    a paste box on a key the UI cannot make live would mislead.
- *  - Groups: Models (the GitHub Copilot connection), Dictation, Search.
- *    Unknown variables found in the key file stay masked/read-only in a
- *    last "Other saved keys" group.
+ *  - Groups: Models (the GitHub Copilot connection), Dictation, Search,
+ *    Animations (the Manim renderer in Docker, M13 — a status row, no
+ *    key). Unknown variables found in the key file stay masked/read-only
+ *    in a last "Other saved keys" group.
  *
  * API: GET /api/keys (masked statuses), PUT /api/keys/:id (shape-gated
  * 400s land inline), DELETE. Saves take effect immediately. Plaintext
@@ -24,6 +25,7 @@ import { useEffect, useState } from "react";
 import { AUTH_KEYS, type AuthKeyStatus } from "@/src/core";
 import { SettingsGroup } from "./controls.tsx";
 import { CopilotConnection } from "./copilot-connection.tsx";
+import { AnimationRenderer } from "./animation-renderer.tsx";
 import { notifySettingsSaved } from "@/components/settings-signal";
 
 interface KeysResponse {
@@ -319,6 +321,10 @@ export function KeysSection({
 					/>
 				))}
 			</SettingsGroup>)}
+
+			<SettingsGroup label="Animations" testid="group-animations">
+				<AnimationRenderer />
+			</SettingsGroup>
 
 			{unknownRows.length > 0 && (
 				<SettingsGroup label="Other saved keys" testid="group-unknown-keys">
