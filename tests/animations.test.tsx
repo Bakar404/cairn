@@ -123,11 +123,17 @@ const READY: ManimStatus = { state: "ready", reason: "Ready.", image: MANIM_IMAG
 const STOPPED: ManimStatus = { state: "docker-stopped", reason: "Docker is installed but not running.", image: MANIM_IMAGE };
 
 /** A fake renderer that records every render. Previews last
- *  `previewSeconds` in turn (then 20 s); the first `failFinal` final
+ *  `previewSeconds` in turn (then 20 s); previews and stills report the
+ *  layout `issues` in turn (then none); the first `failFinal` final
  *  renders fail. */
-function fakeManim(opts: { ready?: boolean; previewSeconds?: number[]; failFinal?: number } = {}) {
+function fakeManim(opts: { ready?: boolean; previewSeconds?: number[]; issues?: string[][]; failFinal?: number } = {}) {
 	const ready = opts.ready ?? true;
 	const previewSeconds = [...(opts.previewSeconds ?? [])];
+	const issues = [...(opts.issues ?? [])];
+	const found = () => {
+		const next = issues.shift();
+		return next?.length ? { issues: next } : {};
+	};
 	let failFinal = opts.failFinal ?? 0;
 	const renders: ManimRenderRequest[] = [];
 	const renderer: ManimRenderer = {
@@ -136,12 +142,13 @@ function fakeManim(opts: { ready?: boolean; previewSeconds?: number[]; failFinal
 		install: async () => (ready ? READY : STOPPED),
 		async render(req) {
 			renders.push(req);
-			if (req.mode === "preview") return { ok: true, pngBase64: SHEET_B64, durationSec: previewSeconds.shift() ?? 20 };
+			if (req.mode === "preview") return { ok: true, pngBase64: SHEET_B64, durationSec: previewSeconds.shift() ?? 20, ...found() };
 			if (req.mode === "still") {
 				return {
 					ok: true,
 					pngBase64: STILL_B64,
 					still: { file: `${req.jobId}.png`, mime: "image/png", width: 1920, height: 1080 },
+					...found(),
 				};
 			}
 			if (failFinal > 0) {
@@ -248,6 +255,61 @@ describe("the animation maker (fake renderer, scripted model)", () => {
 		assert.ok(contexts[2]!.includes(SHEET_B64));
 		assert.equal(result.video?.file, "job_a1.mp4");
 		assert.equal(result.notes, "Looked: the dot is centred and holds.");
+	});
+
+	const SPILL = 'At 1.0 s: "capital" at (-1.4, 0.0) spills 0.14 past the edge of its box: size the box from the text.';
+	const LAYOUT = `LAYOUT CHECK — the renderer measured these problems. Fix every one, then render again:\n- ${SPILL}`;
+	const REMINDER = `Before you finish: the layout check still reports these problems in your final scene:\n- ${SPILL}`;
+
+	it("the layout check reaches the model with the preview; finishing over it earns one reminder per scene", async () => {
+		const manim = fakeManim({ issues: [[SPILL]] });
+		const { engine, contexts } = scriptedModel([
+			{ toolCalls: [write("w1"), preview("p1")] },
+			{ text: "Done." },
+			{ text: "The spill is deliberate: the word bursts its box." },
+		]);
+		const activity: string[] = [];
+		const result = await runAnimationMaker(BRIEF, { manim: manim.renderer, ...ANIM_IDS, engine, onActivity: (line) => activity.push(line) });
+		assert.ok(shown(contexts[1], `Rendered — 20.0 s long. The contact sheet follows in the next message. Look at it.\n\n${LAYOUT}`));
+		assert.ok(activity.includes("render_preview: inspecting a 20.0 s preview (1 layout problem)"));
+		assert.ok(shown(contexts[2], REMINDER));
+		assert.equal(contexts.length, 3, "the second finish ships");
+		assert.deepEqual(manim.modes(), ["preview", "final"], "the reminder renders nothing");
+		assert.equal(result.notes, "The spill is deliberate: the word bursts its box.");
+
+		// A fix that previews clean ships without another reminder.
+		const fixed = fakeManim({ issues: [[SPILL], []] });
+		const b = scriptedModel([
+			{ toolCalls: [write("w1"), preview("p1")] },
+			{ text: "Done." },
+			{ toolCalls: [write("w2", SCENE.replace("self.wait(1)", "self.wait(2)")), preview("p2")] },
+			{ text: "Fixed: the box fits the word." },
+		]);
+		const shipped = await runAnimationMaker(BRIEF, { manim: fixed.renderer, ...ANIM_IDS, engine: b.engine });
+		assert.ok(shown(b.contexts[2], REMINDER));
+		assert.ok(
+			b.contexts[3]!.includes(JSON.stringify("Rendered — 20.0 s long. The contact sheet follows in the next message. Look at it.")),
+			"the clean preview reports nothing",
+		);
+		assert.equal(b.contexts.length, 4);
+		assert.deepEqual(fixed.modes(), ["preview", "preview", "final"]);
+		assert.equal(fixed.renders[2]!.code, SCENE.replace("self.wait(1)", "self.wait(2)"));
+		assert.equal(shipped.notes, "Fixed: the box fits the word.");
+	});
+
+	it("an unlooked finish shows the layout check with the contact sheet, and that look is the reminder", async () => {
+		const manim = fakeManim({ issues: [[SPILL]] });
+		const { engine, contexts } = scriptedModel([
+			{ toolCalls: [write("w1")] },
+			{ text: "Done." },
+			{ text: "Looked: the spill is deliberate." },
+		]);
+		const result = await runAnimationMaker(BRIEF, { manim: manim.renderer, ...ANIM_IDS, engine });
+		assert.ok(shown(contexts[2], `(20.0 s)\n\n${LAYOUT}`));
+		assert.ok(contexts[2]!.includes(SHEET_B64));
+		assert.equal(contexts.length, 3, "no second reminder");
+		assert.deepEqual(manim.modes(), ["preview", "final"]);
+		assert.equal(result.notes, "Looked: the spill is deliberate.");
 	});
 
 	it("an over-long preview is refused unseen; an edit brings it under the limit and the edited scene ships", async () => {
@@ -444,6 +506,18 @@ describe("Manim stills in the visual maker", () => {
 		assert.ok(contexts[2]!.includes(STILL_B64));
 		assert.equal(result.png?.file, "job_v1.png");
 		assert.equal(result.notes, "Looked: the ticks are evenly spaced.");
+	});
+
+	it("the still's layout check reaches the model with the render", async () => {
+		const spill = '"query" at (0.0, 0.0) spills 0.17 past the edge of its box: size the box from the text.';
+		const { engine, contexts } = scriptedModel([{ toolCalls: [writeManim, renderManim] }, { text: "Three boxes." }]);
+		await runVisualMaker({ brief: "three boxes" }, { engine, headless: fakeHeadless(), manim: fakeManim({ issues: [[spill]] }).renderer, ...VIS_IDS });
+		assert.ok(
+			shown(
+				contexts[1],
+				`Rendered — the final frame follows in the next message. Look at it.\n\nLAYOUT CHECK — the renderer measured these problems. Fix every one, then render again:\n- ${spill}`,
+			),
+		);
 	});
 
 	it("at the iteration limit, delivers only a still the model has looked at", async () => {

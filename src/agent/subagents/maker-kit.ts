@@ -38,6 +38,18 @@ export function nudgeMessage(text: string): Message {
 	return { role: "user", content: text, timestamp: Date.now() };
 }
 
+/** The layout problems a Manim render measured, one per line. */
+export function issueLines(issues: readonly string[]): string {
+	return issues.map((issue) => `- ${issue}`).join("\n");
+}
+
+/** The renderer's layout check as a block to append to a tool result or a
+ *  look message; "" when it found nothing. */
+export function layoutReport(issues: readonly string[] | undefined): string {
+	if (!issues?.length) return "";
+	return `\n\nLAYOUT CHECK — the renderer measured these problems. Fix every one, then render again:\n${issueLines(issues)}`;
+}
+
 export type ToolCallBlock = Extract<AssistantMessage["content"][number], { type: "toolCall" }>;
 
 export function toolCallsOf(message: AssistantMessage): ToolCallBlock[] {

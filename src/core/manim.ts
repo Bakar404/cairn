@@ -47,7 +47,8 @@ export interface ManimRenderRequest {
 	jobId: string;
 	/** The complete scene file (Python). It must define `class Lesson`. */
 	code: string;
-	/** preview: low quality plus a six-frame contact sheet, nothing saved;
+	/** preview: low quality plus a contact sheet of the moments the scene
+	 *  settles into, nothing saved;
 	 *  final: medium-quality MP4 plus its poster, saved to the chat's media;
 	 *  still: one high-quality PNG of the last frame, saved to the media. */
 	mode: ManimRenderMode;
@@ -64,6 +65,10 @@ export interface ManimRenderResult {
 	poster?: MediaRef;
 	still?: MediaRef;
 	durationSec?: number;
+	/** preview and still: layout problems the renderer measured (text
+	 *  spilling out of its box, overlapping, cut off, too small…), worded
+	 *  so the maker can fix them. Absent when there are none. */
+	issues?: string[];
 }
 
 export interface ManimRenderer {

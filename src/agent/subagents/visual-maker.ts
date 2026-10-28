@@ -7,7 +7,7 @@ import { releaseCopilotSessions } from "../copilot/index.ts";
 import type { MediaRef, VisualResult } from "../../core/contracts.ts";
 import type { ManimRenderer } from "../../core/manim.ts";
 import { getHeadless, providerSafePng, type HeadlessApi } from "./headless.ts";
-import { applyExactEdit, lookMessage, nudgeMessage, streamOnce, textOf, toolCallsOf, toolText } from "./maker-kit.ts";
+import { applyExactEdit, layoutReport, lookMessage, nudgeMessage, streamOnce, textOf, toolCallsOf, toolText } from "./maker-kit.ts";
 
 /**
  * The visual-maker sub-agent (vision §2.5): authors ONE precise SVG from a
@@ -122,7 +122,8 @@ A SECOND MEDIUM — a Manim still. Three more tools draw the figure with Manim C
 (Python) instead of SVG; the scene's FINAL FRAME becomes the figure (1920×1080):
 - write_manim({ code }) — write the complete scene file (overwrites the previous version).
 - edit_manim({ old_text, new_text }) — the same exact-once replacement, in the scene.
-- render_manim({}) — render the final frame; the PNG arrives as an image, like render_svg's.
+- render_manim({}) — render the final frame; the PNG arrives as an image, like render_svg's, and the
+  tool result lists any layout problems the renderer measured (fix every one).
 
 Use Manim when the figure needs typeset math (MathTex/Tex — LaTeX is installed) or Manim's
 axes, graphs and geometry; use SVG for everything else. ONE medium per figure: whichever you
@@ -137,6 +138,9 @@ The scene file — always this shape (build the picture with self.add; nothing n
 - cairn_style sets the white paper with ink as the default color and defines the palette
   above by name: PAPER, INK, MUTED, FAINT, ACCENT, ACCENT2 — use only those.
 - The frame is 14.2 × 8 units centred on the origin; keep everything within x ±6.5, y ±3.6.
+- Text(...) for words: the house sans font is already set, so pass no font=. Labels 28-36, never
+  below 24. Size each box from its label — SurroundingRectangle(label, buff=0.2, color=INK) or
+  RoundedRectangle(width=label.width + 0.5, height=0.9) — and add the box before its label.
 - No files, network or input — the renderer has none.`;
 
 /** The wire declarations (pi-ai Tool, TypeBox parameters): this loop owns
@@ -245,9 +249,10 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 	let medium: "svg" | "manim" = "svg";
 	let finalText = "";
 
-	/** Render the scene's final frame: the PNG to look at and the saved
-	 *  still, or the error (the caller records what was rendered). */
-	const renderStill = async (code: string): Promise<{ png: Buffer; still: MediaRef } | { error: string }> => {
+	/** Render the scene's final frame: the PNG to look at, the saved still
+	 *  and the layout check's findings, or the error (the caller records
+	 *  what was rendered). */
+	const renderStill = async (code: string): Promise<{ png: Buffer; still: MediaRef; issues: string[] } | { error: string }> => {
 		if (!manim || !opts.chatId || !opts.jobId) return { error: "Manim isn't available." };
 		const out = await manim.render({
 			chatId: opts.chatId,
@@ -257,7 +262,7 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 			...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
 		});
 		if (!out.ok || !out.still || !out.pngBase64) return { error: out.error ?? "the render returned no picture" };
-		return { png: providerSafePng(Buffer.from(out.pngBase64, "base64")), still: out.still };
+		return { png: providerSafePng(Buffer.from(out.pngBase64, "base64")), still: out.still, issues: out.issues ?? [] };
 	};
 
 	try {
@@ -301,7 +306,7 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 					opts.onActivity?.("render_manim: inspecting final render");
 					still = shot.still;
 					renderedScene = currentScene;
-					messages = [...messages, lookMessage(MANIM_UNLOOKED_FINISH_MESSAGE, shot.png)];
+					messages = [...messages, lookMessage(MANIM_UNLOOKED_FINISH_MESSAGE + layoutReport(shot.issues), shot.png)];
 					continue;
 				}
 				if (medium === "manim" && still) return { svg: "", png: still, notes: finalText || undefined };
@@ -398,7 +403,13 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 					still = shot.still;
 					renderedScene = currentScene;
 					opts.onActivity?.("render_manim: inspecting render");
-					toolResults.push(toolText(call.id, call.name, "Rendered — the final frame follows in the next message. Look at it."));
+					toolResults.push(
+						toolText(
+							call.id,
+							call.name,
+							`Rendered — the final frame follows in the next message. Look at it.${layoutReport(shot.issues)}`,
+						),
+					);
 				} else {
 					const known = manim
 						? "write_svg, edit_svg, render_svg, write_manim, edit_manim, or render_manim"
