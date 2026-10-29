@@ -290,6 +290,56 @@ test("abort ends the call as aborted and the next call rebuilds", async () => {
 	releaseCopilotSessions(sessionId);
 });
 
+const flush = () => new Promise((r) => setImmediate(r));
+
+test("a session left waiting on Cairn's tools is closed before the runtime gives up on them", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	setup();
+	const sessionId = randomUUID();
+	const model = copilotModel("fake-model")!;
+	const messages: Message[] = [user("Quiz me")];
+	world.replies.push(toolReply([{ id: "q1", name: "get_weather", args: { city: "Oslo" } }]));
+	const first = await run(model, messages, { sessionId });
+	assert.equal(first.message.stopReason, "toolUse");
+	const parked = world.sessions[0]!;
+	t.mock.timers.tick(10 * 60_000 - 1);
+	await flush();
+	assert.deepEqual(parked.log, ["send"], "still open for a timely answer");
+	t.mock.timers.tick(1);
+	await flush();
+	assert.deepEqual(parked.log, ["send", "abort", "disconnect"], "aborted before it is let go");
+	assert.deepEqual(world.deleted, [parked.sessionId]);
+	messages.push(first.message, ...result(first.message, "posed"), user("my answer"));
+	world.replies.push(textReply("noted"));
+	assert.equal((await run(model, messages, { sessionId })).message.stopReason, "stop");
+	assert.equal(world.sessions.length, 2, "the next call rebuilds");
+	assert.match(world.sessions[1]!.sends[0]!.prompt, /<tool_result id="q1" name="get_weather">\nposed/);
+	releaseCopilotSessions(sessionId);
+});
+
+test("a turn the session starts on its own is aborted at once", async () => {
+	const triggers = [
+		ev("assistant.turn_start", { turnId: "t2" }),
+		ev("external_tool.completed", { requestId: "req-q1" }),
+		ev("tool.execution_complete", { toolCallId: "q1", success: false }),
+	];
+	for (const trigger of triggers) {
+		setup();
+		const sessionId = randomUUID();
+		world.replies.push(toolReply([{ id: "q1", name: "get_weather", args: { city: "Oslo" } }]));
+		await run(copilotModel("fake-model")!, [user("Quiz me")], { sessionId });
+		const session = world.sessions[0]!;
+		session.emit(ev("external_tool.completed", { requestId: "req-elsewhere" }));
+		await flush();
+		assert.deepEqual(session.log, ["send"], "a request it does not owe leaves it open");
+		session.emit(trigger);
+		await flush();
+		assert.deepEqual(session.log, ["send", "abort", "disconnect"], trigger.type);
+		assert.deepEqual(world.deleted, [session.sessionId], trigger.type);
+		releaseCopilotSessions(sessionId);
+	}
+});
+
 test("session errors surface as friendly errors", async () => {
 	setup();
 	world.replies.push((s) => s.emit(ev("session.error", { errorType: "quota", message: "You have exceeded your premium request quota", statusCode: 429 })));
