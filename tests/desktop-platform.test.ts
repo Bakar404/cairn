@@ -163,8 +163,9 @@ describe("workflow action versions", () => {
 		it(`${filename} uses supported Action runtimes without changing the app's Node 26`, () => {
 			const workflow = yaml.load(readFileSync(new URL(`../.github/workflows/${filename}`, import.meta.url), "utf8"));
 			const expected = ["actions/checkout@v7", "actions/setup-node@v7"];
+			if (filename === "ci.yml") expected.push("lycheeverse/lychee-action@v2");
 			if (filename === "release.yml") {
-				expected.push("actions/github-script@v9", "actions/upload-artifact@v7", "maxim-lobanov/setup-xcode@v1");
+				expected.push("actions/attest@v4", "actions/github-script@v9", "actions/upload-artifact@v7", "maxim-lobanov/setup-xcode@v1");
 			}
 			const observed = new Set<string>();
 			for (const job of Object.values(workflow.jobs)) {
@@ -210,12 +211,13 @@ describe("desktop release workflow", () => {
 	type Release = { id: number; tag_name: string; draft: boolean };
 
 	/** Execute the REAL action script with an in-memory GitHub API. */
-	async function prepareDraft(releases: Release[]) {
+	async function prepareDraft(releases: Release[], notes = "### Added\n\n- Something new.") {
 		const created: Record<string, unknown>[] = [];
 		const listReleases = () => {};
 		await runInNewContext(`(async () => { ${script} })()`, {
 			context: { repo: { owner: "test-owner", repo: "test-repo" }, ref: "refs/tags/v0.3.0" },
 			core: { info() {} },
+			process: { env: { NOTES: notes } },
 			github: {
 				paginate: async (method: unknown, options: unknown) => {
 					assert.equal(method, listReleases);
@@ -273,10 +275,19 @@ describe("desktop release workflow", () => {
 		assert.equal(ciMac?.os, "macos-15", "ordinary CI keeps older macOS build/boot coverage");
 	});
 
-	it("creates exactly one unpublished draft when none matches", async () => {
-		assert.deepEqual(await prepareDraft([{ id: 9, tag_name: "v0.2.0", draft: false }]), [{
-			owner: "test-owner", repo: "test-repo", tag_name: "v0.3.0", name: "0.3.0", draft: true,
-		}]);
+	it("creates exactly one unpublished draft, with the changelog notes, when none matches", async () => {
+		const created = await prepareDraft([{ id: 9, tag_name: "v0.2.0", draft: false }]);
+		assert.equal(created.length, 1);
+		const { body, ...fields } = created[0] as { body: string };
+		assert.deepEqual(fields, {
+			owner: "test-owner", repo: "test-repo", tag_name: "v0.3.0", name: "Cairn 0.3.0", draft: true,
+		});
+		assert.ok(body.startsWith("### Added\n\n- Something new.\n"));
+		assert.ok(body.includes("gh attestation verify <downloaded file> -R test-owner/test-repo"));
+	});
+
+	it("refuses to create a draft without changelog notes", async () => {
+		await assert.rejects(prepareDraft([], " \n"), /No CHANGELOG\.md notes for 0\.3\.0/);
 	});
 
 	it("reuses an existing draft without creating another", async () => {
