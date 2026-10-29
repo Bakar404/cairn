@@ -288,7 +288,7 @@ function createWindow(url) {
 				// height. Do not force the zoom-invariant native overlay to match
 				// the renderer's 60 CSS px bar: zooming out would cover its border.
 				// The renderer reserves the actual width via env(titlebar-area-*).
-				titleBarOverlay: { color: "#141414", symbolColor: "#e5e5e5" },
+				titleBarOverlay: { color: "#131210", symbolColor: "#e9e6e0" },
 				// Keep the custom bar alone; Alt reveals the native menu.
 				autoHideMenuBar: true,
 			}),
@@ -302,10 +302,11 @@ function createWindow(url) {
 		// the native window surface changes size before Chromium's compositor
 		// has a frame at the new size, and the gap shows the window's NATIVE
 		// background — Electron's default is white, glaring on a dark app.
-		// The app background (#141414) fills the lag instead. `show: false` +
+		// The app background (#131210, dark factory) fills the lag instead;
+		// the renderer's "lh:theme" IPC retints it when the mode flips. `show: false` +
 		// ready-to-show is the same treatment for first paint: the window
 		// appears only once the page has actually rendered.
-		backgroundColor: "#141414",
+		backgroundColor: "#131210",
 		show: false,
 		// Narrow-window behavior (owner, 2026-09-17): 640px is the floor —
 		// below it even a wrapped chrome row gets cramped and the chat header
@@ -679,6 +680,18 @@ async function main() {
 		const { x, y, width, height } = win.getBounds();
 		const target = SIDEBAR_AUTOCLOSE;
 		if (width < target) win.setBounds({ x, y, width: target, height });
+	});
+	// Light/dark (design wave): the native resize backing and the Windows/
+	// Linux caption overlay follow the page scheme (mirrors SCHEME_SURFACES
+	// in src/core/theme-mode.ts).
+	ipcMain.on("lh:theme", (event, scheme) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win || !trustedAppWindows.has(win)) return;
+		const surface = scheme === "light"
+			? { color: "#f8f5f1", symbolColor: "#211e19" }
+			: { color: "#131210", symbolColor: "#e9e6e0" };
+		win.setBackgroundColor(surface.color);
+		if (process.platform !== "darwin") win.setTitleBarOverlay(surface);
 	});
 	reopenWindow = () => createWindow(url);
 	app.on("activate", () => {

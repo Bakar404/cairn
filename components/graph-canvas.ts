@@ -117,6 +117,21 @@ export interface CanvasColors {
 	edge: string;
 	label: string;
 	hoverText: string;
+	/** The house data palette (design wave): cluster regions take one of
+	 *  these by stable hash — muted and theme-matched. Absent = the legacy
+	 *  full-wheel hue. */
+	regions?: string[];
+	/** Region-label inks, index-aligned with regions (readable on the page). */
+	regionLabels?: string[];
+}
+
+/** A cluster's region color (or its label ink): the palette slot by stable
+ *  hash when supplied, else the legacy hue. */
+export function regionColor(colors: CanvasColors, clusterId: string, label = false): string {
+	const set = label ? colors.regionLabels : colors.regions;
+	const hue = clusterHue(clusterId);
+	if (set && set.length > 0) return set[hue % set.length]!;
+	return label ? `hsla(${hue}, 55%, 78%, 0.85)` : `hsla(${hue}, 65%, 60%, 1)`;
 }
 
 export interface CanvasData {
@@ -786,6 +801,15 @@ export class GraphCanvasRenderer {
 	setSettings(settings: GraphRenderSettings): void {
 		this.settings = settings;
 		this.geoVersion++; // sizes/wrap width changed → rebuild geometry
+		this.markDirty();
+	}
+
+	/** Theme flip (light/dark): swap the resolved colors and repaint —
+	 *  the region bitmap rebuilds; the sim, camera, and layout are untouched. */
+	setColors(colors: CanvasColors): void {
+		if (!this.data) return;
+		this.data = { ...this.data, colors };
+		this.regionBuiltVersion = -2; // never equals geoVersion → rebuild
 		this.markDirty();
 	}
 
@@ -1497,7 +1521,7 @@ export class GraphCanvasRenderer {
 		// — they double-counted where nodes sit on edges (user-identified
 		// hot spots, when clusters were edge-based).
 		data.clusters.forEach((cluster, ci) => {
-			const hue = clusterHue(cluster.id);
+			const tint = regionColor(data.colors, cluster.id);
 			// Full-opacity strokes: alpha is applied ONCE at the very end
 			// (dilate at 1 → blur → scale by edgeAlpha). Baking per-stroke
 			// alpha in here made source-over stacking ACCUMULATE it — an
@@ -1505,7 +1529,7 @@ export class GraphCanvasRenderer {
 			// counted spot (user report 2026-09-14). At alpha 1 the alpha
 			// channel is a pure coverage indicator: overlaps of any count
 			// contribute exactly 1.0.
-			rctx.strokeStyle = `hsla(${hue}, 65%, 60%, 1)`;
+			rctx.strokeStyle = tint;
 			rctx.beginPath();
 			// Endpoints actually covered by a stroke's round caps.
 			const touched = new Set<string>();
@@ -1534,7 +1558,7 @@ export class GraphCanvasRenderer {
 			// radius as a round cap = dilation) covers exactly the members no
 			// stroke reached: every member is painted by its edges' caps OR
 			// one disc, never both — the no-double-counting rule survives.
-			rctx.fillStyle = `hsla(${hue}, 65%, 60%, 1)`;
+			rctx.fillStyle = tint;
 			const discR = dilationW / cell;
 			for (const id of cluster.members) {
 				if (touched.has(id) || !isVisible(id)) continue;
@@ -1725,7 +1749,7 @@ export class GraphCanvasRenderer {
 			const lineH = (settings.clusterLabelSize * REGION_LABEL_LINE_HEIGHT) / k;
 			for (const rm of this.regionMeta) {
 				if (!rm.lines) continue;
-				ctx.fillStyle = `hsla(${rm.hue}, 55%, 78%, 0.85)`;
+				ctx.fillStyle = regionColor(data.colors, rm.id, true);
 				const firstOffset = (-(rm.lines.length - 1) / 2) * lineH;
 				for (let i = 0; i < rm.lines.length; i++) {
 					ctx.fillText(rm.lines[i]!, rm.cx, rm.cy + firstOffset + i * lineH);

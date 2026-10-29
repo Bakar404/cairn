@@ -136,7 +136,7 @@ describe("DispatchCard — the BYOK refusal tone (owner, 2026-09-22)", () => {
 		assert.ok(html.includes('data-testid="dispatch-setup-link"'));
 		assert.ok(html.includes("Set up models"));
 		assert.ok(!html.includes("failed"));
-		assert.ok(!html.includes("text-red-500"));
+		assert.ok(!html.includes("text-danger"));
 	});
 
 	it("a connection-refused job is INFO: 'needs GitHub Copilot', 'Connect Copilot' (zero-keys wave, 66dbea9)", () => {
@@ -154,7 +154,7 @@ describe("DispatchCard — the BYOK refusal tone (owner, 2026-09-22)", () => {
 		const html = renderToStaticMarkup(inJobs([job({ error: "FAILED: headless crashed" })]));
 		assert.ok(html.includes('data-testid="dispatch-settled"'));
 		assert.ok(html.includes("failed"));
-		assert.ok(html.includes("text-red-500"));
+		assert.ok(html.includes("text-danger"));
 		assert.ok(!html.includes("dispatch-refused"));
 	});
 

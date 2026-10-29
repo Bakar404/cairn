@@ -6,13 +6,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { DumbbellIcon, MoonIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon, SunIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { SettingsDialogProvider, useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
+import { useAppearance } from "@/components/settings/appearance.tsx";
 import { Hint } from "@/components/ui/hint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -224,6 +225,29 @@ export function SidebarToggle() {
 function SessionStatus({ busy }: { busy: boolean }) {
 	if (!busy) return null;
 	return <BrailleSpinner />;
+}
+
+/** One-tap light/dark (design wave). Shows the scheme it switches TO;
+ *  disabled until the stored appearance loads, so a quick flip never
+ *  overwrites the record's other appearance fields with the factory. */
+function ModeSwitch() {
+	const { scheme, ready, setMode } = useAppearance();
+	const next = scheme === "dark" ? "light" : "dark";
+	const label = `Switch to ${next} mode`;
+	return (
+		<Hint label={label} side="right">
+			<button
+				type="button"
+				aria-label={label}
+				data-testid="mode-switch"
+				disabled={!ready}
+				onClick={() => setMode(next)}
+				className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+			>
+				{next === "light" ? <SunIcon className="size-3.5" /> : <MoonIcon className="size-3.5" />}
+			</button>
+		</Hint>
+	);
 }
 
 /** Compact "how long ago": "just now", "5m ago", "3h ago", "2d ago",
@@ -831,8 +855,10 @@ function SessionsSidebar() {
 
 					{/* Settings entry (settings-app wave): same row language as
 					    New session — quiet, bottom-pinned, opens the centered
-					    dialog (also mod+, in the keyboard registry). */}
-					<div className="px-3 pb-3 pt-1">
+					    dialog (also mod+, in the keyboard registry). The mode
+					    switch sits beside it (design wave): one tap flips
+					    light/dark; System lives in Settings → Appearance. */}
+					<div className="flex items-center justify-between gap-1 px-3 pb-3 pt-1">
 						<Hint label="Settings" action="open-settings" side="right">
 							<button
 								type="button"
@@ -844,6 +870,7 @@ function SessionsSidebar() {
 								Settings
 							</button>
 						</Hint>
+						<ModeSwitch />
 					</div>
 				</div>
 

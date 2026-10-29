@@ -438,7 +438,7 @@ export function SetupDialog({
 							>
 								{saving ? "Saving…" : "Save models"}
 							</button>
-							{error && <p className="text-xs text-red-400">{error}</p>}
+							{error && <p className="text-xs text-danger">{error}</p>}
 						</div>
 					</div>
 				)}

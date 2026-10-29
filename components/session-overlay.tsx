@@ -5,9 +5,11 @@ import { MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
 import { renderMermaid } from "@/components/mermaid-render";
+import { usePaletteKey } from "@/components/color-scheme";
 import { MermaidError } from "@/components/mermaid-error";
 import { Hint } from "@/components/ui/hint";
 import { SvgImage } from "@/components/artifacts/svg-image";
+import { paperStyle, ThemedSvgImage, useFigureVariants } from "@/components/artifacts/figure-image";
 
 /**
  * SESSION-SCOPED OVERLAYS (owner wave, 2026-09-19): the "fullscreen"
@@ -70,8 +72,9 @@ export function chartSize(svg: string): { w: number; h: number } {
  *  pan-zoom.ts), Esc/X close. Renders its own copy of the chart (mermaid
  *  ids are per-render), not the injected inline svg. FIGURE MODE
  *  (2026-10-07): pass a raw `svg` instead of a mermaid `chart` — the same
- *  shell then focuses a figure card's svg on a white stage, with the
- *  caller's invert state carried over (the filter rides the white stage,
+ *  shell then focuses a figure card's svg with the card's own backing: a
+ *  house figure in the page's scheme, anything else on light paper with
+ *  the caller's invert state carried over (the filter rides the paper,
  *  exactly like the in-card holder). */
 export function MermaidOverlay({
 	chart,
@@ -88,6 +91,9 @@ export function MermaidOverlay({
 	const [svg, setSvg] = useState<string | null>(rawSvg ?? null);
 	const [error, setError] = useState<string | null>(null);
 	const [attempt, setAttempt] = useState(0);
+	// Palette changes re-render in place (see md-blocks' MermaidInline).
+	const paletteKey = usePaletteKey();
+	const variants = useFigureVariants(rawSvg ?? null);
 	useEffect(() => {
 		if (rawSvg !== undefined) {
 			setSvg(rawSvg);
@@ -95,12 +101,17 @@ export function MermaidOverlay({
 			return;
 		}
 		if (chart === undefined) return;
-		let cancelled = false;
 		setSvg(null);
 		setError(null);
+	}, [rawSvg, chart, attempt]);
+	useEffect(() => {
+		if (rawSvg !== undefined || chart === undefined) return;
+		let cancelled = false;
 		renderMermaid(chart)
 			.then((s) => {
-				if (!cancelled) setSvg(s);
+				if (cancelled) return;
+				setSvg(s);
+				setError(null);
 			})
 			.catch((e) => {
 				if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -108,7 +119,7 @@ export function MermaidOverlay({
 		return () => {
 			cancelled = true;
 		};
-	}, [rawSvg, chart, attempt]);
+	}, [rawSvg, chart, attempt, paletteKey]);
 
 	// Esc closes — claimed at the document level (THE ONE-ESC LAW, owner
 	// keyboard round 2026-10-06): one Esc, one action; the window chain
@@ -270,17 +281,19 @@ export function MermaidOverlay({
 										: "transform 180ms ease-out, opacity 160ms ease-out",
 							}}
 						>
-							{/* Figures share the card's image boundary and white backing.
+							{/* Figures share the card's image boundary and backing.
 							    Mermaid keeps its inline renderer; globals.css removes
 							    its max-width cap so it fills the natural-size box. */}
 							{rawSvg !== undefined ? (
-								<div
-									data-lh-overlay-chart
-									className="bg-white"
-									style={inverted ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}
-								>
-									<SvgImage svg={svg} className="block h-auto w-full" />
-								</div>
+								variants ? (
+									<div data-lh-overlay-chart data-themed="" className="bg-card">
+										<ThemedSvgImage variants={variants} className="block h-auto w-full" />
+									</div>
+								) : (
+									<div data-lh-overlay-chart style={paperStyle(inverted)}>
+										<SvgImage svg={svg} className="block h-auto w-full" />
+									</div>
+								)
 							) : (
 								<div
 									data-lh-overlay-chart

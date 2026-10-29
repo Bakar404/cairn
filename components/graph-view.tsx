@@ -67,9 +67,18 @@ import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, use
 import { NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
 import Link from "next/link";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, UploadIcon, WaypointsIcon } from "lucide-react";
-import { incrementalLayout, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
+import {
+	incrementalLayout,
+	mixHex,
+	propositionSessionHref,
+	vividHex,
+	type ColorScheme,
+	type GraphCostSummary,
+	type GraphNode,
+	type GraphSnapshot,
+} from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
-import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
+import { GraphCanvasRenderer, type CanvasColors, type GraphRenderSettings } from "./graph-canvas.ts";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { useActivity } from "@/components/activity-dock";
 import { useServerEvent, useServerResync } from "@/components/server-events";
@@ -77,6 +86,8 @@ import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { Hint } from "@/components/ui/hint";
+import { currentScheme, usePaletteKey } from "@/components/color-scheme";
+import { livePalette, tokenHex } from "@/components/theme-tokens";
 import {
 	ARROW_LENGTH_LADDER,
 	CHARGE_RANGE,
@@ -109,8 +120,8 @@ import {
 	toSliderPosition,
 } from "@/src/core";
 
-/** The uniform node look (no state classes — canvas wants hex, not oklch):
- *  the accent color, until the state model lands. */
+/** The uniform node look (no state classes): the ink, until the state
+ *  model lands. */
 const NODE_COLOR_TOKEN = "--primary";
 
 /** Per-device graph camera persistence (zoom+pan view state). v1 in the
@@ -193,26 +204,24 @@ export function seedMissingNodePositions(
 	return positions;
 }
 
-// ---- Color helpers (canvas wants hex, not oklch) ---------------------------
+// ---- Colors (canvas wants hex) ---------------------------------------------
 
-/** Resolve a CSS variable (oklch in this app) to #rrggbb via the canvas. */
-function cssColorToHex(css: string): string {
-	const canvas = document.createElement("canvas");
-	canvas.width = 1;
-	canvas.height = 1;
-	const ctx = canvas.getContext("2d");
-	if (!ctx) return "#888888";
-	ctx.fillStyle = css;
-	ctx.fillRect(0, 0, 1, 1);
-	const { data } = ctx.getImageData(0, 0, 1, 1);
-	return `#${[data[0]!, data[1]!, data[2]!]
-		.map((v) => v.toString(16).padStart(2, "0"))
-		.join("")}`;
-}
-
-function tokenHex(cssVar: string): string {
-	const value = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
-	return value ? cssColorToHex(value) : "#888888";
+/** The canvas paints with the LIVE tokens (theme-tokens.ts): nodes in the
+ *  ink, edges in the ring hairline, cluster regions in the house data
+ *  hues — the same six as charts and demos, made vivid so the low-alpha
+ *  region field reads as a soft tint rather than grey. Region labels:
+ *  the palette ink as-is on dark; pulled toward the text ink on light so
+ *  they stay readable. */
+function canvasColors(scheme: ColorScheme): CanvasColors {
+	const p = livePalette(scheme);
+	return {
+		node: tokenHex(NODE_COLOR_TOKEN, p.foreground),
+		edge: p.ring,
+		label: p.mutedForeground,
+		hoverText: p.foreground,
+		regions: p.viz.map((c) => vividHex(c)),
+		regionLabels: p.viz.map((c) => (scheme === "light" ? mixHex(c, p.foreground, 0.3) : c)),
+	};
 }
 
 // ---- Component ------------------------------------------------------------
@@ -1059,6 +1068,7 @@ export function GraphView({
 	// frozen layout out of the layout effect.
 	const rendererRef = useRef<GraphCanvasRenderer | null>(null);
 	const posRef = useRef<Map<string, { x: number; y: number }> | null>(null);
+	const paletteKey = usePaletteKey();
 
 	// The id set that survives the current search — consumed by the
 	// visibility feed and the "no matches" hint.
@@ -1426,16 +1436,18 @@ export function GraphView({
 			logicalEdges: snapshot.logicalEdges.map((e) => ({ from: e.from, to: e.to })),
 			impLinks: snapshot.impLinks,
 			clusters: snapshot.clusters.map((c) => ({ id: c.id, label: c.label, members: c.members })),
-			colors: {
-				node: tokenHex(NODE_COLOR_TOKEN),
-				edge: tokenHex("--ring"),
-				label: tokenHex("--muted-foreground"),
-				hoverText: tokenHex("--foreground"),
-			},
+			colors: canvasColors(currentScheme()),
 			// Match the app typography (Geist via the body's stack).
 			fontFamily: getComputedStyle(document.body).fontFamily,
 		});
 	}, [snapshot, isEmpty]);
+
+	// Feed #1b — the palette: a light/dark flip (or a new custom background)
+	// re-resolves the token colors and repaints. No setData — the sim,
+	// camera, and layout stay put.
+	useEffect(() => {
+		rendererRef.current?.setColors(canvasColors(currentScheme()));
+	}, [paletteKey]);
 
 	// Feed #2 — settings: just marks the frame dirty. No rebuild, no
 	// re-layout, no camera touch (the whole point of the new renderer).

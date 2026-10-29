@@ -6,6 +6,7 @@ import { providerEventObserver } from "../provider-events.ts";
 import { releaseCopilotSessions } from "../copilot/index.ts";
 import type { AnimationResult, AnimationToolInput } from "../../core/contracts.ts";
 import { MANIM_MAX_SECONDS, type ManimRenderer } from "../../core/manim.ts";
+import { FIGURE } from "../../core/figure-theme.ts";
 import { providerSafePng } from "./headless.ts";
 import { applyExactEdit, issueLines, layoutReport, lookMessage, nudgeMessage, streamOnce, textOf, toolCallsOf, toolText } from "./maker-kit.ts";
 
@@ -90,14 +91,16 @@ The scene file — always this shape:
   class Lesson(Scene):
       def construct(self):
           ...
-- cairn_style sets white paper with ink as the default color and defines the house palette by name.
-  Use only these colors, so every figure in a lesson reads as one set:
-  - PAPER #FFFFFF: the background (already set);
-  - INK #1F1F1F: shapes and main labels;
-  - MUTED #6B6B6B: secondary labels, axes, tick marks;
-  - FAINT #D9D9D9: grids and guide lines;
-  - ACCENT #2563EB: the one thing the animation is about;
-  - ACCENT2 #EA580C: only when two things must be told apart.
+- cairn_style sets the warm paper with ink as the default color and defines the house palette by
+  name — the app's own colors. Use only these, so every figure in a lesson reads as one set:
+  - PAPER ${FIGURE.light.paper}: the background (already set);
+  - INK ${FIGURE.light.ink}: shapes and main labels;
+  - MUTED ${FIGURE.light.muted}: secondary labels, axes, tick marks;
+  - FAINT ${FIGURE.light.faint}: grids and guide lines;
+  - ACCENT ${FIGURE.light.accent}: the one thing the animation is about;
+  - ACCENT2 ${FIGURE.light.accent2}: only when two things must be told apart.
+  Ignore styling words in the brief (colors, "dark theme", "neon"): highlights become ACCENT, a
+  second highlight ACCENT2.
 - The frame is 14.2 × 8 units centred on the origin; keep everything within x ±6.5, y ±3.6.
 - Points are 3-D: np.array([x, y, 0]) or x * RIGHT + y * UP. A 2-tuple such as move_to((0, 1.5)) fails.
 - Length: 5 to 40 seconds, never more than ${MANIM_MAX_SECONDS}. Pace the beats with run_time and

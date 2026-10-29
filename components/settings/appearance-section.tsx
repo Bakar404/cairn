@@ -6,10 +6,9 @@
  * PUT the whole appearance section and hand the delta back so the CSS
  * variables move IMMEDIATELY (the section's whole point — it must DO
  * something). Hex inputs commit on blur/Enter; the background derives the
- * raised/accent/edge palette in code (components/settings/appearance.tsx).
- * Mode is dark-only this wave: control rendered DISABLED with a note — the
- * light palette is the design wave's work, and a lying control is worse
- * than an honest disabled one.
+ * raised/accent/edge palette in code (components/settings/appearance.tsx)
+ * and applies in the mode it suits (a dark color in dark mode, a light one
+ * in light mode). Mode = Dark / Light / System (design wave).
  *
  * Graph graying (owner, 2026-09-20) follows the graph viewer's render-panel
  * convention: the whole row dims when a parent is off (stored values
@@ -33,13 +32,15 @@
 import { useEffect, useRef, useState } from "react";
 import {
 	EXTRACTION_CHUNK_TOKENS_FLOOR,
+	SCHEME_SURFACES,
 	resolveSettings,
+	type AppearanceMode,
 	type AppearanceSettings,
 	type GraphSettings,
 } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
-import { useAppearance } from "./appearance.tsx";
+import { backgroundScheme, useAppearance } from "./appearance.tsx";
 import { FontMenuList } from "./model-menu";
 import { CommitInput, SettingsRow, ThinSelect, Toggle } from "./controls.tsx";
 
@@ -97,8 +98,9 @@ export function AppearanceSection({
 	/** PUT the whole appearance section; the page re-applies on success. */
 	onSectionChange: (next: AppearanceSettings) => void;
 }) {
-	const { appearance: resolved } = useAppearance();
+	const { appearance: resolved, scheme } = useAppearance();
 	const md = appearance?.mdRendering;
+	const customBgScheme = appearance?.background ? backgroundScheme(appearance.background) : null;
 
 	// The font dropdown's open state + its enumeration cache. undefined =
 	// not enumerated yet (desktop: click-bound queryLocalFonts pending);
@@ -186,19 +188,34 @@ export function AppearanceSection({
 
 	return (
 		<>
-			<SettingsRow label="Mode" hint="Coming soon" testid="row-mode" dimmed>
-				<ThinSelect value="dark" ariaLabel="mode" onChange={() => {}} testid="select-mode" disabled>
+			<SettingsRow
+				label="Mode"
+				hint={(appearance?.mode ?? resolved.mode) === "system" ? `Follows your system (${scheme} now)` : undefined}
+				testid="row-mode"
+			>
+				<ThinSelect
+					value={appearance?.mode ?? resolved.mode}
+					ariaLabel="mode"
+					testid="select-mode"
+					onChange={(v) => onSectionChange({ ...appearance, mode: v as AppearanceMode })}
+				>
 					<option value="dark">Dark</option>
+					<option value="light">Light</option>
+					<option value="system">System</option>
 				</ThinSelect>
 			</SettingsRow>
 			<SettingsRow
 				label="Background"
-				hint={`Empty = ${resolved.background ?? "#141414"}`}
+				hint={
+					customBgScheme !== null && customBgScheme !== scheme
+						? `Applies in ${customBgScheme} mode`
+						: `Empty = ${SCHEME_SURFACES[scheme].background}`
+				}
 				testid="row-background"
 			>
 				<CommitInput
 					value={appearance?.background ?? ""}
-					placeholder="#141414"
+					placeholder={SCHEME_SURFACES[scheme].background}
 					ariaLabel="background hex"
 					testid="input-background"
 					onCommit={(v) => onSectionChange({ ...appearance, background: v === "" ? null : v })}

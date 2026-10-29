@@ -5,6 +5,7 @@ import { serverExecute } from "../tool-execute.ts";
 import type { PiEngine } from "../models.ts";
 import { runSubagent } from "./pi-run.ts";
 import type { DemoResult } from "../../core/contracts.ts";
+import { HOUSE_KIT_VERSION, withHouseKit } from "../../core/demo-house.ts";
 import { getHeadless, type DemoRunResult, type HeadlessApi } from "./headless.ts";
 import { healToolRecord } from "../tools/heal.ts";
 
@@ -23,7 +24,17 @@ import { healToolRecord } from "../tools/heal.ts";
  * verify loop ran"; on failure the result is { title, html: "", tested: true,
  * notes: "FAILED: <reason>" } — the card renders the failure note, no iframe.
  * The job wrapper treats html === "" as failure and marks the job error.
+ *
+ * Styling is the house kit's (core/demo-house.ts): every headless run loads
+ * the demo with the kit injected, and a delivered demo records the kit
+ * generation it passed against (DemoResult.kit).
  */
+
+/** The document a headless run loads: the demo as the card shows it (house
+ *  kit, light), with the dark flip the app may send rehearsed mid-settle. */
+export function demoUnderTest(html: string): string {
+	return withHouseKit(html, { theme: "light", rehearseFlipMs: 1000 });
+}
 
 export interface DemoBuilderInput {
 	title: string;
@@ -57,15 +68,51 @@ Runtime contract (the document runs in a sandboxed iframe, sandbox="allow-script
 - The parent sizes the iframe to the document height automatically; just build normal flowing layout.
   Make the demo fill the width and size its own height sensibly.
 
+The house kit — the app injects it ahead of your code; never copy or redefine it:
+- It is the app's own look: the palette as CSS variables (light and dark, switched live by the app) and
+  quiet styles for body text, headings, buttons, range sliders, checkboxes, selects, number inputs,
+  tables, and figcaptions. Plain semantic HTML already looks right; write only the layout CSS you need.
+- The brief may still name colors, fonts, or a theme ("dark theme", "accent #60A5FA", "the bar turns
+  blue"): build the behavior and ignore the styling words. A requested highlight is --brand; further
+  distinct highlights are --viz-2, --viz-3, …
+- Colors come ONLY from these variables — never a hex, rgb(), hsl(), or named color of your own:
+  --background (the demo's ground), --card (a raised panel), --muted (a quiet fill), --foreground (ink),
+  --muted-foreground (secondary text, axes, ticks), --border (hairlines, grid lines), --input (control
+  outlines), --brand (THE accent: the one thing the demo is about), --success / --warning / --danger
+  (only when something IS right / borderline / wrong), --viz-1 … --viz-6 (data series, in that order),
+  --viz-muted (de-emphasized data). --accent is a neutral hover wash, not a highlight.
+- Canvas and JS read colors at draw time: cairn.color("viz-2"), cairn.viz(i) (the i-th series color,
+  0-based), cairn.alpha("brand", 0.2) (translucent), cairn.font("mono") (a family for ctx.font). Repaint
+  in cairn.onTheme(redraw) — a canvas painted once keeps the old theme's colors.
+- Type: var(--font-sans) for words, var(--font-mono) for numbers, readouts, and code. Corners:
+  var(--radius) at most.
+- Ready-made classes: .row (wrapping flex row), .stack (column), .panel (raised card), .control (one
+  label · input · readout grid row), .readout (mono tabular value; <output> looks the same), .note
+  (muted small text), .tabs (a row of text tabs; mark the active button aria-selected="true"), and
+  button.primary for the single main action.
+
+Taste — the demo must look designed, not generated:
+- Start with the instrument itself. No title banner or hero header: the card already shows the title.
+  At most one short line telling the learner what to try.
+- The subject (canvas, plot, simulation) gets the width; controls sit below or beside it in one compact
+  group, not a dashboard of cards.
+- Flat surfaces and 1px hairlines. No gradients, glows, drop shadows, blur, or glass effects.
+- No emoji, icon fonts, pill badges, or colored left-border callout boxes.
+- Sentence case everywhere: no ALL-CAPS labels, no letter-spaced eyebrows.
+- Accent discipline: --brand marks at most two things on screen; everything else is ink and muted ink.
+- Numbers carry their units and sit in mono; axes and ticks are muted; series follow --viz-1, --viz-2, …
+- Motion is smooth and purposeful: eased, never bouncy.
+
 Build quality:
 - The demo must directly serve the brief: every control named in the brief must exist and do the thing.
 - Controls need labels; sliders/inputs need current-value readouts. A learner should operate it unguided.
 - Smooth enough interaction; requestAnimationFrame for animation, not setInterval when it matters.
-- Dark-mode neutral: pick a clean light background for the demo area so it reads on any card.
+- Canvases scale their backing store by devicePixelRatio so lines stay crisp, and follow the width.
 
 THE HOUSE RULE — never deliver untested:
 1. Call write_demo with the complete HTML document.
-2. Call run_demo. It loads the file in a headless browser, waits ~2s, and reports console errors, uncaught
+2. Call run_demo. It loads the file in a headless browser with the house kit in light mode, flips the
+   theme to dark partway through (as the app does), waits ~2s, and reports console errors, uncaught
    errors (window.onerror), and failed requests. Optionally pass a probe: a JS expression evaluated in
    the page (e.g. "typeof window.simulate === 'function'" or a state assertion) to check deeper.
 3. If run_demo reports problems, FIX the document and call write_demo again, then run_demo again.
@@ -129,7 +176,7 @@ export function createDemoBuilderTools(
 				if (reason) return `HEADLESS UNAVAILABLE: ${reason}`;
 				let result: DemoRunResult;
 				try {
-					result = await headless.runDemo(state.html, probe ? { probe } : undefined);
+					result = await headless.runDemo(demoUnderTest(state.html), probe ? { probe } : undefined);
 				} catch (err) {
 					const msg = err instanceof Error ? err.message : String(err);
 					onActivity?.("run_demo: browser error");
@@ -237,7 +284,7 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 		opts.onActivity?.("final verification");
 		let verify: DemoRunResult;
 		try {
-			verify = await headless.runDemo(state.html);
+			verify = await headless.runDemo(demoUnderTest(state.html));
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			return { title, html: "", tested: true, notes: `FAILED: final verification crashed — ${msg}` };
@@ -253,5 +300,5 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 		}
 	}
 
-	return { title, html: state.html, tested: true, notes: notes(finalText) };
+	return { title, html: state.html, tested: true, kit: HOUSE_KIT_VERSION, notes: notes(finalText) };
 }

@@ -24,6 +24,7 @@ import type {
 	RoleModelOverride,
 } from "../core/settings.ts";
 import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
+import { isAppearanceMode } from "../core/theme-mode.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
@@ -215,8 +216,8 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: AppearanceSettings = {};
 	if (raw.mode !== undefined) {
-		if (raw.mode !== "dark" && raw.mode !== "light") {
-			return { ok: false, error: "mode must be \"dark\" or \"light\"" };
+		if (!isAppearanceMode(raw.mode)) {
+			return { ok: false, error: "mode must be \"dark\", \"light\", or \"system\"" };
 		}
 		settings.mode = raw.mode;
 	}

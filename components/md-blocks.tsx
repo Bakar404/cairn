@@ -38,6 +38,7 @@ import {
 } from "streamdown";
 import type { ExtraProps } from "streamdown";
 import { MERMAID_FONT_SIZE, renderMermaid } from "@/components/mermaid-render";
+import { usePaletteKey } from "@/components/color-scheme";
 import { MermaidError } from "@/components/mermaid-error";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { chartSize, useSessionMermaid } from "@/components/session-overlay";
@@ -162,14 +163,23 @@ function MermaidInline({ chart }: { chart: string }) {
 		setCapW((w * fs) / MERMAID_FONT_SIZE);
 	}, [svg]);
 
+	// A new chart (or retry) starts from the skeleton; a palette change
+	// (light/dark flip, custom background) re-renders IN PLACE — the old
+	// svg stays up until the new one lands, so the crossfade never shows
+	// a spinner.
+	useEffect(() => {
+		setSvg(null);
+		setError(null);
+	}, [chart, attempt]);
+	const paletteKey = usePaletteKey();
 	useEffect(() => {
 		if (incomplete) return;
 		let cancelled = false;
-		setSvg(null);
-		setError(null);
 		renderMermaid(chart)
 			.then((s) => {
-				if (!cancelled) setSvg(s);
+				if (cancelled) return;
+				setSvg(s);
+				setError(null);
 			})
 			.catch((e) => {
 				if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -177,7 +187,7 @@ function MermaidInline({ chart }: { chart: string }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [chart, attempt, incomplete]);
+	}, [chart, attempt, incomplete, paletteKey]);
 
 	if (incomplete || (svg === null && error === null)) {
 		return (
@@ -334,8 +344,9 @@ export function parseAlertMarker(children: ReactNode): ParsedAlert | null {
 	return { kind, children: restChildren };
 }
 
-/** The key-idea callout (owner rulings, 2026-10-07): SHARP corners, a white
- *  stroke, NO background, NO label, NO icon — just the outline. The box
+/** The key-idea callout (owner rulings, 2026-10-07): SHARP corners, a thin
+ *  clay stroke (design wave: the old white stroke vanished in light mode),
+ *  NO background, NO label, NO icon — just the outline. The box
  *  hugs its text (width: fit-content, capped at the column) instead of
  *  stretching full-width into empty space. */
 export function MarkdownBlockquote(props: ComponentProps<"blockquote"> & ExtraProps) {
@@ -360,7 +371,7 @@ export function MarkdownBlockquote(props: ComponentProps<"blockquote"> & ExtraPr
 		<div
 			data-testid="md-callout"
 			data-alert-kind={alert.kind}
-			className="my-4 w-fit max-w-full border border-white px-4 py-3 [&> :first-child]:mt-0 [&> :last-child]:mb-0"
+			className="my-4 w-fit max-w-full border border-brand/70 px-4 py-3 [&> :first-child]:mt-0 [&> :last-child]:mb-0"
 		>
 			{alert.children}
 		</div>

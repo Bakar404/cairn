@@ -111,16 +111,16 @@ export function Composer({
 
 				 THE NEXT MORPH (owner round 16 refinement, 2026-10-06): an
 				 empty composer in the practice pause morphs the button into
-				 a wide green NEXT PROBLEM — the affordance IS the button
+				 a wide NEXT PROBLEM — the affordance IS the button
 				 (click and Enter share one lane), and typing anything
-				 returns the regular send. The green is the app's correct-
-				 answer register (answered-card's green-500/600). */}
+				 returns the regular send. Its color is the app's correct-
+				 answer register (the success token, as in answered-card). */}
 				{nextProblem && !busy && !canSend ? (
 					<button
 						type="submit"
 						data-testid="next-problem-button"
 						aria-label="Next problem"
-						className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-green-600 px-4 font-ui text-xs font-medium uppercase tracking-wide text-white transition-colors hover:bg-green-500"
+						className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-success px-4 font-ui text-xs font-medium uppercase tracking-wide text-background transition-colors hover:bg-success/90"
 					>
 						Next problem
 						<ArrowRightIcon className="size-4" />
@@ -134,7 +134,7 @@ export function Composer({
 							"flex size-10 shrink-0 items-center justify-center rounded-[10px] transition-colors",
 							busy && !canSend
 								? "bg-secondary text-foreground hover:bg-accent"
-								: "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40",
+								: "bg-brand text-brand-foreground hover:opacity-90 disabled:opacity-40",
 						)}
 					>
 						{busy && !canSend ? <SquareIcon className="size-4" /> : <CornerDownLeftIcon className="size-5" />}

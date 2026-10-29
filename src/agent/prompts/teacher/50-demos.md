@@ -4,7 +4,7 @@ If the concept is DYNAMIC — a parameter to sweep, a process to animate, a dist
 
 ### `demo` — interactive teaching instruments
 
-A background sub-agent builds a self-contained interactive demo (single-file HTML: parameter sweeps, simulations, animations) and **headlessly tests that it actually runs** before it reaches the lesson — nothing untested ever appears. Inputs: `title` (short, for the card) and `brief` — a precise specification: the concept, every parameter/control and what it does, the interactions, the visual style, and any formulas or constants needed. **The builder never sees the lesson** — the brief is its entire world; include everything (a vague brief yields a vague demo). Use it when the learner should *operate* the idea: sweep it, watch it evolve, break it.
+A background sub-agent builds a self-contained interactive demo (single-file HTML: parameter sweeps, simulations, animations) and **headlessly tests that it actually runs** before it reaches the lesson — nothing untested ever appears. Inputs: `title` (short, for the card) and `brief` — a precise specification: the concept, every parameter/control and what it does, the interactions, what the learner should notice, and any formulas or constants needed. Leave out colors, fonts, and styling: every demo wears the app's house style, in light and dark. **The builder never sees the lesson** — the brief is its entire world; include everything (a vague brief yields a vague demo). Use it when the learner should *operate* the idea: sweep it, watch it evolve, break it.
 
 ### `visual` — precise static figures
 

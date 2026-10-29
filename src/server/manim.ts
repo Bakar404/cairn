@@ -15,6 +15,7 @@ import {
 	type ManimState,
 	type ManimStatus,
 } from "../core/manim.ts";
+import { FIGURE } from "../core/figure-theme.ts";
 
 /**
  * THE MANIM ADAPTER (M13): core/manim.ts's ManimRenderer, driving the
@@ -1495,18 +1496,19 @@ if __name__ == "__main__":
     main()
 `;
 
-const STYLE_PY = String.raw`"""Cairn's paper palette for Manim. Imported before scene.py runs, so a
-scene that names no colour still draws dark ink on white paper. Scenes may
-use these names: from cairn_style import *"""
+const STYLE_PY = String.raw`"""Cairn's paper palette for Manim: the app's own figure colors
+(src/core/figure-theme.ts). Imported before scene.py runs, so a scene that
+names no colour still draws dark ink on warm paper. Scenes may use these
+names: from cairn_style import *"""
 import manim
 from manim import config
 
-PAPER = "#FFFFFF"
-INK = "#1F1F1F"
-MUTED = "#6B6B6B"
-FAINT = "#D9D9D9"
-ACCENT = "#2563EB"
-ACCENT2 = "#EA580C"
+PAPER = "${FIGURE.light.paper}"
+INK = "${FIGURE.light.ink}"
+MUTED = "${FIGURE.light.muted}"
+FAINT = "${FIGURE.light.faint}"
+ACCENT = "${FIGURE.light.accent}"
+ACCENT2 = "${FIGURE.light.accent2}"
 
 __all__ = ["PAPER", "INK", "MUTED", "FAINT", "ACCENT", "ACCENT2"]
 

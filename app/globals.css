@@ -27,29 +27,67 @@
 	outline: none;
 }
 
-/* Palette (owner's hexes): main #141414, raised #1C1C1C, edges #434343.
-   Mono chrome = JetBrains Mono; prose = Source Sans 3; titles = CMU Serif. */
+/* THE PALETTE (design wave) — docs/design.md is the contract; every
+   generator (demos, visuals, Manim, Mermaid, the graph canvas, code
+   highlighting) reads the same names. Light = :root, dark = .dark: the
+   mode lives in settings and the boot script in app/layout.tsx sets the
+   class before first paint.
+
+   - Neutrals: warm stone (OKLCH hue 80, chroma <= 0.014) — page, raised
+     paper, hover, hairlines, three inks. They carry ~90% of every screen.
+   - One accent, --brand (clay): focal marks and the screen's one
+     send/answer action (Button variant="brand") — the active choice,
+     link underlines, a chart's focal series. Never decoration; at most
+     two uses per screen.
+   - Semantic: --success / --warning / --danger, as text + soft tints.
+   - Data: --viz-1..6 (+ --viz-muted) — muted hues in a FIXED order for
+     charts, graph regions, diagrams, and demos.
+   Contrast (computed, both modes): inks >= 4.5:1 on page and card; the
+   data colors >= 3:1 (graphical objects). */
 :root {
-	color-scheme: dark;
+	color-scheme: light;
 	--radius: 8px;
-	--background: #141414;
-	--foreground: #e6e6e6;
-	--card: #1c1c1c;
-	--card-foreground: #e6e6e6;
-	--popover: #1c1c1c;
-	--popover-foreground: #e6e6e6;
-	--primary: #e6e6e6;
-	--primary-foreground: #141414;
-	--secondary: #1c1c1c;
-	--secondary-foreground: #e6e6e6;
-	--muted: #1c1c1c;
-	--muted-foreground: #8d8d8d;
-	--accent: #2a2a2a;
-	--accent-foreground: #e6e6e6;
-	--destructive: oklch(0.704 0.191 22.216);
-	--border: #434343;
-	--input: #434343;
-	--ring: #8d8d8d;
+	--background: #f8f5f1;
+	--foreground: #211e19;
+	--card: #fcfbf9;
+	--card-foreground: #211e19;
+	--popover: #fcfbf9;
+	--popover-foreground: #211e19;
+	--primary: #211e19;
+	--primary-foreground: #f8f5f1;
+	--secondary: #f0ece7;
+	--secondary-foreground: #211e19;
+	--muted: #f0ece7;
+	--muted-foreground: #69645c;
+	--accent: #eae7e1;
+	--accent-foreground: #211e19;
+	--border: #e0dcd5;
+	--input: #d6d2cb;
+	--ring: #918b83;
+	--brand: #ab532f;
+	--brand-foreground: #fcfbf9;
+	--success: #3f7849;
+	--warning: #946523;
+	--danger: #af3c3a;
+	--destructive: var(--danger);
+	--viz-1: #b76849;
+	--viz-2: #5377a0;
+	--viz-3: #668c5e;
+	--viz-4: #936188;
+	--viz-5: #ac853f;
+	--viz-6: #428787;
+	--viz-muted: #8f8c85;
+	/* Code sits a step INTO the page: darker than paper in both modes. */
+	--code-surface: color-mix(in oklab, var(--background) 95%, var(--foreground));
+	/* Soft tints: one formula, both modes (resolved against this element's
+	   palette, so .dark's values flow through). */
+	--brand-soft: color-mix(in oklab, var(--brand) 12%, transparent);
+	--success-soft: color-mix(in oklab, var(--success) 12%, transparent);
+	--warning-soft: color-mix(in oklab, var(--warning) 14%, transparent);
+	--danger-soft: color-mix(in oklab, var(--danger) 12%, transparent);
+	/* Motion: 150ms standard, 100ms for hover/press, 240ms entering. */
+	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
+	--ease-out-soft: cubic-bezier(0.19, 1, 0.22, 1);
 	/* Emphasis inks default to the REGULAR TEXT COLOR (owner ruling,
 	   appearance wave 2026-09-26 — the old #ee928c/#6fa9d6 factory
 	   emphasis colors are gone). Explicit overrides land via the
@@ -67,39 +105,54 @@
 	--lh-heading-weight: 900;
 }
 
-/* The app is always dark (<html class="dark">); mirror the same values so
-   the block stays coherent under Tailwind's variant. */
+/* Dark: warm near-black stone. Same names, same roles; the derived tints
+   above re-resolve against these. */
 .dark {
-	--background: #141414;
-	--foreground: #e6e6e6;
-	--card: #1c1c1c;
-	--card-foreground: #e6e6e6;
-	--popover: #1c1c1c;
-	--popover-foreground: #e6e6e6;
-	--primary: #e6e6e6;
-	--primary-foreground: #141414;
-	--secondary: #1c1c1c;
-	--secondary-foreground: #e6e6e6;
-	--muted: #1c1c1c;
-	--muted-foreground: #8d8d8d;
-	--accent: #2a2a2a;
-	--accent-foreground: #e6e6e6;
-	--destructive: oklch(0.704 0.191 22.216);
-	--border: #434343;
-	--input: #434343;
-	--ring: #8d8d8d;
-	/* Same emphasis ruling as the block above: unset = text color. */
+	color-scheme: dark;
+	--background: #131210;
+	--foreground: #e9e6e0;
+	--card: #191816;
+	--card-foreground: #e9e6e0;
+	--popover: #191816;
+	--popover-foreground: #e9e6e0;
+	--primary: #e9e6e0;
+	--primary-foreground: #131210;
+	--secondary: #201e1b;
+	--secondary-foreground: #e9e6e0;
+	--muted: #201e1b;
+	--muted-foreground: #9f9b93;
+	--accent: #262421;
+	--accent-foreground: #e9e6e0;
+	--border: #33302c;
+	--input: #3d3a35;
+	--ring: #8a857e;
+	--brand: #db8862;
+	--brand-foreground: #131210;
+	--success: #87c28f;
+	--warning: #e3ba74;
+	--danger: #e7827b;
+	--viz-1: #d58966;
+	--viz-2: #7fa2c9;
+	--viz-3: #8ab181;
+	--viz-4: #bc8db1;
+	--viz-5: #d9b572;
+	--viz-6: #76b5b4;
+	--viz-muted: #78746e;
+	--code-surface: color-mix(in oklab, var(--background) 86%, black);
 	--lh-ink-strong: var(--foreground);
 	--lh-ink-italic: var(--foreground);
-	/* THE READING SIZE = the ladder's 16px rung (--text-lg). Can't be
-	   var()-linked: @theme inline inlines literals into utilities without
-	   emitting runtime vars — so this is the one documented duplication:
-	   change one, change both. (owner, typography round 4: snapped from
-	   the reskin's hand-tuned 16.5 to the ladder's 16.) */
-	--lh-prose-size: 16px;
-	--lh-prose-leading: 1.5;
-	/* Markdown heading weight (appearance settings; 900 = the Black cut). */
-	--lh-heading-weight: 900;
+}
+
+/* Mode switches crossfade (the provider wraps the class flip in a view
+   transition): one soft dissolve instead of every surface snapping. */
+::view-transition-old(root),
+::view-transition-new(root) {
+	animation-duration: 240ms;
+	animation-timing-function: var(--ease-standard);
+}
+
+::selection {
+	background: color-mix(in oklab, var(--brand) 24%, transparent);
 }
 
 /* CMU Serif bold (titles) — bundled local file, no CDN dependency. */
@@ -173,6 +226,18 @@
 	--color-border: var(--border);
 	--color-input: var(--input);
 	--color-ring: var(--ring);
+	--color-brand: var(--brand);
+	--color-brand-foreground: var(--brand-foreground);
+	--color-success: var(--success);
+	--color-warning: var(--warning);
+	--color-danger: var(--danger);
+	--color-viz-1: var(--viz-1);
+	--color-viz-2: var(--viz-2);
+	--color-viz-3: var(--viz-3);
+	--color-viz-4: var(--viz-4);
+	--color-viz-5: var(--viz-5);
+	--color-viz-6: var(--viz-6);
+	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
 * {
@@ -211,6 +276,19 @@ body {
 
 .lh-prose :where(em, i) {
 	color: var(--lh-ink-italic);
+}
+
+/* Links: ink text, a clay underline — the accent marks the affordance
+   without coloring whole sentences. */
+.lh-prose :where(a) {
+	text-decoration-color: color-mix(in oklab, var(--brand) 55%, transparent);
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.2em;
+	transition: text-decoration-color 100ms var(--ease-standard);
+}
+
+.lh-prose :where(a):hover {
+	text-decoration-color: var(--brand);
 }
 
 /* Markdown lists indent from the prose edge (owner ask, 2026-09-24):
@@ -329,11 +407,12 @@ body {
 /* Code blocks: no header bar — one quiet rounded tint so code reads as a
    unit. The tint is DARKER than the page (muted #1c1c1c was LIGHTER than the
    background #141414 and read as raised — owner note, chrome-melt tweaks
-   2026-09-19) plus a subtle hairline outline. (md-blocks renders its own
-   hover copy corner.) */
+   2026-09-19) plus a subtle hairline outline. Light mode keeps the same
+   relationship via --code-surface. (md-blocks renders its own hover copy
+   corner.) */
 [data-streamdown="code-block"] {
 	border: 1px solid var(--border);
-	background: color-mix(in oklab, var(--background) 86%, black);
+	background: var(--code-surface);
 	border-radius: 0.75rem;
 	padding: 0.375rem;
 }

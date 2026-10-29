@@ -164,14 +164,14 @@ function KeyTableRow({
 							onClick={() => void onDelete()}
 							disabled={busy}
 							data-testid={`${testid}-delete`}
-							className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-500 hover:underline"
+							className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-danger hover:underline"
 						>
 							Delete
 						</button>
 					)}
 				</div>
 				{error && (
-					<p role="alert" data-testid={`${testid}-error`} className="px-1 text-xs text-red-500">
+					<p role="alert" data-testid={`${testid}-error`} className="px-1 text-xs text-danger">
 						{error}
 					</p>
 				)}
@@ -209,7 +209,7 @@ function KeyTableRow({
 				</span>
 			</button>
 			{error && (
-				<p role="alert" data-testid={`${testid}-error`} className="pl-6 text-xs text-red-500">
+				<p role="alert" data-testid={`${testid}-error`} className="pl-6 text-xs text-danger">
 					{error}
 				</p>
 			)}

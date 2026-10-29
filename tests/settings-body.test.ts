@@ -116,6 +116,7 @@ describe("parseAppearanceSettingsBody", () => {
 	});
 
 	it("rejects bad enums, ranges, and colors — with specific messages, never clamps", () => {
+		assert.ok(parseAppearanceSettingsBody({ mode: "system" }).ok, "system follows the OS");
 		const cases: unknown[] = [
 			{ mode: "sepia" },
 			{ background: "blue" },

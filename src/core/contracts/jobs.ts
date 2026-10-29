@@ -200,7 +200,8 @@ export interface ResearchResult {
 
 export interface DemoToolInput {
 	title: string;
-	/** Precise brief: concept, parameters/interactions, visual style. */
+	/** Precise brief: concept, parameters/interactions, formulas. Styling is
+	 *  the house kit's (demo-house.ts), never the brief's. */
 	brief: string;
 }
 
@@ -210,6 +211,11 @@ export interface DemoResult {
 	html: string;
 	/** The builder sub-agent headlessly executed the demo before delivery. */
 	tested: true;
+	/** The house-kit generation the demo was built against (HOUSE_KIT_VERSION):
+	 *  the card injects the kit and flips its theme live. Absent on demos
+	 *  from before the kit, which carry their own colors and render raw on
+	 *  a white backing. */
+	kit?: number;
 	notes?: string;
 }
 
