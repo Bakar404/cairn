@@ -487,9 +487,30 @@ function installUpdateNow() {
 	autoUpdater?.quitAndInstall();
 }
 
+/** Squirrel.Mac installs an update only if it satisfies the running app's
+ * designated requirement. An ad-hoc signature (the release workflow's
+ * MAC_SIGNING=adhoc mode, used while there is no Developer ID) pins that
+ * requirement to the build's own hash, so every update would download and
+ * then fail. Such builds are stamped "cairnUpdates": "manual" in their
+ * packaged package.json (electron-builder extraMetadata); their users
+ * download new versions from GitHub Releases instead. */
+function updatesAreManual() {
+	try {
+		const metadata = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), "package.json"), "utf8"));
+		return metadata?.cairnUpdates === "manual";
+	} catch {
+		return false;
+	}
+}
+
 function setupAutoUpdater() {
 	if (!app.isPackaged) {
 		log("auto-update: dev build — updater disabled");
+		reportUpdateStatus("disabled");
+		return;
+	}
+	if (updatesAreManual()) {
+		log("auto-update: build is not Developer ID signed — updates are manual downloads");
 		reportUpdateStatus("disabled");
 		return;
 	}

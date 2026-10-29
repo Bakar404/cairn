@@ -13,7 +13,7 @@ const mainFile = fileURLToPath(new URL("../electron/main.cjs", import.meta.url))
 const mainSource = readFileSync(mainFile, "utf8");
 const mainRequire = createRequire(mainFile);
 
-function fixture({ packaged = true, updaterMissing = false } = {}) {
+function fixture({ packaged = true, updaterMissing = false, appMetadata = { name: "cairn-learn" } as object } = {}) {
 	let settings: string | Error = JSON.stringify({ version: 1, general: { autoUpdate: true } });
 	const settingsReads: string[] = [];
 	const order: string[] = [];
@@ -72,6 +72,7 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 		isPackaged: packaged,
 		name: "LearnHarness",
 		setName() {},
+		getAppPath: () => "/fixture/app.asar",
 		getPath: () => userData,
 		setPath: (_: string, value: string) => { userData = value; },
 		requestSingleInstanceLock: () => false,
@@ -93,6 +94,7 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 			}
 			if (id === "node:fs") return {
 				readFileSync: (file: string) => {
+					if (file === path.join("/fixture/app.asar", "package.json")) return JSON.stringify(appMetadata);
 					settingsReads.push(file);
 					if (settings instanceof Error) throw settings;
 					return settings;
@@ -162,9 +164,12 @@ describe("automatic-update preference gate", () => {
 		assert.equal(f.settingsReads.length, 3);
 	});
 
-	for (const label of ["unpackaged", "missing updater"] as const) {
+	for (const label of ["unpackaged", "missing updater", "manual-update (ad-hoc macOS)"] as const) {
 		it(`${label} stays unavailable, not a saved OFF preference`, async () => {
-			const f = fixture({ packaged: label !== "unpackaged", updaterMissing: label === "missing updater" });
+			const f = fixture({
+				packaged: label !== "unpackaged", updaterMissing: label === "missing updater",
+				appMetadata: label.startsWith("manual") ? { cairnUpdates: "manual" } : {},
+			});
 			f.run("setupAutoUpdater()"); await f.check(true); await f.check();
 			assert.equal(f.updater.checks, 0);
 			assert.equal(f.settingsReads.length, 0);
