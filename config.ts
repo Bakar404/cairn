@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { currentLibraryRoot, deviceId as deviceIdFor } from "./src/store/library.ts";
 
 /** Repository root (this file is at <root>/config.ts). */
 export const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -14,26 +15,68 @@ export const ROOT = path.dirname(fileURLToPath(import.meta.url));
  * byte-for-byte as before. Read-only assets (prompts) stay ROOT-anchored
  * on purpose: they ship inside the app bundle by design.
  */
-const DATA_ROOT = process.env.LH_DATA_DIR
+export const DATA_ROOT = process.env.LH_DATA_DIR
 	? path.resolve(process.env.LH_DATA_DIR)
 	: path.join(ROOT, "data");
 
+/** `npm test` against the repo's data/ never follows a storage pointer: a
+ *  developer's library kept in OneDrive must not collect test chats.
+ *  Hermetic tests (their own LH_DATA_DIR) follow it like the app. */
+export const FOLLOW_POINTER = !(process.env.NODE_ENV === "test" && !process.env.LH_DATA_DIR);
+
+/** The library root now (src/store/library.ts): the data folder, or the
+ *  folder Settings › Storage moved it to. Read at call time — a move takes
+ *  effect at once, no restart. */
+function libraryRoot(): string {
+	return FOLLOW_POINTER ? currentLibraryRoot(DATA_ROOT) : DATA_ROOT;
+}
+
+/**
+ * Two kinds of mutable state (OneDrive wave, 2026-10-27):
+ *  - THE LIBRARY (chats, graph, media, jobs) — the learner's work. Getters:
+ *    it can move to the work OneDrive (Settings › Storage), so never cache
+ *    one of these paths in a module constant.
+ *  - DEVICE STATE (everything else under `data`) — sign-in, settings,
+ *    prompt overrides, debug output, the storage pointer. Never moves.
+ */
 export const PATHS = {
 	root: ROOT,
 	/** Teacher system prompt — the agent's instructions (src/agent/). */
 	teacherPrompt: path.join(ROOT, "src", "agent", "system-prompt.md"),
 	data: DATA_ROOT,
+	/** Where the library lives: `data`, or a OneDrive folder. */
+	get library(): string {
+		return libraryRoot();
+	},
 	/** Chat sessions (AI SDK UIMessage transcripts, one JSON file per chat). */
-	chats: path.join(DATA_ROOT, "chats"),
-	graph: path.join(DATA_ROOT, "graph"),
+	get chats(): string {
+		return path.join(libraryRoot(), "chats");
+	},
+	get graph(): string {
+		return path.join(libraryRoot(), "graph");
+	},
 	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */
 	debug: path.join(DATA_ROOT, "debug"),
 	/** Rendered media (Manim animations and stills), one folder per chat:
-	 *  data/media/<chatId>/ — served by the chat media route, deleted with
+	 *  media/<chatId>/ — served by the chat media route, deleted with
 	 *  the chat. */
-	media: path.join(DATA_ROOT, "media"),
+	get media(): string {
+		return path.join(libraryRoot(), "media");
+	},
+	/** Background sub-agent job records, one JSON file per job
+	 *  (src/store/jobs.ts). */
+	get jobs(): string {
+		return path.join(libraryRoot(), "jobs");
+	},
 } as const;
+
+/** This install's id (data/device.json, created on first use). Job records
+ *  carry it: a synced library holds every device's jobs, and only this
+ *  device may recover its own (src/server/jobs.ts recoverStaleJobs). */
+export function deviceId(): string {
+	return deviceIdFor(DATA_ROOT);
+}
 
 // ─── Models ────────────────────────────────────────────────────────────────
 // BYOK ALL THE WAY DOWN (owner, 2026-09-22): there are NO factory default
@@ -63,40 +106,60 @@ export type ModelRole =
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction
  * pipeline. Line shapes: src/core/contracts.ts. CHAINS ARE THE STORED
  * TRUTH (owner, 2026-09-30): edges are a derived view, never stored.
+ * Getters: the graph moves with the library (PATHS).
  */
 export const LEDGER_FILES = {
-	nodes: path.join(PATHS.graph, "nodes.jsonl"),
-	chains: path.join(PATHS.graph, "chains.jsonl"),
-	sessions: path.join(PATHS.graph, "sessions.jsonl"),
+	get nodes(): string {
+		return path.join(PATHS.graph, "nodes.jsonl");
+	},
+	get chains(): string {
+		return path.join(PATHS.graph, "chains.jsonl");
+	},
+	get sessions(): string {
+		return path.join(PATHS.graph, "sessions.jsonl");
+	},
 	/** Per-message extraction coverage (contracts/graph.ts CoverageEntry;
 	 *  the checkpoint's replacement for chat extractions — notes keep
 	 *  sessions.jsonl, whole-file as they are). */
-	coverage: path.join(PATHS.graph, "coverage.jsonl"),
+	get coverage(): string {
+		return path.join(PATHS.graph, "coverage.jsonl");
+	},
 } as const;
 
-/**
- * Notes-import bookkeeping (NOT a ledger): one JSON map, src-id → NotesSource
- * record (contracts/graph.ts) — the file path + import time + the run's usage
- * log. Read-modify-write like a chat file, not append-only like the ledgers.
- */
-export const SOURCES_FILE = path.join(PATHS.graph, "sources.json");
-/** The layout ledger (read-modify-write like sources.json): nodeId →
- *  {x,y} resting positions from the incremental settle (core/layout.ts).
- *  Carries an updatedAt stamp for future live-physics conflict handling. */
-export const POSITIONS_FILE = path.join(PATHS.graph, "positions.json");
-
-/**
- * Graph render settings (the settings-panel controls): one small JSON blob,
- * read-modify-write. Shared shape/sanitizer: src/core/render-settings.ts.
- */
-export const RENDER_SETTINGS_FILE = path.join(PATHS.graph, "render-settings.json");
-
-/** The graph-family FORMAT STAMP sidecar (schema-versioning wave,
- *  2026-10-10): one version for the whole family — the four JSONL ledgers,
- *  sources.json, render-settings.json. LAZY v1: absent = v1; the first
- *  graph-family write creates it. positions.json is REBUILDABLE and rides
- *  along unversioned by design (owner ruling). */
-export const GRAPH_FORMAT_FILE = path.join(PATHS.graph, "format.json");
+/** The graph folder's other files (getters, like LEDGER_FILES). */
+export const GRAPH_FILES = {
+	/**
+	 * Notes-import bookkeeping (NOT a ledger): one JSON map, src-id →
+	 * NotesSource record (contracts/graph.ts) — the file path + import time +
+	 * the run's usage log. Read-modify-write like a chat file, not
+	 * append-only like the ledgers.
+	 */
+	get sources(): string {
+		return path.join(PATHS.graph, "sources.json");
+	},
+	/** The layout ledger (read-modify-write like sources.json): nodeId →
+	 *  {x,y} resting positions from the incremental settle (core/layout.ts).
+	 *  Carries an updatedAt stamp for future live-physics conflict handling. */
+	get positions(): string {
+		return path.join(PATHS.graph, "positions.json");
+	},
+	/**
+	 * Graph render settings (the settings-panel controls): one small JSON
+	 * blob, read-modify-write. Shared shape/sanitizer:
+	 * src/core/render-settings.ts.
+	 */
+	get renderSettings(): string {
+		return path.join(PATHS.graph, "render-settings.json");
+	},
+	/** The graph-family FORMAT STAMP sidecar (schema-versioning wave,
+	 *  2026-10-10): one version for the whole family — the four JSONL
+	 *  ledgers, sources.json, render-settings.json. LAZY v1: absent = v1; the
+	 *  first graph-family write creates it. positions.json is REBUILDABLE and
+	 *  rides along unversioned by design (owner ruling). */
+	get format(): string {
+		return path.join(PATHS.graph, "format.json");
+	},
+} as const;
 
 /**
  * THE USER SETTINGS RECORD (settings-storage wave, 2026-09-19): one

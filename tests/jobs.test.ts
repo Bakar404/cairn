@@ -74,13 +74,13 @@ import { createJobRunner, pdfModelOverride, researchModelOverride } from "../src
 import { providerKeyMissing, type ModelSlotName } from "../src/core/settings.ts";
 import type { PiEngine } from "../src/agent/models.ts";
 import type { SearchProvider } from "../src/core/search.ts";
-import { PATHS } from "../config.ts";
+import { deviceId, PATHS } from "../config.ts";
 import { projectView as projectNative } from "../src/core/view.ts";
 import { subscribe } from "../src/core/events.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
 import type { SteerInput, TurnInput } from "../src/core/input-events.ts";
 
-const JOBS_DIR = path.join(PATHS.data, "jobs");
+const JOBS_DIR = PATHS.jobs;
 
 const createdChats: string[] = [];
 
@@ -1753,6 +1753,29 @@ describe("stale-job recovery sweep (liveness-gated)", () => {
 		assert.equal(jobStore.getJob(jobId)!.activity, "recovering: re-running");
 		// Hermetic teardown (see above) — the respawned loop is the TEST's
 		// fake seam, nothing real runs.
+		jobStore.updateJob(jobId, { status: "done", activity: "settled (test)" });
+	});
+
+	it("another device's running job (a synced library) is left alone until it has been quiet for an hour, then adopted", () => {
+		const { jobId } = orphanJob();
+		jobStore.updateJob(jobId, { device: "another-device" });
+		const respawnedIds: string[] = [];
+		setJobRespawn((id) => {
+			respawnedIds.push(id);
+		});
+		resetSweepThrottle();
+		recoverStaleJobs();
+		assert.ok(!respawnedIds.includes(jobId), "it may still be running on the other device");
+		assert.equal(jobStore.getJob(jobId)!.activity, "starting", "the record is untouched");
+		assert.equal(jobStore.getJob(jobId)!.device, "another-device");
+
+		jobStore.updateJob(jobId, { updatedAt: new Date(Date.now() - 61 * 60_000).toISOString() });
+		resetSweepThrottle();
+		recoverStaleJobs();
+		assert.ok(respawnedIds.includes(jobId), "an hour of silence means that device stopped");
+		const adopted = jobStore.getJob(jobId)!;
+		assert.equal(adopted.activity, "recovering: re-running");
+		assert.equal(adopted.device, deviceId(), "this device now owns the run");
 		jobStore.updateJob(jobId, { status: "done", activity: "settled (test)" });
 	});
 

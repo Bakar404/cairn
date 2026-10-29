@@ -126,6 +126,11 @@ export function compactionInFlight(chatId: string): boolean {
 	return state().inFlight.has(chatId);
 }
 
+/** True while any chat is compacting (the library-move guard). */
+export function anyCompactionRunning(): boolean {
+	return state().inFlight.size > 0;
+}
+
 /** Await any in-flight compaction for the chat — the structural gate
  *  every model interaction for the chat passes through. */
 export async function awaitCompaction(chatId: string): Promise<void> {

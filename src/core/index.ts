@@ -99,3 +99,7 @@ export * from "./coverage.ts";
 // ONE session→markdown formatter — the extractor's view and the user-facing
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
+// storage.ts (OneDrive wave, 2026-10-27): where the library lives — the
+// Settings › Storage types and the PUT /api/storage parser. Pure; the moves
+// live in src/store/library.ts.
+export * from "./storage.ts";

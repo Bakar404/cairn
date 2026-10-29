@@ -68,6 +68,7 @@ import {
 import type { TurnInput } from "../core/input-events.ts";
 import { danglingQuestionOf, endsInDismissal, type LhMessage } from "../core/native-messages.ts";
 import { fireJobAbort, isJobLive } from "../agent/subagents/aborts.ts";
+import { deviceId } from "../../config.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import type { Agent } from "@earendil-works/pi-agent-core";
@@ -665,6 +666,11 @@ async function waitForIdle(chatId: string): Promise<void> {
 // ─── crash recovery ──────────────────────────────────────────────────────────
 
 const SWEEP_THROTTLE_MS = 30_000;
+/** How long another device's job must sit untouched before this device
+ *  adopts it. A live job rewrites its record on every step and OneDrive
+ *  carries those writes over within minutes, so an hour of silence means
+ *  that device stopped. */
+const FOREIGN_JOB_QUIET_MS = 60 * 60_000;
 
 /**
  * Lazy sweep (called off the /api/jobs poll, throttled), LIVENESS-GATED
@@ -690,6 +696,10 @@ export function recoverStaleJobs(): void {
 		for (const chat of stores.chatStore.listChats()) {
 			for (const job of stores.jobStore.listJobs(chat.id)) {
 				if (isJobLive(job.id)) continue; // never re-run beside live computation
+				// A synced library carries other devices' jobs. One may still be
+				// running there: leave it until it has gone quiet, then adopt it.
+				const foreign = job.device !== undefined && job.device !== deviceId();
+				if (foreign && now - Date.parse(job.updatedAt) < FOREIGN_JOB_QUIET_MS) continue;
 				if (!stores.chatStore.getChat(job.chatId)) continue;
 				if (isTurnRunning(job.chatId)) continue;
 				const recovered = normalizeLegacyResult(job);
@@ -699,7 +709,7 @@ export function recoverStaleJobs(): void {
 				} else if (job.status === "running" && !job.result) {
 					// The sub-agent loop itself died with the process: re-spawn.
 					if (!s.respawn) continue;
-					stores.jobStore.updateJob(job.id, { activity: "recovering: re-running" });
+					stores.jobStore.updateJob(job.id, { activity: "recovering: re-running", ...(foreign ? { device: deviceId() } : {}) });
 					s.respawn(job.id);
 				}
 			}

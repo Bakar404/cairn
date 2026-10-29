@@ -96,7 +96,7 @@ export interface GraphStore {
 	/** Append one cluster-naming run's usage (graph-global money channel) —
 	 *  idempotent per startedAt. */
 
-	/** Upsert one imported-notes source record (config.SOURCES_FILE — a
+	/** Upsert one imported-notes source record (config.GRAPH_FILES.sources — a
 	 *  JSON map, not a ledger; an upsert keeps the existing usage log). */
 	upsertSource(source: NotesSource): void;
 	/** Every notes source record, by id order-insensitive. */
@@ -105,7 +105,7 @@ export interface GraphStore {
 	 *  startedAt, mirroring ChatRecord.extractions. */
 	appendSourceUsage(id: string, entry: ExtractionRunUsage): void;
 
-	/** The layout ledger (config.POSITIONS_FILE): nodeId → resting {x,y}.
+	/** The layout ledger (config.GRAPH_FILES.positions): nodeId → resting {x,y}.
 	 *  WRITTEN ONLY by the incremental settle after a merge (core/layout.ts
 	 *  settleGraphLayout) — read-only for everything else. */
 	readPositions(): Record<string, Position>;

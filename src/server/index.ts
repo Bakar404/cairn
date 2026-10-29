@@ -11,6 +11,9 @@ export * from "./graph.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";
 export * from "./commit-positions.ts";
 export * from "./jobs.ts";
+// Settings › Storage (OneDrive wave, 2026-10-27): where the library lives,
+// and moving it to or from the work OneDrive.
+export * from "./storage.ts";
 // The Manim renderer (M13): Docker status + install for Settings, and the
 // chat media files the animation/visual makers save.
 export * from "./manim.ts";

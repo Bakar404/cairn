@@ -75,3 +75,8 @@ export function isTurnRunning(chatId: string): boolean {
 	}
 	return true;
 }
+
+/** True while any chat has a turn in flight (the library-move guard). */
+export function anyTurnRunning(): boolean {
+	return [...inFlight.keys()].some((chatId) => isTurnRunning(chatId));
+}

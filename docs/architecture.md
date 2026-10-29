@@ -32,6 +32,8 @@ Hold the architecture along two orthogonal axes:
 | **Stage** — presentation shell | nothing server-side | components/, graph canvas, docks — pure consumer via `/api/*` |
 | **Machine room** — host | process + config | Electron main, standalone Next server, `config.ts`, data-dir seam, tool keys, the GitHub Copilot runtime |
 
+Paths are shown at their defaults. The learner's library — `chats/`, `jobs/`, `media/`, `graph/` — can move as one unit to the work OneDrive (§3, *Where the library lives*); ownership doesn't change.
+
 **The unifying law** (generates everything else): **imports point inward, writes point to append-only evidence, and everything else is derived.** Dependency flows toward purity; data flows toward evidence; no state is stored where it can be recomputed.
 
 ---
@@ -106,9 +108,10 @@ flowchart TB
     subgraph STORE["STORE — src/store — fs adapters, only data/ writers"]
         ADP["chats.ts · graph.ts · jobs.ts (implement core ports)"]
         PORTLESS["render-settings.ts (portless)"]
+        LIB["library.ts · onedrive.ts — where the library lives (portless)"]
     end
 
-    CFG["config.ts — leaf facts: PATHS · LEDGER_FILES · engine-construction facts (no models — the settings model slots own those)"]
+    CFG["config.ts — leaf facts: PATHS · LEDGER_FILES · GRAPH_FILES (library paths are getters that follow a move) · engine-construction facts (no models — the settings model slots own those)"]
 
     COMP -->|"lint zone: @/src/core only"| CBAR
     APP -->|"lint zone: @/src/core + @/src/server"| CBAR
@@ -125,6 +128,7 @@ flowchart TB
     PIPE --> BRAIN
     ADP -->|"implement"| PORTS
     ADP --> CFG
+    CFG -->|"library root"| LIB
     CBAR --> CONTRACTS
     CBAR --> PORTS
     CBAR --> BRAIN
@@ -161,6 +165,8 @@ flowchart TB
 Storage is **per-entity semantic ports**, never one generic interface: `ChatStore`, `GraphStore`, `JobStore`, `PracticeStore` (`src/core/ports.ts` — types only). The fs adapters (`src/store/{chats,graph,jobs,practice}.ts`) implement them and contain persistence and nothing else. One more adapter (`src/store/render-settings.ts`) is a portless free function re-exported through the server barrel — a deliberate pragmatic bypass, documented here so nobody mistakes it for the pattern.
 
 **Idioms.** Graph evidence lives in **append-only JSONL ledgers** (corrupt-line-tolerant reads; strict shape guards drop invalid lines, never guess). Chats, jobs, positions, sources, and the settings blobs are whole-file read-modify-write JSON. All writes are synchronous, single-process (atomicity rides the Node event loop). Merge/dedup/derivation semantics are **reader-side, in core** — the store never decides.
+
+**Where the library lives** (OneDrive wave, 2026-10-27). The data folder holds two kinds of state. The **library** — `chats/`, `graph/`, `media/`, `jobs/`, the learner's work — lives there unless the device-local pointer `data/storage.json` names another folder: `Apps\Cairn` in the work OneDrive, chosen in Settings → Storage, which the OneDrive client syncs. **Device state** — everything else: `settings.json`, `prompts/`, `debug/`, `copilot/` (sign-in), `device.json`, the pointer — never moves. Library paths in `config.ts` (`PATHS.chats|graph|media|jobs`, `LEDGER_FILES`, `GRAPH_FILES`) are getters over a root memoized on `globalThis`, so a move is seen by every route at once, with no restart; never cache one in a module constant. `src/store/library.ts` moves the library synchronously (every library write is synchronous too, so none lands mid-move; the server waits out the copy): it stages a full copy beside the target, swaps it in, and commits by writing the pointer; a failure before the commit undoes every step, and nothing is deleted — the copy left behind or replaced is set aside in `library-backups/<stamp>/`. A missing or broken pointer means the local library, so Cairn always starts. `src/store/onedrive.ts` finds the work OneDrive (Windows: the client's `OneDriveCommercial`, else `OneDrive - <org>` at home; macOS: `~/Library/CloudStorage/OneDrive-<org>`; never a personal OneDrive or a SharePoint library). `PUT /api/storage` (`src/server/storage.ts`) takes a location, never a path, refuses while a turn, compaction, job, or extraction is running, and asks before using or replacing a library already at the target. Job records carry the `device` that ran them: a synced library holds every device's jobs, and the recovery sweep adopts another device's running job only after an hour without updates. `npm test` against the repo's `data/` never follows a pointer (`FOLLOW_POINTER`), so a developer's synced library can't collect test chats.
 
 - **`src/server/stores.ts` is THE composition root for storage**: it instantiates the adapters and hands the port objects to everything else (chat-handler, job runner, extraction pipeline, practice pipeline, graph/positions/chats routes, turn services). It is the single place a storage decision (JSON vs SQLite, local vs remote) gets re-made.
 - **`src/server/chat-handler.ts` is THE composition root for a turn**: it wires the stores, the job runner, the extraction pipeline, the practice pipeline, and the pi engine into the stream response (`setTurnRunner`/`setJobRespawn` register its seams for the wake pipeline). All logic lives behind the seams it calls.
@@ -571,6 +577,7 @@ Every place the architecture is designed to be cut — the "one file" a future c
 | Animation renderer | `src/core/manim.ts` (`ManimRenderer` port) + `src/server/manim.ts` (Docker adapter) | where Manim scenes render; tests inject a fake |
 | Work IQ | `src/core/workiq.ts` (`WorkIqClient` port) + `src/server/workiq.ts` (stdio MCP adapter) | how Work IQ is asked; tests inject a fake or run a fake MCP server |
 | Data location (Electron) | `LH_DATA_DIR` env (`config.ts` PATHS) | where data/ lives, nothing else |
+| Library location | `data/storage.json` pointer (`src/store/library.ts`) + Settings → Storage (`/api/storage`) | where chats, graph, media, and jobs live: the data folder or the work OneDrive (§3) |
 | Desktop host | `electron/main.cjs` | launcher/security shell only |
 
 ---
