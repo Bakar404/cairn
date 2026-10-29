@@ -6,10 +6,12 @@
  *
  * Why variables and not className swaps: every seam the settings touch was
  * built token-first (--font-prose, --lh-prose-size, --lh-ink-strong, …),
- * so application is setProperty and nothing re-renders. The ONE thing the
- * variables can't reach — the mode — is dark-only this wave (the light
- * palette is designed in the later design wave; <html class="dark"> is
- * static in app/layout.tsx).
+ * so application is setProperty and nothing re-renders. The MODE is the
+ * one class swap: light/dark/system resolves to a scheme and flips
+ * <html class="dark"> (crossfaded via a view transition), caches the mode
+ * for the next load's boot script (app/layout.tsx), and syncs the
+ * theme-color meta + the desktop title bar. A custom background applies
+ * only in the scheme it suits (backgroundScheme).
  *
  * The provider is mounted at the ROOT LAYOUT level (like ActivityProvider):
  * every page picks appearance up on load. The settings page writes a
@@ -20,7 +22,17 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { FACTORY_SETTINGS, type AppearanceSettings } from "@/src/core";
+import {
+	FACTORY_SETTINGS,
+	MODE_STORAGE_KEY,
+	SCHEME_SURFACES,
+	resolveScheme,
+	type AppearanceMode,
+	type AppearanceSettings,
+	type ColorScheme,
+} from "@/src/core";
+import { currentScheme, useColorScheme, useSystemPrefersDark } from "@/components/color-scheme";
+import { notifySettingsSaved } from "@/components/settings-signal";
 
 /** The resolved, fully-concrete appearance view (delta + factory merged). */
 export function resolveAppearance(delta: AppearanceSettings | undefined) {
@@ -39,44 +51,67 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
 	};
 }
 
-/** One channel clamped on the dark curve: additive offsets matching today's
- *  hand-picked palette (#141414 → card #1c1c1c (+8) → accent #2a2a2a (+22)
- *  → border #434343 (+47)) — the "per-mode derivation in code" the schema
- *  promises, as the thinnest curve that keeps the palette's relationships. */
-function raise(hex: string, add: number): string {
-	const n = hex.length === 4
-		? hex.slice(1).split("").map((c) => parseInt(c + c, 16))
-		: [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
-	return `#${n.map((c) => Math.min(255, c + add).toString(16).padStart(2, "0")).join("")}`;
+/** #rgb / #rrggbb → [r, g, b] (0–255). */
+function channels(hex: string): [number, number, number] {
+	const h = hex.length === 4 ? hex.slice(1).replace(/./g, (c) => c + c) : hex.slice(1, 7);
+	return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
-/** The derived palette a chosen background implies (dark curve): background
- *  itself, the raised surfaces (card/popover/secondary/muted, +8), the
- *  accent (+22), the edges (border/input, +47), and primary-foreground
- *  (the inverted text on primary = the background's own color, as today). */
-export function derivedPalette(background: string): Record<string, string> {
-	const card = raise(background, 8);
-	const accent = raise(background, 22);
-	const border = raise(background, 47);
+/** One channel shift, clamped to 0–255 (negative = darken). */
+function shift(hex: string, add: number): string {
+	return `#${channels(hex).map((c) => Math.max(0, Math.min(255, c + add)).toString(16).padStart(2, "0")).join("")}`;
+}
+/** Per-mode derivation curves (design wave): additive channel offsets that
+ *  track the factory palettes in app/globals.css. Dark lifts every surface
+ *  off the page (#131210 → card #191816); light puts paper UP (+4) and
+ *  hover/edges DOWN into the page. */
+const CURVES: Readonly<Record<ColorScheme, { card: number; muted: number; accent: number; border: number; input: number }>> = {
+	dark: { card: 6, muted: 13, accent: 19, border: 32, input: 42 },
+	light: { card: 4, muted: -8, accent: -14, border: -24, input: -34 },
+};
+
+/** The derived palette a chosen background implies, on its mode's curve:
+ *  background itself, raised paper (card/popover), the quiet fills
+ *  (secondary/muted), hover (accent), the edges (border/input), and
+ *  primary-foreground (text on the ink button = the page color). */
+export function derivedPalette(background: string, scheme: ColorScheme = "dark"): Record<string, string> {
+	const k = CURVES[scheme];
+	const card = shift(background, k.card);
+	const muted = shift(background, k.muted);
 	return {
 		"--background": background,
 		"--card": card,
 		"--popover": card,
-		"--secondary": card,
-		"--muted": card,
-		"--accent": accent,
-		"--border": border,
-		"--input": border,
+		"--secondary": muted,
+		"--muted": muted,
+		"--accent": shift(background, k.accent),
+		"--border": shift(background, k.border),
+		"--input": shift(background, k.input),
 		"--primary-foreground": background,
 	};
 }
 
+/** Which mode a custom background belongs to (relative luminance against
+ *  mid-gray). A dark background never lands under light-mode inks, and
+ *  vice versa — the choice applies in the mode it suits. */
+export function backgroundScheme(hex: string): ColorScheme {
+	const [r, g, b] = channels(hex).map((c) => {
+		const v = c / 255;
+		return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+	}) as [number, number, number];
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.18 ? "dark" : "light";
+}
 /** THE mapping: resolved appearance → the CSS variables to set on <html>.
  *  Absent entries = leave the factory stylesheet value in place. Pure —
  *  exported for tests. */
-export function appearanceVars(a: ReturnType<typeof resolveAppearance>): Record<string, string> {
+export function appearanceVars(
+	a: ReturnType<typeof resolveAppearance>,
+	scheme: ColorScheme = "dark",
+): Record<string, string> {
 	const vars: Record<string, string> = {};
-	if (a.background !== null) Object.assign(vars, derivedPalette(a.background));
+	if (a.background !== null && backgroundScheme(a.background) === scheme) {
+		Object.assign(vars, derivedPalette(a.background, scheme));
+	}
 	if (a.fontFamily !== null) {
 		vars["--font-prose"] = `"${a.fontFamily}", var(--font-sans3), ui-sans-serif, system-ui, sans-serif`;
 	}
@@ -107,16 +142,58 @@ export function staleVarNames(
 	return prevNames.filter((n) => !(n in nextVars));
 }
 
+/** The desktop shell's optional chrome hook (electron/preload.cjs). */
+type ShellBridge = { setTheme?: (scheme: ColorScheme) => void };
+
+/** theme-color meta + the desktop title bar follow the page scheme. */
+function syncSchemeChrome(scheme: ColorScheme) {
+	let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+	if (!meta) {
+		meta = document.createElement("meta");
+		meta.name = "theme-color";
+		document.head.appendChild(meta);
+	}
+	meta.content = SCHEME_SURFACES[scheme].background;
+	(window as { lh?: ShellBridge }).lh?.setTheme?.(scheme);
+}
+
+/** Flip <html class="dark">. User-initiated flips crossfade through a view
+ *  transition; the load-time reconcile and reduced-motion users snap. */
+function applyScheme(target: ColorScheme, animate: boolean) {
+	if (currentScheme() === target) {
+		syncSchemeChrome(target);
+		return;
+	}
+	const flip = () => {
+		document.documentElement.classList.toggle("dark", target === "dark");
+		syncSchemeChrome(target);
+	};
+	const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+	const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+	if (animate && !reduce && typeof doc.startViewTransition === "function") doc.startViewTransition(flip);
+	else flip();
+}
+
 interface AppearanceContextValue {
 	/** Resolved appearance; factory until the record arrives. */
 	appearance: ReturnType<typeof resolveAppearance>;
+	/** The scheme on screen right now (system mode already resolved). */
+	scheme: ColorScheme;
+	/** True once the stored record has loaded — quick toggles wait for it so
+	 *  a write never drops the record's other appearance fields. */
+	ready: boolean;
 	/** Called by the settings page after a successful section PUT. */
 	onAppearanceChange: (delta: AppearanceSettings | undefined) => void;
+	/** Quick switch (sidebar): writes the appearance section with a new mode. */
+	setMode: (mode: AppearanceMode) => void;
 }
 
 const AppearanceContext = createContext<AppearanceContextValue>({
 	appearance: resolveAppearance(undefined),
+	scheme: "dark",
+	ready: false,
 	onAppearanceChange: () => {},
+	setMode: () => {},
 });
 
 export function useAppearance() {
@@ -125,10 +202,14 @@ export function useAppearance() {
 
 export function AppearanceProvider({ children }: { children: React.ReactNode }) {
 	const [delta, setDelta] = useState<AppearanceSettings | undefined>(undefined);
+	const [ready, setReady] = useState(false);
 	const appliedRef = useRef<string>("");
+	const scheme = useColorScheme();
+	const systemDark = useSystemPrefersDark();
+	const resolved = useMemo(() => resolveAppearance(delta), [delta]);
 
 	// The vars apply on every change — stringified as the change signal.
-	const vars = useMemo(() => appearanceVars(resolveAppearance(delta)), [delta]);
+	const vars = useMemo(() => appearanceVars(resolved, scheme), [resolved, scheme]);
 	const key = useMemo(() => JSON.stringify(vars), [vars]);
 	// REMOVAL is half the job (owner repro, fix wave): a later write that
 	// OMITS a var (empty field = factory, serif toggle back on) must clear
@@ -151,6 +232,22 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 		}
 	}, [key, vars]);
 
+	// THE MODE waits for the record: until it lands, the boot script's
+	// cached mode stands (applying the factory "dark" first would flash a
+	// light-mode user). The first reconcile snaps; later changes crossfade.
+	const mode = resolved.mode;
+	const reconciledRef = useRef(false);
+	useEffect(() => {
+		if (!ready) return;
+		applyScheme(resolveScheme(mode, systemDark), reconciledRef.current);
+		reconciledRef.current = true;
+		try {
+			localStorage.setItem(MODE_STORAGE_KEY, mode);
+		} catch {
+			/* storage blocked — the next load just starts at the factory */
+		}
+	}, [ready, mode, systemDark]);
+
 	// One fetch per app load: the record (sanitized server-side) carries the
 	// delta; resolution happens here against the compiled factory.
 	useEffect(() => {
@@ -166,6 +263,7 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 				setDelta(
 					appearance && typeof appearance === "object" ? (appearance as AppearanceSettings) : undefined,
 				);
+				setReady(true);
 			})
 			.catch(() => {/* settings stay factory — not worth a crash */});
 		return () => {
@@ -177,9 +275,30 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 		setDelta(next);
 	}, []);
 
+	// The quick switch PUTs the WHOLE section (the route replaces it), so it
+	// reads the latest delta through a ref rather than a stale closure.
+	const deltaRef = useRef<AppearanceSettings | undefined>(undefined);
+	useEffect(() => {
+		deltaRef.current = delta;
+	}, [delta]);
+	const setMode = useCallback((next: AppearanceMode) => {
+		const body: AppearanceSettings = { ...(deltaRef.current ?? {}), mode: next };
+		deltaRef.current = body;
+		setDelta(body);
+		void fetch("/api/settings/appearance", {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body),
+		})
+			.then((res) => {
+				if (res.ok) notifySettingsSaved("appearance");
+			})
+			.catch(() => {/* the switch still applied for this session */});
+	}, []);
+
 	const value = useMemo(
-		() => ({ appearance: resolveAppearance(delta), onAppearanceChange }),
-		[delta, onAppearanceChange],
+		() => ({ appearance: resolved, scheme, ready, onAppearanceChange, setMode }),
+		[resolved, scheme, ready, onAppearanceChange, setMode],
 	);
 	return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>;
 }

@@ -1,13 +1,22 @@
 "use client";
 
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DownloadIcon } from "lucide-react";
 import { Toggle } from "@/components/settings/controls";
 import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { ChatActionsContext } from "@/components/chat";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
-import type { ArtifactPartProps, DemoResult } from "@/src/core";
+import { currentScheme, usePaletteKey } from "@/components/color-scheme";
+import { livePalette } from "@/components/theme-tokens";
+import {
+	paletteVars,
+	withHouseKit,
+	type ArtifactPartProps,
+	type DemoResult,
+	type HouseKitOptions,
+	type HouseThemeMessage,
+} from "@/src/core";
 
 /**
  * Demo artifact card (W6): while the part is input-available, a job activity
@@ -21,6 +30,12 @@ import type { ArtifactPartProps, DemoResult } from "@/src/core";
  * window.onerror → {type:"demo-error",message} (error chip on the card, with
  * a "Send to teacher" button that feeds the error back into the lesson — the
  * fix loop).
+ *
+ * Kit demos (DemoResult.kit, design wave) also get the house kit
+ * (core/demo-house.ts) injected: the app's palette and base styles, in the
+ * scheme the page shows. Mode flips and custom backgrounds are posted to the
+ * running demo ({type:"cairn-theme"}) — it never reloads. Demos from before
+ * the kit carry their own colors and keep the white backing + invert switch.
  *
  * Bridge message handling is a pure function (reduceDemoBridgeState) so
  * tests cover it without a DOM.
@@ -46,10 +61,19 @@ setTimeout(post,50);
 setTimeout(post,400);
 })();</script>`;
 
-/** Inject the bridge before </body> (or at the end of a body-less document). */
-export function buildDemoSrcDoc(html: string): string {
-	if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${DEMO_BRIDGE_SCRIPT}</body>`);
-	return `${html}${DEMO_BRIDGE_SCRIPT}`;
+/** The iframe document: the house kit up front for kit demos, then the
+ *  bridge before </body> (or at the end of a body-less document). */
+export function buildDemoSrcDoc(html: string, kit?: HouseKitOptions): string {
+	const doc = kit ? withHouseKit(html, kit) : html;
+	if (/<\/body>/i.test(doc)) return doc.replace(/<\/body>/i, `${DEMO_BRIDGE_SCRIPT}</body>`);
+	return `${doc}${DEMO_BRIDGE_SCRIPT}`;
+}
+
+/** Host → demo: the scheme and palette the page paints right now (a custom
+ *  background's derived surfaces included). */
+export function demoThemeMessage(): HouseThemeMessage {
+	const theme = currentScheme();
+	return { type: "cairn-theme", theme, vars: paletteVars(livePalette(theme)) };
 }
 
 export interface DemoBridgeState {
@@ -121,32 +145,51 @@ export function DemoOutputCard({
 			<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="demo-card-failed">
 				<div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					Interactive demo
-					<span className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">failed</span>
+					<span className="rounded bg-danger/12 px-1.5 py-0.5 text-danger">failed</span>
 				</div>
 				<p className="mt-2 text-sm text-muted-foreground">{result.notes ?? "The demo could not be built."}</p>
 			</div>
 		);
 	}
 	return (
-		<DemoFrame title={result.title} html={result.html} messageId={messageId} initialInverted={initialInverted} />
+		<DemoFrame
+			title={result.title}
+			html={result.html}
+			kit={typeof result.kit === "number" && result.kit >= 1}
+			messageId={messageId}
+			initialInverted={initialInverted}
+		/>
 	);
+}
+
+const subscribeNothing = () => () => {};
+
+/** False on the server and through hydration, true after: a kit demo's
+ *  srcdoc bakes in the scheme the page really shows, which only the client
+ *  knows (system mode, a custom background). */
+function useIsClient(): boolean {
+	return useSyncExternalStore(subscribeNothing, () => true, () => false);
 }
 
 function DemoFrame({
 	title,
 	html,
+	kit,
 	messageId,
 	initialInverted = false,
 }: {
 	title: string;
 	html: string;
+	/** Built against the house kit: themed live, no invert switch. */
+	kit: boolean;
 	messageId?: string;
 	initialInverted?: boolean;
 }) {
 	const actions = useContext(ChatActionsContext);
 	const iframeRef = useRef<HTMLIFrameElement | null>(null);
 	const [state, setState] = useState<DemoBridgeState>(INITIAL_DEMO_BRIDGE_STATE);
-	// Brightness inversion (owner, 2026-10-07): the switch state PERSISTS on
+	// Brightness inversion (owner, 2026-10-07; pre-kit demos only — kit demos
+	// follow the app's mode): the switch state PERSISTS on
 	// the steer record (details.ui.inverted) — seeded here, written through
 	// the silent artifact-ui route on toggle. Without a chat page (tests,
 	// previews) the toggle stays local-only. The filter rides the iframe
@@ -163,7 +206,23 @@ function DemoFrame({
 			body: JSON.stringify({ input: { messageId, inverted: next } }),
 		}).catch(() => {});
 	};
-	const srcDoc = useMemo(() => buildDemoSrcDoc(html), [html]);
+	const isClient = useIsClient();
+	const paletteKey = usePaletteKey();
+	// Built once per document: later flips are posted, never reloaded (a
+	// reload would wipe whatever the learner was doing in the demo).
+	const srcDoc = useMemo(() => {
+		if (!kit) return buildDemoSrcDoc(html);
+		if (!isClient) return undefined;
+		const { theme, vars } = demoThemeMessage();
+		return buildDemoSrcDoc(html, { theme, vars });
+	}, [html, kit, isClient]);
+	const postTheme = useCallback(() => {
+		if (kit) iframeRef.current?.contentWindow?.postMessage(demoThemeMessage(), "*");
+	}, [kit]);
+	// paletteKey changes on every mode flip or background change.
+	useEffect(() => {
+		postTheme();
+	}, [paletteKey, postTheme]);
 
 	useEffect(() => {
 		const onMessage = (event: MessageEvent) => {
@@ -176,45 +235,17 @@ function DemoFrame({
 		return () => window.removeEventListener("message", onMessage);
 	}, []);
 
+	const download = () =>
+		downloadFile(
+			`${slugFilename(title)}.html`,
+			kit ? withHouseKit(html, { theme: currentScheme() }) : html,
+			"text/html",
+		);
+
+	// The figure grammar (design wave): the instrument first, a quiet caption
+	// row below — kind label, title, then the controls far right.
 	return (
-		<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="demo-card">
-			{/* Caption header (owner, 2026-10-07): kind label + title in the
-			   label's size/tracking (title normal-case, foreground) — the
-			   figure card's grammar plus a name. Switch + download far right. */}
-			<div className="flex items-center justify-between gap-2">
-				<div className="flex min-w-0 items-baseline gap-2">
-					<span className="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-						interactive demo
-					</span>
-					<span className="truncate text-xs font-medium tracking-wide text-foreground">{title}</span>
-				</div>
-				<div className="flex shrink-0 items-center gap-1.5">
-					<Toggle
-						checked={inverted}
-						onChange={toggleInverted}
-						label="Invert demo brightness"
-						title="Invert colors"
-						discIcon={<InvertDiscIcon className="size-3" />}
-					/>
-					<button
-						type="button"
-						aria-label="Download demo as HTML"
-						title="Download as HTML"
-						onClick={() => downloadFile(`${slugFilename(title)}.html`, html, "text/html")}
-						data-testid="demo-download"
-						className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-					>
-						<DownloadIcon className="size-3.5" />
-					</button>
-				</div>
-			</div>
-			{state.error && (
-				<DemoErrorChip
-					title={title}
-					message={state.error}
-					onSend={actions ? () => actions.sendText(`The demo "${title}" threw an error: ${state.error}`) : undefined}
-				/>
-			)}
+		<div className="my-4 w-full" data-testid="demo-card">
 			<iframe
 				ref={iframeRef}
 				title={title}
@@ -222,23 +253,63 @@ function DemoFrame({
 				// but never touch the app's storage, cookies, or DOM.
 				sandbox="allow-scripts"
 				srcDoc={srcDoc}
+				onLoad={postTheme}
 				// scrolling OFF (owner, 2026-10-07): the bridge auto-sizes the
 				// iframe to its content, so an internal scrollbar can only appear
 				// before the first resize lands — and a scrollable iframe TRAPS
 				// the wheel (session scrolling stalls over the demo). With
 				// scrolling disabled the wheel chains straight to the session.
 				scrolling="no"
-				className="mt-2 w-full rounded-lg border bg-white"
+				className={`block w-full rounded-lg border ${kit ? "bg-background" : "bg-white"}`}
 				// content-box: the bridge reports the CONTENT height — with the
 				// preflight's border-box the 2px border would eat into it and clip
 				// the bottom of the demo (smoke finding, 2026-10-07).
 				style={{
 					height: state.height ?? 360,
 					boxSizing: "content-box",
-					filter: inverted ? "invert(1) hue-rotate(180deg)" : undefined,
+					// Kit demos: a light element keeps the blank frame before the
+					// srcdoc lands transparent over bg-background (a scheme mismatch
+					// paints it opaque white in dark mode); the kit's ground covers
+					// the canvas once the demo loads.
+					colorScheme: kit ? "light" : undefined,
+					filter: !kit && inverted ? "invert(1) hue-rotate(180deg)" : undefined,
 				}}
 				data-testid="demo-iframe"
 			/>
+			{state.error && (
+				<DemoErrorChip
+					title={title}
+					message={state.error}
+					onSend={actions ? () => actions.sendText(`The demo "${title}" threw an error: ${state.error}`) : undefined}
+				/>
+			)}
+			<div className="mt-2 flex items-center justify-between gap-2">
+				<div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+					<span className="shrink-0 font-medium uppercase tracking-wide">Interactive demo</span>
+					<span className="truncate">{title}</span>
+				</div>
+				<div className="flex shrink-0 items-center gap-1.5">
+					{!kit && (
+						<Toggle
+							checked={inverted}
+							onChange={toggleInverted}
+							label="Invert demo brightness"
+							title="Invert colors"
+							discIcon={<InvertDiscIcon className="size-3" />}
+						/>
+					)}
+					<button
+						type="button"
+						aria-label="Download demo as HTML"
+						title="Download as HTML"
+						onClick={download}
+						data-testid="demo-download"
+						className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					>
+						<DownloadIcon className="size-3.5" />
+					</button>
+				</div>
+			</div>
 		</div>
 	);
 }
@@ -254,7 +325,7 @@ export function DemoErrorChip({
 }) {
 	return (
 		<div
-			className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-500"
+			className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger"
 			data-testid="demo-error-chip"
 		>
 			<span className="font-medium">This demo threw an error</span>
@@ -265,7 +336,7 @@ export function DemoErrorChip({
 				<button
 					type="button"
 					onClick={onSend}
-					className="rounded-md border border-red-500/40 px-2 py-1 text-xs font-medium hover:bg-red-500/15"
+					className="rounded-md border border-danger/40 px-2 py-1 text-xs font-medium hover:bg-danger/12"
 					data-testid="demo-error-send"
 				>
 					Send to teacher

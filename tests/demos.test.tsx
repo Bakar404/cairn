@@ -27,6 +27,7 @@ import React from "react";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as vm from "node:vm";
 import { after, describe, it } from "node:test";
 import { Value } from "typebox/value";
 import { createFauxCore, fauxAssistantMessage, fauxToolCall, type FauxResponseStep, type ToolCall } from "@earendil-works/pi-ai";
@@ -62,6 +63,8 @@ import { handleChatRequest } from "../src/server/chat-handler.ts";
 import { runningTurn } from "../src/server/turn-runs.ts";
 import { createTeacherAgent } from "../src/agent/teacher-agent.ts";
 import { projectView as projectNative } from "../src/core/view.ts";
+import { HOUSE_KIT_VERSION, houseKit, paletteVars, withHouseKit, type HouseKitOptions } from "../src/core/demo-house.ts";
+import { PALETTE } from "../src/core/palette.ts";
 import type { PiEngine } from "../src/agent/models.ts";
 
 /**
@@ -213,6 +216,14 @@ describe("demo bridge", () => {
 		assert.match(srcDoc, /fragment demo/);
 	});
 
+	it("kit demos: the house kit leads the document and the bridge still closes it", () => {
+		const doc = '<!doctype html><html><head><meta charset="utf-8"></head><body><script>draw()</script></body></html>';
+		const srcDoc = buildDemoSrcDoc(doc, { theme: "dark" });
+		assert.ok(srcDoc.indexOf('<style id="cairn-house">') < srcDoc.indexOf("draw()"), "the kit precedes the demo's own code");
+		assert.ok(srcDoc.indexOf("draw()") < srcDoc.indexOf("demo-resize"), "the bridge lands after it");
+		assert.ok(!buildDemoSrcDoc(doc).includes("cairn-house"), "pre-kit demos stay raw");
+	});
+
 	it("reduceDemoBridgeState handles resize, error, and garbage", () => {
 		let state = INITIAL_DEMO_BRIDGE_STATE;
 		state = reduceDemoBridgeState(state, { type: "demo-resize", height: 421.7 });
@@ -236,6 +247,114 @@ describe("demo bridge", () => {
 		assert.deepEqual(reduceDemoBridgeState(state, { type: "something-else" }), state);
 		assert.deepEqual(reduceDemoBridgeState(state, "demo-resize"), state);
 		assert.deepEqual(reduceDemoBridgeState(state, null), state);
+	});
+});
+
+// ─── 1b. the house kit (core/demo-house.ts) ─────────────────────────────────
+
+/** Runs the kit's script against a minimal page: inline styles override the
+ *  stylesheet's palette for the current data-theme, as in a browser. */
+function runKit(opts: HouseKitOptions) {
+	const script = /<script id="cairn-house-api">([\s\S]*)<\/script>/.exec(houseKit(opts))?.[1];
+	assert.ok(script, "the kit carries its runtime");
+	type MessageListener = (event: { source: unknown; data: unknown }) => void;
+	const attrs = new Map<string, string>();
+	const style = new Map<string, string>();
+	const listeners: MessageListener[] = [];
+	const timers: { fn: () => void; ms: number }[] = [];
+	const parent = {};
+	const sheet = (name: string) =>
+		style.get(name) ?? paletteVars(PALETTE[attrs.get("data-theme") === "dark" ? "dark" : "light"])[name] ?? "";
+	const page: Record<string, unknown> = {
+		document: {
+			documentElement: {
+				setAttribute: (name: string, value: string) => void attrs.set(name, value),
+				getAttribute: (name: string) => attrs.get(name) ?? null,
+				style: {
+					setProperty: (name: string, value: string) => void style.set(name, value),
+					removeProperty: (name: string) => void style.delete(name),
+				},
+			},
+		},
+		getComputedStyle: () => ({ getPropertyValue: sheet }),
+		addEventListener: (type: string, fn: MessageListener) => {
+			if (type === "message") listeners.push(fn);
+		},
+		setTimeout: (fn: () => void, ms: number) => void timers.push({ fn, ms }),
+		parent,
+	};
+	page.window = page;
+	vm.runInNewContext(script, page);
+	return {
+		attrs,
+		style,
+		timers,
+		cairn: page.cairn as {
+			theme: string;
+			color(name: string): string;
+			viz(i: number): string;
+			alpha(name: string, a: number): string;
+			onTheme(fn: (theme: string) => void): () => void;
+		},
+		post: (data: unknown, source: unknown = parent) => {
+			for (const fn of listeners) fn({ source, data });
+		},
+	};
+}
+
+describe("demo house kit", () => {
+	const kitAt = (doc: string) => withHouseKit(doc, { theme: "light" }).indexOf('<style id="cairn-house">');
+
+	it("injects as early as the document allows, never ahead of the doctype", () => {
+		const meta = '<!doctype html><html><head><title>t</title><meta charset="utf-8"><style>b{}</style></head><body></body></html>';
+		assert.equal(kitAt(meta), meta.indexOf("<style>b{}"), "right after <meta charset>");
+		const head = '<!DOCTYPE html><html lang="en"><head><style>b{}</style></head><body></body></html>';
+		assert.equal(kitAt(head), head.indexOf("<style>b{}"), "right after <head>");
+		const bare = "<!doctype html><html><body><header>x</header></body></html>";
+		assert.equal(kitAt(bare), bare.indexOf("<body>"), "right after <html> (a <header> is not a <head>)");
+		assert.equal(kitAt("<!doctype html><p>x</p>"), "<!doctype html>".length, "after the doctype: standards mode survives");
+		assert.equal(kitAt("<div>fragment</div>"), 0, "a fragment gets it up front");
+		const bodyMeta = '<!doctype html><html><head></head><body><meta charset="utf-8"></body></html>';
+		assert.equal(kitAt(bodyMeta), bodyMeta.indexOf("</head>"), "a charset inside <body> does not count");
+	});
+
+	it("token values cannot close the kit's script", () => {
+		const kit = houseKit({ theme: "light", vars: { "--background": "</script><script>alert(1)//" } });
+		assert.ok(!kit.includes("</script><script>alert"));
+		assert.equal(kit.match(/<\/script>/g)?.length, 1);
+	});
+
+	it("window.cairn: host theme messages swap the palette and notify painters; anything else is ignored", () => {
+		const page = runKit({ theme: "dark", vars: { "--background": "#000000" } });
+		assert.equal(page.attrs.get("data-theme"), "dark");
+		assert.equal(page.cairn.theme, "dark");
+		assert.equal(page.cairn.color("background"), "#000000", "seeded overrides win");
+		assert.equal(page.cairn.color("--brand"), PALETTE.dark.brand, "names work with or without the dashes");
+		assert.equal(page.cairn.viz(7), PALETTE.dark.viz[1], "series colors wrap after six");
+		const [r, g, b] = [1, 3, 5].map((i) => parseInt(PALETTE.dark.brand.slice(i, i + 2), 16));
+		assert.equal(page.cairn.alpha("brand", 0.25), `rgba(${r},${g},${b},0.25)`);
+
+		const seen: string[] = [];
+		page.cairn.onTheme((theme) => seen.push(theme));
+		page.post({ type: "cairn-theme", theme: "light" }, {});
+		page.post({ type: "something-else", theme: "light" });
+		assert.deepEqual(seen, [], "only the host's cairn-theme messages count");
+
+		page.post({ type: "cairn-theme", theme: "light", vars: { "--brand": "#123456", "bad key": "red" } });
+		assert.deepEqual(seen, ["light"]);
+		assert.equal(page.cairn.color("background"), PALETTE.light.background, "the previous overrides are cleared");
+		assert.equal(page.cairn.color("brand"), "#123456");
+		assert.ok(!page.style.has("bad key"), "only custom-property names are applied");
+	});
+
+	it("rehearseFlipMs flips the theme once, the way the host would", () => {
+		const page = runKit({ theme: "light", rehearseFlipMs: 900 });
+		const seen: string[] = [];
+		page.cairn.onTheme((theme) => seen.push(theme));
+		assert.deepEqual(page.timers.map((t) => t.ms), [900]);
+		page.timers[0]?.fn();
+		assert.equal(page.attrs.get("data-theme"), "dark");
+		assert.deepEqual(seen, ["dark"]);
 	});
 });
 
@@ -358,6 +477,8 @@ describe("steer card rendering (the delivered artifact)", () => {
 		assert.match(html, /demo-error/);
 		assert.match(html, /Damped oscillator/);
 		assert.match(html, /interactive demo/i);
+		assert.match(html, /bg-white/, "a pre-kit demo carries its own colors: white backing");
+		assert.ok(!html.includes("cairn-house"), "pre-kit demos render raw");
 		// the model-facing protocol text never renders for the learner
 		assert.ok(!html.includes("do NOT wait"), "no protocol glue in the bubble");
 	});
@@ -373,7 +494,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 	});
 
 	it("renders the verified svg as an image; the maker's notes are glue and stay hidden", () => {
-		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
+		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20" fill="#202830"/></svg>'; // off-palette: shown as drawn
 		const steer = buildSubagentSteer(
 			{ id: "jv", kind: "visual", toolCallId: "cv" },
 			{ svg, notes: "Looking at the render, the diagram is clean and accurate." },
@@ -492,12 +613,26 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 		assert.match(html, /toggle-invert-demo-brightness/, "the invert switch (house Toggle)");
 		assert.match(html, /data-testid="demo-download"/);
 		assert.ok(!html.includes("hue-rotate"), "inversion is OFF by default — a manual toggle only");
-		assert.match(html, /interactive demo/, "the kind label lives in the caption header");
+		assert.match(html, /interactive demo/i, "the kind label lives in the caption row");
 		assert.match(html, /Wave interference/, "the title rides beside the kind label");
 	});
 
+	it("kit demo: the house ground, no invert switch, and a client-only srcdoc (only the client knows the page's scheme)", () => {
+		const steer = buildSubagentSteer(
+			{ id: "jd4", kind: "demo", toolCallId: "cd4" },
+			{ title: "Wave interference", html: DEMO_HTML, tested: true, kit: HOUSE_KIT_VERSION },
+		);
+		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		assert.match(html, /sandbox="allow-scripts"/);
+		assert.match(html, /bg-background/);
+		assert.ok(!html.includes("bg-white"), "no white backing");
+		assert.ok(!html.includes("toggle-invert-demo-brightness"), "kit demos follow the app's mode");
+		assert.ok(!/srcdoc=/i.test(html), "no server-rendered srcdoc");
+		assert.match(html, /data-testid="demo-download"/);
+	});
+
 	it("figure card: invert + download buttons; NO fullscreen button without a chat page (the context is null there)", () => {
-		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
+		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20" fill="#202830"/></svg>'; // off-palette: shown as drawn
 		const html = renderToStaticMarkup(<VisualOutputCard output={{ svg }} />);
 		assert.match(html, /toggle-invert-figure-brightness/, "the invert switch (house Toggle)");
 		assert.match(html, /data-testid="visual-download"/);
@@ -506,7 +641,7 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 	});
 
 	it("figure card: NO card chrome, image first, caption row BELOW (owner round, 2026-10-07)", () => {
-		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
+		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20" fill="#202830"/></svg>'; // off-palette: shown as drawn
 		const html = renderToStaticMarkup(<VisualOutputCard output={{ svg }} />);
 		// Document material: the outer box carries no card styling.
 		const rootAt = html.indexOf('data-testid="visual-card"');
@@ -617,6 +752,11 @@ describe("demo builder (fake model + fake headless)", () => {
 		assert.equal(result.title, "Damped oscillator");
 		assert.equal(result.html, GOOD_HTML, "delivers the FIXED html");
 		assert.equal(result.tested, true);
+		assert.equal(result.kit, HOUSE_KIT_VERSION, "stamped with the kit generation it was tested against");
+		assert.ok(
+			headless.demoRuns.every((run) => run.includes('<style id="cairn-house">')),
+			"every headless run wears the house kit (the delivered html stays raw)",
+		);
 		assert.equal(result.notes, "Drag the damping slider to see the oscillation decay.");
 		assert.equal(headless.demoRuns.length, 2, "ran the broken demo, then the fixed one — no extra verification needed");
 		assert.ok(activities.some((a) => a.startsWith("run_demo: 1 console error")), `activity recorded per iteration: ${activities.join(" | ")}`);
@@ -633,6 +773,7 @@ describe("demo builder (fake model + fake headless)", () => {
 		assert.equal(result.html, GOOD_HTML);
 		assert.equal(result.tested, true, "tested by the final verification gate");
 		assert.equal(headless.demoRuns.length, 1, "the gate ran the demo once itself");
+		assert.ok(headless.demoRuns[0]?.includes('<style id="cairn-house">'), "the gate runs it in the house kit too");
 	});
 
 	it("fails (empty html + FAILED notes) when the demo never passes verification", async () => {
@@ -1096,7 +1237,7 @@ describe("tool + renderer registry wiring", () => {
 		const errHtml = renderToStaticMarkup(<ToolCallCard part={errPart as never} />);
 		assert.match(errHtml, /Error/);
 		assert.match(errHtml, /ENOENT/);
-		assert.match(errHtml, /text-red-500/);
+		assert.match(errHtml, /text-danger/);
 	});
 
 	it("the tool-call card: find/grep headline the pattern, ls defaults to ~", () => {

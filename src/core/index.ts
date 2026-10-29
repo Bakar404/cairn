@@ -57,6 +57,21 @@ export * from "./fuzzy.ts";
 // the user-settings record's shape/sanitizer (pure) and its fully-resolved
 // view. Browser-safe — the Wave-4 panel imports these directly.
 export * from "./settings.ts";
+// theme-mode.ts (design wave): light/dark/system — the mode type, scheme
+// resolution, and the no-flash boot script the root layout inlines.
+export * from "./theme-mode.ts";
+// palette.ts (design wave): the globals.css palette as data, for the
+// generators and native chrome that cannot read CSS.
+export * from "./palette.ts";
+// demo-house.ts (design wave): the stylesheet + window.cairn API injected
+// into every kit-built demo (the card, downloads, and headless runs).
+export * from "./demo-house.ts";
+// figure-theme.ts (design wave): the figure palette (SVG, Manim) and the
+// role-by-role re-coloring that lets an SVG figure follow the scheme.
+export * from "./figure-theme.ts";
+// code-theme.ts (design wave): the two Shiki themes code blocks highlight
+// with, from the same palette.
+export * from "./code-theme.ts";
 // graph-deletion.ts (wave 6): the whole module is PURE but storage-port
 // driven — the deletion RUNS server-side only. The shell needs exactly one
 // two type-only things from it: the ChatDeleteMode union (the delete

@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { appearanceVars, derivedPalette, resolveAppearance, staleVarNames } from "../components/settings/appearance.tsx";
+import { appearanceVars, backgroundScheme, derivedPalette, resolveAppearance, staleVarNames } from "../components/settings/appearance.tsx";
 import {
 	PROMPT_IN_USE_HINT,
 	composePromptSwitch,
@@ -41,30 +41,51 @@ describe("resolveAppearance — delta over factory", () => {
 	});
 });
 
-describe("derivedPalette — the dark curve keeps today's relationships", () => {
-	it("the factory background reproduces today's palette EXACTLY", () => {
-		assert.deepEqual(derivedPalette("#141414"), {
-			"--background": "#141414",
-			"--card": "#1c1c1c",
-			"--popover": "#1c1c1c",
-			"--secondary": "#1c1c1c",
-			"--muted": "#1c1c1c",
-			"--accent": "#2a2a2a",
-			"--border": "#434343",
-			"--input": "#434343",
-			"--primary-foreground": "#141414",
+describe("derivedPalette — per-mode curves track the factory palettes", () => {
+	it("dark: every surface lifts off the page (the factory dark relationships)", () => {
+		assert.deepEqual(derivedPalette("#131210"), {
+			"--background": "#131210",
+			"--card": "#191816",
+			"--popover": "#191816",
+			"--secondary": "#201f1d",
+			"--muted": "#201f1d",
+			"--accent": "#262523",
+			"--border": "#333230",
+			"--input": "#3d3c3a",
+			"--primary-foreground": "#131210",
 		});
 	});
 
-	it("an off-factory background shifts every surface with it (clamped at 255)", () => {
-		const p = derivedPalette("#f0f0f0");
-		assert.equal(p["--background"], "#f0f0f0");
-		assert.equal(p["--card"], "#f8f8f8"); // 240 + 8 per channel
-		assert.equal(p["--border"], "#ffffff", "240 + 47 clamps to 255 on every channel");
+	it("light: paper rises, hover and edges sink into the page", () => {
+		assert.deepEqual(derivedPalette("#f8f5f1", "light"), {
+			"--background": "#f8f5f1",
+			"--card": "#fcf9f5",
+			"--popover": "#fcf9f5",
+			"--secondary": "#f0ede9",
+			"--muted": "#f0ede9",
+			"--accent": "#eae7e3",
+			"--border": "#e0ddd9",
+			"--input": "#d6d3cf",
+			"--primary-foreground": "#f8f5f1",
+		});
+	});
+
+	it("channels clamp at both ends", () => {
+		assert.equal(derivedPalette("#f0f0f0")["--border"], "#ffffff", "240 + 32 clamps to 255");
+		assert.equal(derivedPalette("#101010", "light")["--input"], "#000000", "16 − 34 clamps to 0");
 	});
 
 	it("3-digit hex expands", () => {
-		assert.equal(derivedPalette("#abc")["--card"], "#b2c3d4"); // aa bb cc each +8
+		assert.equal(derivedPalette("#abc")["--card"], "#b0c1d2"); // aa bb cc each +6
+	});
+});
+
+describe("backgroundScheme — a custom background belongs to one mode", () => {
+	it("classifies by luminance", () => {
+		assert.equal(backgroundScheme("#131210"), "dark");
+		assert.equal(backgroundScheme("#1a1a2e"), "dark");
+		assert.equal(backgroundScheme("#f8f5f1"), "light");
+		assert.equal(backgroundScheme("#fff"), "light");
 	});
 });
 
@@ -90,7 +111,7 @@ describe("appearanceVars — the mapping the provider applies", () => {
 			}),
 		);
 		assert.equal(vars["--background"], "#101820");
-		assert.equal(vars["--card"], "#182028", "raised +8 per channel: 10→18, 18→20, 20→28");
+		assert.equal(vars["--card"], "#161e26", "raised +6 per channel: 10→16, 18→1e, 20→26");
 		assert.equal(vars["--font-prose"], `"Georgia", var(--font-sans3), ui-sans-serif, system-ui, sans-serif`);
 		assert.equal(vars["--lh-prose-size"], "18px");
 		assert.equal(vars["--font-title"], "var(--font-prose)", "serif off → titles follow the prose font");
@@ -103,6 +124,16 @@ describe("appearanceVars — the mapping the provider applies", () => {
 		const vars = appearanceVars(resolveAppearance({ sessionNameSerif: false }));
 		assert.equal(vars["--font-title"], "var(--font-prose)");
 		assert.equal(Object.keys(vars).length, 3, "prose-size, heading-weight, font-title only");
+	});
+
+	it("a custom background applies only in the mode it suits", () => {
+		const dark = resolveAppearance({ background: "#101820" });
+		assert.equal(appearanceVars(dark, "light")["--background"], undefined, "a dark color never sits under light inks");
+		const light = resolveAppearance({ background: "#faf6ee" });
+		assert.equal(appearanceVars(light, "dark")["--background"], undefined, "and vice versa");
+		const applied = appearanceVars(light, "light");
+		assert.equal(applied["--background"], "#faf6ee");
+		assert.equal(applied["--accent"], "#ece8e0", "on the light curve (−14)");
 	});
 });
 

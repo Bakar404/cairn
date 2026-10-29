@@ -9,6 +9,7 @@ import { useSessionMermaid } from "@/components/session-overlay";
 import { downloadFile } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
 import { SvgImage } from "@/components/artifacts/svg-image";
+import { paperStyle, ThemedSvgImage, useFigureVariants } from "@/components/artifacts/figure-image";
 import { mediaUrl, type ArtifactPartProps, type VisualResult } from "@/src/core";
 
 /**
@@ -20,8 +21,10 @@ import { mediaUrl, type ArtifactPartProps, type VisualResult } from "@/src/core"
  *
  * Both display modes use an SVG image document: generated markup and its
  * styles never join the app's DOM. Downloads still contain the original SVG.
+ * A house figure follows the page's scheme (figure-image.tsx) and needs no
+ * invert switch; any other figure keeps the paper backing and the switch.
  * A Manim still (M13) is a PNG from the chat's media route instead; it
- * keeps the same chrome (invert, download, fullscreen).
+ * keeps the paper chrome (invert, download, fullscreen).
  */
 
 /** The svg root's DECLARED width in px, when there is one — the natural
@@ -80,6 +83,7 @@ export function VisualOutputCard({
 	// A Manim still (M13) arrives as a PNG in the chat's media folder.
 	const png = result?.png && typeof result.png.file === "string" && result.png.file ? result.png : null;
 	const natural = !png && result && typeof result.svg === "string" ? svgNaturalWidth(result.svg) : null;
+	const variants = useFigureVariants(!png && typeof result?.svg === "string" && result.svg.length > 0 ? result.svg : null);
 	if (!result || (!png && typeof result.svg !== "string")) {
 		return (
 			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
@@ -94,7 +98,7 @@ export function VisualOutputCard({
 			<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="visual-card-failed">
 				<div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					Figure
-					<span className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">failed</span>
+					<span className="rounded bg-danger/12 px-1.5 py-0.5 text-danger">failed</span>
 				</div>
 				<p className="mt-2 text-sm text-muted-foreground">{result.notes ?? "The figure could not be drawn."}</p>
 			</div>
@@ -117,36 +121,44 @@ export function VisualOutputCard({
 			{/* Natural sizing (owner, 2026-10-07): a declared-width svg sits at
 			   ITS size; max-w-full still shrinks oversized ones to fit. No
 			   declared size (viewBox-only, %-width) keeps the full-width law.
-			   The invert filter rides the bg-white holder, so the backing flips
-			   white→black together with the strokes; transparent areas ARE the
-			   backing. */}
+			   A house figure sits on the card surface in the page's scheme.
+			   Any other figure keeps light paper; the invert filter rides that
+			   holder, so the backing flips together with the strokes
+			   (transparent areas ARE the backing). */}
 			<div
-				className={
-					natural !== null
-						? "w-fit max-w-full overflow-hidden rounded-lg bg-white"
-						: "w-full overflow-hidden rounded-lg bg-white"
-				}
-				style={{ filter: inverted ? "invert(1) hue-rotate(180deg)" : undefined }}
+				className={`${natural !== null ? "w-fit max-w-full" : "w-full"} overflow-hidden rounded-lg${variants ? " bg-card" : ""}`}
+				style={variants ? undefined : paperStyle(inverted)}
 				data-testid="visual-svg"
+				data-themed={variants ? "" : undefined}
 			>
-				<SvgImage
-					svg={result.svg}
-					width={natural ?? undefined}
-					className={natural !== null ? "block h-auto max-w-full" : "block h-auto w-full"}
-				/>
+				{variants ? (
+					<ThemedSvgImage
+						variants={variants}
+						width={natural ?? undefined}
+						className={natural !== null ? "block h-auto max-w-full" : "block h-auto w-full"}
+					/>
+				) : (
+					<SvgImage
+						svg={result.svg}
+						width={natural ?? undefined}
+						className={natural !== null ? "block h-auto max-w-full" : "block h-auto w-full"}
+					/>
+				)}
 			</div>
 			<div className="mt-2 flex items-center justify-between gap-2">
 				<div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Figure</div>
 				<div className="flex items-center gap-1.5">
 					{/* The invert affordance (owner round, 2026-10-07): the disc IS
 					    the half-filled contrast circle; the tooltip names it. */}
-					<Toggle
-						checked={inverted}
-						onChange={toggleInverted}
-						label="Invert figure brightness"
-						title="Invert colors"
-						discIcon={<InvertDiscIcon className="size-3" />}
-					/>
+					{!variants && (
+						<Toggle
+							checked={inverted}
+							onChange={toggleInverted}
+							label="Invert figure brightness"
+							title="Invert colors"
+							discIcon={<InvertDiscIcon className="size-3" />}
+						/>
+					)}
 					<button
 						type="button"
 						aria-label="Download figure as SVG"
@@ -194,7 +206,7 @@ function blobDataUrl(blob: Blob): Promise<string> {
 	});
 }
 
-/** A Manim still (M13): the PNG plays the SVG's role — same backing, same
+/** A Manim still (M13): the PNG plays the SVG's role — light paper, the
  *  invert switch, same caption row. Fullscreen fetches the still from the
  *  app window (so the desktop API capability rides along; a new tab would
  *  open in the system browser without it) and hands the overlay an svg
@@ -245,11 +257,7 @@ function PngFigure({
 	};
 	return (
 		<div className="my-4 w-full" data-testid="visual-card">
-			<div
-				className="w-full overflow-hidden rounded-lg bg-white"
-				style={{ filter: inverted ? "invert(1) hue-rotate(180deg)" : undefined }}
-				data-testid="visual-png"
-			>
+			<div className="w-full overflow-hidden rounded-lg" style={paperStyle(inverted)} data-testid="visual-png">
 				{/* A rendered file from the media route; no Next image optimization. */}
 				{/* eslint-disable-next-line @next/next/no-img-element */}
 				<img ref={imgRef} src={src} alt="Figure" width={width} height={height} className="block h-auto w-full" draggable={false} />

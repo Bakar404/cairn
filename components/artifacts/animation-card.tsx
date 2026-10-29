@@ -7,6 +7,7 @@ import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { Toggle } from "@/components/settings/controls";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
 import { slugFilename } from "@/components/artifacts/download";
+import { paperStyle } from "@/components/artifacts/figure-image";
 import { mediaUrl, type AnimationResult, type ArtifactPartProps } from "@/src/core";
 
 /**
@@ -63,7 +64,7 @@ export function AnimationOutputCard({
 			<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="animation-card-failed">
 				<div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					Animation
-					<span className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">failed</span>
+					<span className="rounded bg-danger/12 px-1.5 py-0.5 text-danger">failed</span>
 				</div>
 				<p className="mt-2 text-sm text-muted-foreground">{result.notes ?? "The animation could not be made."}</p>
 			</div>
@@ -84,12 +85,10 @@ export function AnimationOutputCard({
 			: null;
 	return (
 		<div className="my-4 w-full" data-testid="animation-card">
-			{/* The invert filter rides the white holder, as on the figure card:
-			    Manim scenes render on white, so dark mode can flip them. */}
-			<div
-				className="w-full overflow-hidden rounded-lg bg-white"
-				style={{ filter: inverted ? "invert(1) hue-rotate(180deg)" : undefined }}
-			>
+			{/* Light paper with the invert filter riding it, as on the figure
+			    card: Manim scenes render on house paper, so dark mode can flip
+			    them. */}
+			<div className="w-full overflow-hidden rounded-lg" style={paperStyle(inverted)}>
 				<video
 					controls
 					playsInline

@@ -267,7 +267,7 @@ export function QuestionDockBar({
 						<MessageCircleIcon className="size-3.5" /> Ask Cairn
 					</Button>
 				)}
-				<Button type="button" size="sm" onClick={onExpand} className="shrink-0 text-xs">
+				<Button type="button" variant="brand" size="sm" onClick={onExpand} className="shrink-0 text-xs">
 					Answer <ChevronRightIcon className="size-3.5" />
 				</Button>
 			</div>
@@ -932,6 +932,7 @@ function QuestionDockForm({
 						</span>
 						<Button
 							type="submit"
+							variant="brand"
 							disabled={!canSubmit || compactionRunning}
 							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 						>

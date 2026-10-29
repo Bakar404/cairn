@@ -9,12 +9,16 @@ import { parseHTML } from "linkedom";
 import { VisualOutputCard } from "../components/artifacts/visual-card.tsx";
 import { svgImageSource } from "../components/artifacts/svg-image.tsx";
 import { MermaidOverlay, SessionMermaidContext } from "../components/session-overlay.tsx";
+import { FIGURE as HOUSE, LEGACY_FIGURE } from "../src/core/figure-theme.ts";
 
 // Structure-only checks: linkedom does not load images or implement CSS cascade.
 // No fixture script, link, or external reference is executed by these tests.
+// FIGURE's #202830 is outside the figure palette, so it is shown as drawn.
 const FIGURE = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="160" viewBox="0 0 320 160"><style>text{font-family:Arial,Helvetica,sans-serif;fill:#202830}</style><defs><marker id="arrow"><path d="M0 0L5 5"/></marker></defs><path marker-end="url(#arrow)" d="M0 0L20 20"/><text>θ &amp; φ: 50% #1</text></svg>`;
 const ACTIVE_MARKUP = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" onload="example()"><script>example()</script><foreignObject><div xmlns="http://www.w3.org/1999/xhtml" onclick="example()">Example</div></foreignObject><a href="javascript:example()"><text>Link</text></a><image href="https://example.invalid/image.png"/></svg>`;
 const PREFIX = "data:image/svg+xml;charset=utf-8,";
+const PAPER = new RegExp(`background-color:\\s*${HOUSE.light.paper}`, "i");
+const HOUSE_FIGURE = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="160" viewBox="0 0 320 160"><rect width="320" height="160" fill="${LEGACY_FIGURE.paper}"/><path d="M0 0L20 20" stroke="${LEGACY_FIGURE.accent}"/><text fill="${LEGACY_FIGURE.ink}">#1 ${LEGACY_FIGURE.muted}</text></svg>`;
 
 function assertImageBoundary(holder: Element, source: string) {
 	const image = holder.querySelector("img");
@@ -68,13 +72,14 @@ describe("generated SVG image boundary", () => {
 				const { document } = parseHTML(html);
 				const holder = document.querySelector(mode === "inline" ? '[data-testid="visual-svg"]' : "[data-lh-overlay-chart]")!;
 				assertImageBoundary(holder, source);
-				assert.ok(holder.classList.contains("bg-white"), "white backing retained");
+				assert.match(holder.getAttribute("style") ?? "", PAPER, "a figure outside the house palette keeps the light paper backing");
+				assert.equal(holder.getAttribute("data-themed"), null);
 			});
 		}
 
 		for (const [name, original, display] of [
-			["missing namespace", '<svg width="320" height="160"><text>Example</text></svg>', '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="160"><text>Example</text></svg>'],
-			["HTML entity", '<svg xmlns="http://www.w3.org/2000/svg"><text>A&nbsp;B</text></svg>', '<svg xmlns="http://www.w3.org/2000/svg"><text>A&#160;B</text></svg>'],
+			["missing namespace", '<svg width="320" height="160"><text fill="#202830">Example</text></svg>', '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="160"><text fill="#202830">Example</text></svg>'],
+			["HTML entity", '<svg xmlns="http://www.w3.org/2000/svg"><text fill="#202830">A&nbsp;B</text></svg>', '<svg xmlns="http://www.w3.org/2000/svg"><text fill="#202830">A&#160;B</text></svg>'],
 		] as const) {
 			it(`${mode}: repairs ${name} only in the image source`, () => {
 				const output = { svg: original };
@@ -88,14 +93,14 @@ describe("generated SVG image boundary", () => {
 			});
 		}
 
-		it(`${mode}: retains inversion on the white backing`, () => {
+		it(`${mode}: retains inversion on the paper backing`, () => {
 			const html = renderToStaticMarkup(mode === "inline"
 				? <VisualOutputCard output={{ svg: FIGURE }} initialInverted />
 				: <MermaidOverlay svg={FIGURE} inverted onClose={() => {}} />);
 			const { document } = parseHTML(html);
 			const holder = document.querySelector(mode === "inline" ? '[data-testid="visual-svg"]' : "[data-lh-overlay-chart]")!;
 			assert.match(holder.getAttribute("style")!, /invert\(1\) hue-rotate\(180deg\)/);
-			assert.ok(holder.classList.contains("bg-white"));
+			assert.match(holder.getAttribute("style")!, PAPER);
 			assertImageBoundary(holder, FIGURE);
 		});
 	}
@@ -110,7 +115,7 @@ describe("generated SVG image boundary", () => {
 
 	for (const width of ["", ' width="100%"']) {
 		it(`inline: keeps the full-width fallback for ${width || "viewBox-only"} SVG`, () => {
-			const source = `<svg xmlns="http://www.w3.org/2000/svg"${width} viewBox="0 0 320 160"><text>Example</text></svg>`;
+			const source = `<svg xmlns="http://www.w3.org/2000/svg"${width} viewBox="0 0 320 160"><text fill="#202830">Example</text></svg>`;
 			const { document } = parseHTML(renderToStaticMarkup(<VisualOutputCard output={{ svg: source }} />));
 			const image = assertImageBoundary(document.querySelector('[data-testid="visual-svg"]')!, source);
 			assert.equal(image.getAttribute("width"), null);
@@ -127,6 +132,52 @@ describe("generated SVG image boundary", () => {
 		for (const label of ["Zoom in", "Zoom out", "Fit diagram to view", "Close"]) {
 			assert.ok(document.querySelector(`button[aria-label="${label}"]`));
 		}
+	});
+});
+
+describe("house figures follow the page scheme", () => {
+	for (const mode of ["inline", "fullscreen"] as const) {
+		it(`${mode}: renders a light and a dark variant on the card surface, never inverted`, () => {
+			const html = renderToStaticMarkup(mode === "inline"
+				? <VisualOutputCard output={{ svg: HOUSE_FIGURE }} initialInverted />
+				: <MermaidOverlay svg={HOUSE_FIGURE} inverted onClose={() => {}} />);
+			const { document } = parseHTML(html);
+			const holder = document.querySelector(mode === "inline" ? '[data-testid="visual-svg"]' : "[data-lh-overlay-chart]")!;
+			assert.equal(holder.getAttribute("data-themed"), "");
+			assert.ok(holder.classList.contains("bg-card"));
+			assert.equal(holder.getAttribute("style"), null, "no paper and no filter: a persisted inversion does not apply");
+			assert.equal(holder.children.length, 2);
+			const [light, dark] = [...holder.querySelectorAll("img")];
+			assert.deepEqual(light!.className.split(" ").filter((c) => /block|hidden/.test(c)), ["block", "dark:hidden"]);
+			assert.deepEqual(dark!.className.split(" ").filter((c) => /block|hidden/.test(c)), ["hidden", "dark:block"]);
+			for (const [image, palette] of [[light!, HOUSE.light], [dark!, HOUSE.dark]] as const) {
+				assert.equal(image.getAttribute("alt"), "Figure");
+				if (mode === "inline") assert.equal(image.getAttribute("width"), "320", "natural size kept");
+				const svg = decodeURIComponent(image.getAttribute("src")!.slice(PREFIX.length));
+				assert.ok(svg.includes(`<rect width="320" height="160" fill="${palette.paper}"/>`));
+				assert.ok(svg.includes(`stroke="${palette.accent}"`));
+				assert.ok(svg.includes(`<text fill="${palette.ink}">#1 ${LEGACY_FIGURE.muted}</text>`), "text content untouched");
+			}
+			if (mode === "inline") {
+				assert.equal(document.querySelector('[role="switch"]'), null, "no invert switch on a house figure");
+				assert.ok(document.querySelector('[data-testid="visual-download"]'));
+			}
+		});
+	}
+
+	it("inline: display repairs apply to both variants", () => {
+		const { document } = parseHTML(renderToStaticMarkup(<VisualOutputCard output={{ svg: '<svg width="320" height="160"><text>A&nbsp;B</text></svg>' }} />));
+		const images = [...document.querySelectorAll('[data-testid="visual-svg"] img')];
+		assert.equal(images.length, 2);
+		for (const [image, palette] of [[images[0]!, HOUSE.light], [images[1]!, HOUSE.dark]] as const) {
+			const svg = decodeURIComponent(image.getAttribute("src")!.slice(PREFIX.length));
+			assert.equal(svg, `<svg xmlns="http://www.w3.org/2000/svg" fill="${palette.ink}" color="${palette.ink}" width="320" height="160"><text>A&#160;B</text></svg>`);
+		}
+	});
+
+	it("inline: a figure outside the palette keeps its invert switch", () => {
+		const { document } = parseHTML(renderToStaticMarkup(<VisualOutputCard output={{ svg: FIGURE }} />));
+		assert.equal(document.querySelector('[role="switch"]')?.getAttribute("aria-label"), "Invert figure brightness");
 	});
 });
 

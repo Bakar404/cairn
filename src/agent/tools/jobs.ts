@@ -52,7 +52,8 @@ export const demoInputSchema = Type.Object({
 	title: Type.String({ description: "Short title for the demo card, e.g. 'Damped harmonic oscillator'." }),
 	brief: Type.String({
 		description:
-			"Precise brief for the builder: the concept, the parameters/controls and what each does, the interactions, and the visual style. " +
+			"Precise brief for the builder: the concept, the parameters/controls and what each does, the interactions, and what the learner should notice. " +
+			"Leave out colors, fonts, and styling — every demo wears the app's house style. " +
 			"The builder sees NOTHING else of the lesson — include everything it needs, including necessary formulas and constants.",
 	}),
 });

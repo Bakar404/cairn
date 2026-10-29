@@ -6,6 +6,7 @@ import { providerEventObserver } from "../provider-events.ts";
 import { releaseCopilotSessions } from "../copilot/index.ts";
 import type { MediaRef, VisualResult } from "../../core/contracts.ts";
 import type { ManimRenderer } from "../../core/manim.ts";
+import { FIGURE } from "../../core/figure-theme.ts";
 import { getHeadless, providerSafePng, type HeadlessApi } from "./headless.ts";
 import { applyExactEdit, layoutReport, lookMessage, nudgeMessage, streamOnce, textOf, toolCallsOf, toolText } from "./maker-kit.ts";
 
@@ -99,13 +100,18 @@ until correct and clean. Never finish without having looked at a render of your 
 
 SVG requirements:
 - A complete <svg> with explicit width/height AND a matching viewBox.
-- The house palette, so every figure in a lesson reads as one set — no other colors:
-  - paper #FFFFFF: a full-size background <rect>;
-  - ink #1F1F1F: strokes, shapes, and main labels;
-  - muted #6B6B6B: secondary labels, axes, tick marks;
-  - faint #D9D9D9: grids and guide lines;
-  - accent #2563EB: the one thing the figure is about;
-  - second accent #EA580C: only when two things must be told apart.
+- The house palette, so every figure in a lesson reads as one set and matches the app — no other colors:
+  - paper ${FIGURE.light.paper}: a full-size background <rect>;
+  - ink ${FIGURE.light.ink}: strokes, shapes, and main labels;
+  - muted ${FIGURE.light.muted}: secondary labels, axes, tick marks;
+  - faint ${FIGURE.light.faint}: grids and guide lines;
+  - accent ${FIGURE.light.accent}: the one thing the figure is about;
+  - second accent ${FIGURE.light.accent2}: only when two things must be told apart.
+  Write each as that exact hex in a fill or stroke attribute. The app swaps them for their dark-mode
+  partners when the reader uses dark mode; any other color (rgb(), hsl(), a named color, a hex not
+  listed here) leaves the figure stuck on light paper.
+- Ignore styling words in the brief (colors, "dark theme", "neon"): highlights become the accent, a
+  second highlight the second accent.
 - Sans-serif labels at generous sizes; arrows end in filled arrowheads (a <marker>).
 - One idea, fewest elements — sparse and large beats busy and tiny.
 - Draw only what the brief specifies; never invent data, values, or shapes to fill space.
@@ -135,7 +141,7 @@ The scene file — always this shape (build the picture with self.add; nothing n
   class Lesson(Scene):
       def construct(self):
           ...
-- cairn_style sets the white paper with ink as the default color and defines the palette
+- cairn_style sets the warm paper with ink as the default color and defines the palette
   above by name: PAPER, INK, MUTED, FAINT, ACCENT, ACCENT2 — use only those.
 - The frame is 14.2 × 8 units centred on the origin; keep everything within x ±6.5, y ±3.6.
 - Text(...) for words: the house sans font is already set, so pass no font=. Labels 28-36, never

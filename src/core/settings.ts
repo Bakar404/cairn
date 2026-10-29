@@ -30,6 +30,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
+import { isAppearanceMode, type AppearanceMode } from "./theme-mode.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -279,8 +280,8 @@ export interface MdRenderingSettings {
 
 /** Appearance settings — mode, colors, type, markdown emphasis. */
 export interface AppearanceSettings {
-	/** "dark" | "light" (default dark). */
-	mode?: "dark" | "light";
+	/** "dark" | "light" | "system" (default dark). */
+	mode?: AppearanceMode;
 	/** The one user-chosen color; everything else derives per-mode in code.
 	 *  null = the mode's default background. */
 	background?: string | null;
@@ -381,7 +382,7 @@ export interface FactorySettings {
 	version: number;
 	general: Required<GeneralSettings>;
 	appearance: {
-		mode: "dark" | "light";
+		mode: AppearanceMode;
 		background: string | null;
 		fontFamily: string | null;
 		proseFontSize: number;
@@ -401,7 +402,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	general: { autoUpdate: true },
 	appearance: {
 		mode: "dark",
-		background: null, // the dark default (#141414) lives in the mode's derivation curve
+		background: null, // each mode's default surface lives in app/globals.css
 		fontFamily: null, // Source Sans 3
 		proseFontSize: 16,
 		sessionNameSerif: true,
@@ -550,7 +551,7 @@ function sanitizeMdRendering(raw: unknown): MdRenderingSettings {
 
 function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	const out: AppearanceSettings = {};
-	if (raw.mode === "dark" || raw.mode === "light") out.mode = raw.mode;
+	if (isAppearanceMode(raw.mode)) out.mode = raw.mode;
 	if (raw.background !== undefined) out.background = sanitizeHexOrNull(raw.background);
 	if (raw.fontFamily !== undefined) {
 		out.fontFamily = typeof raw.fontFamily === "string" && raw.fontFamily.trim() ? raw.fontFamily : null;
