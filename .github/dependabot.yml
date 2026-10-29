@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Exact pins in package.json, kept on purpose and updated by hand:
+      # dagre-d3-es must match the copy mermaid ships, electron-builder.yml
+      # depends on the packager's internals (see its comments), and the
+      # agent engine and math parsers move only with their tests.
+      - dependency-name: "@earendil-works/*"
+      - dependency-name: dagre-d3-es
+      - dependency-name: katex
+      - dependency-name: mdast-util-from-markdown
+      - dependency-name: mdast-util-math
+      - dependency-name: micromark-extension-math
+      - dependency-name: electron-builder

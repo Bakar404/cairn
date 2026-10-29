@@ -67,3 +67,26 @@ jobs:
       - run: node scripts/smoke-provider-runtime.mjs
       - run: node scripts/build-server.mjs
       - run: node scripts/smoke-server.mjs --electron
+
+  docs:
+    name: Docs links
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      # Offline: every relative link and #fragment between repo files must
+      # resolve. External URLs aren't fetched, so this never flakes.
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --offline --no-progress --include-fragments
+            '*.md' 'docs/**/*.md' '.github/**/*.md' 'skills/**/*.md' 'src/**/*.md' 'tests/**/*.md'
+
+  workflows:
+    name: Workflow lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      # actionlint also runs shellcheck on every run: block.
+      - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
