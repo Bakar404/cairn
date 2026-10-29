@@ -14,6 +14,7 @@ import React from "react";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { LhMark } from "../components/lh-mark.tsx";
 import { SessionRow, timeAgo } from "../components/sidebar.tsx";
 import type { ChatListItem } from "../src/core/index.ts";
 
@@ -159,5 +160,16 @@ describe("SessionRow practice badge (practice sessions, 2026-10-04)", () => {
 	it("a practice row with a posed problem says the problem is waiting", () => {
 		const html = render(item({ kind: "practice", pendingProblem: true }));
 		assert.match(html, /Problem waiting ·/);
+	});
+});
+
+describe("LhMark — the logo in the band", () => {
+	it("draws every stone from the live ink and page tokens, so light mode turns it over", () => {
+		const html = renderToStaticMarkup(<LhMark />);
+		const fills = [...html.matchAll(/fill:([^"]+)"/g)].map((m) => m[1]!);
+		assert.equal(fills.length, 3, "three stones");
+		for (const fill of fills) assert.match(fill, /var\(--foreground\)/, fill);
+		assert.equal(fills[2], "var(--foreground)", "the top stone is full ink");
+		assert.doesNotMatch(html, /rgb\(|#[0-9a-f]{3,8}\b/i, "no fixed stone colors (a white top stone vanished on paper)");
 	});
 });

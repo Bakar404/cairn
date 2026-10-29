@@ -51,7 +51,7 @@ describe("desktop window chrome", () => {
 		it(`${platform} uses native-height right-side controls with an Alt-accessible menu`, () => {
 			const options = windowOptions(platform);
 			assert.equal(options.titleBarStyle, "hidden");
-			assert.deepEqual(options.titleBarOverlay, { color: "#131210", symbolColor: "#e9e6e0" });
+			assert.deepEqual(options.titleBarOverlay, { color: "#0c121d", symbolColor: "#efe7d8" });
 			assert.equal(Object.hasOwn(options.titleBarOverlay, "height"), false, "omit height so the OS selects its native default");
 			assert.equal(options.trafficLightPosition, undefined);
 			assert.equal(options.autoHideMenuBar, true);

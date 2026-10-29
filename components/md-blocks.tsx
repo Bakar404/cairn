@@ -345,7 +345,7 @@ export function parseAlertMarker(children: ReactNode): ParsedAlert | null {
 }
 
 /** The key-idea callout (owner rulings, 2026-10-07): SHARP corners, a thin
- *  clay stroke (design wave: the old white stroke vanished in light mode),
+ *  brand stroke (design wave: the old white stroke vanished in light mode),
  *  NO background, NO label, NO icon — just the outline. The box
  *  hugs its text (width: fit-content, capped at the column) instead of
  *  stretching full-width into empty space. */

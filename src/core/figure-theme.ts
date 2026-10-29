@@ -17,7 +17,8 @@ export type FigureRole = (typeof FIGURE_ROLES)[number];
 export type FigurePalette = Readonly<Record<FigureRole, string>>;
 
 /** The figure roles of one app palette: paper is the card surface, the
- *  accent is the brand clay and the second accent the second data hue. */
+ *  accent is the brand cobalt and the second accent the second data hue
+ *  (orange, its complement). */
 export function figurePalette(p: SchemePalette): FigurePalette {
 	return {
 		paper: p.card,
@@ -45,9 +46,16 @@ export const LEGACY_FIGURE: FigurePalette = {
 	accent2: "#ea580c",
 };
 
+/** The warm-stone house palette (design wave, until Ink & Paper): figures
+ *  drawn with it still map by role, like the legacy set. */
+export const STONE_FIGURE: Readonly<Record<ColorScheme, FigurePalette>> = {
+	light: { paper: "#fcfbf9", ink: "#211e19", muted: "#69645c", faint: "#e0dcd5", accent: "#ab532f", accent2: "#5377a0" },
+	dark: { paper: "#191816", ink: "#e9e6e0", muted: "#9f9b93", faint: "#33302c", accent: "#db8862", accent2: "#7fa2c9" },
+};
+
 const ROLE_OF: ReadonlyMap<string, FigureRole> = (() => {
 	const map = new Map<string, FigureRole>();
-	for (const set of [LEGACY_FIGURE, FIGURE.dark, FIGURE.light]) {
+	for (const set of [LEGACY_FIGURE, STONE_FIGURE.dark, STONE_FIGURE.light, FIGURE.dark, FIGURE.light]) {
 		for (const role of FIGURE_ROLES) map.set(set[role], role);
 	}
 	for (const [name, role] of [["#fff", "paper"], ["white", "paper"], ["#000", "ink"], ["#000000", "ink"], ["black", "ink"]] as const) {
