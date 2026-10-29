@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowLeftIcon, ChevronRightIcon, MessageCircleIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { ToolContentResponse } from "@/components/ai-elements/message";
@@ -86,6 +86,13 @@ export interface QuestionDockProps {
 	 *  and say so in the hint row. The server registry is the real gate;
 	 *  this is the affordance. */
 	compactionRunning?: boolean;
+	/** Step out of the question to ask Cairn something (the ask-instead
+	 *  path). Absent = no such affordance (e.g. while a turn runs). */
+	onAskInstead?: () => void;
+	/** Ask mode's content (the AskInsteadPanel). While present it replaces
+	 *  the bar/form; the form stays mounted, hidden and inert, so a
+	 *  half-made answer survives the detour. */
+	askSlot?: React.ReactNode;
 }
 
 export function QuestionDock({
@@ -100,6 +107,8 @@ export function QuestionDock({
 	onSaveDraft,
 	phase = "probe",
 	compactionRunning = false,
+	onAskInstead,
+	askSlot,
 }: QuestionDockProps) {
 	// The probe-phase names (owner, 2026-10-09) canonicalize onto their
 	// teach twins for every dock concern — parse dispatch, labels, kinds:
@@ -126,37 +135,66 @@ export function QuestionDock({
 			</div>
 		);
 	}
+	const asking = askSlot != null;
 	return (
 		<>
-			{!expanded && (
-				<QuestionDockBar
-					toolName={canonical}
-					question={parsed.question}
-					onExpand={onExpand}
-					variant={reveal ? "reveal" : "collapsed"}
-					toolLabel={toolLabel}
-					label={
-						(canonical === "quiz" || canonical === "explain") &&
-						normalizeQuizType((parsed as { type?: unknown }).type) === "predict"
-							? "Prediction"
-							: undefined
-					}
-				/>
-			)}
-			<div className={expanded ? "dock-variant" : "invisible h-0 overflow-hidden"}>
+			{asking
+				? askSlot
+				: !expanded && (
+						<QuestionDockBar
+							toolName={canonical}
+							question={parsed.question}
+							onExpand={onExpand}
+							onAskInstead={onAskInstead}
+							variant={reveal ? "reveal" : "collapsed"}
+							toolLabel={toolLabel}
+							label={
+								(canonical === "quiz" || canonical === "explain") &&
+								normalizeQuizType((parsed as { type?: unknown }).type) === "predict"
+									? "Prediction"
+									: undefined
+							}
+						/>
+					)}
+			<div className={expanded && !asking ? "dock-variant" : "invisible h-0 overflow-hidden"}>
 				<QuestionDockForm
 					toolName={toolName}
 					toolCallId={toolCallId}
 					input={parsed}
 					phase={phase}
-					active={expanded}
+					active={expanded && !asking}
+					suspended={asking}
 					onSubmit={onSubmit}
 					initialDraft={initialDraft}
 					onSaveDraft={onSaveDraft}
 					compactionRunning={compactionRunning}
+					onAskInstead={onAskInstead}
 				/>
 			</div>
 		</>
+	);
+}
+
+/** Ask mode (the ask-instead path): a labeled chat composer in the dock's
+ *  shell, with the way back to the question. Esc goes back too — the chat
+ *  view's Esc chain routes it (the one-Esc law). */
+export function AskInsteadPanel({ onBack, children }: { onBack: () => void; children: React.ReactNode }) {
+	return (
+		<div data-testid="ask-instead-panel" className="dock-variant">
+			<div className="flex items-center gap-2 px-4 pt-2.5 text-xs">
+				<span className="shrink-0 font-medium uppercase tracking-wide text-muted-foreground">Ask Cairn</span>
+				<span className="min-w-0 flex-1 truncate text-muted-foreground/70">· sending skips the question</span>
+				<button
+					type="button"
+					data-testid="back-to-question"
+					onClick={onBack}
+					className="flex shrink-0 items-center gap-1 font-medium text-primary transition-colors hover:underline"
+				>
+					<ArrowLeftIcon className="size-3.5" /> Back to the question
+				</button>
+			</div>
+			{children}
+		</div>
 	);
 }
 
@@ -176,11 +214,13 @@ function teaserText(q: string): string {
 /** The collapsed strip. Two species (W5): "collapsed" is the scroll minimization
  *  (kind chip + one-liner + Answer ↓); "reveal" is the teach-check invitation —
  *  a distinct, more inviting affordance, because it asks the learner to start
- *  something, not to resume something. */
+ *  something, not to resume something. The invitation names both moves
+ *  (owner, 2026-10-27): Answer opens the check; Ask Cairn steps out to ask. */
 export function QuestionDockBar({
 	toolName,
 	question,
 	onExpand,
+	onAskInstead,
 	variant = "collapsed",
 	label,
 	toolLabel,
@@ -188,6 +228,7 @@ export function QuestionDockBar({
 	toolName: "quiz" | "ask_user_question" | "explain";
 	question: string;
 	onExpand: () => void;
+	onAskInstead?: () => void;
 	variant?: "collapsed" | "reveal";
 	/** The kind chip's text (owner 2026-10-03): "Prediction" when a
 	 *  predict-type quiz minimizes by scroll — predictions never use the
@@ -199,23 +240,37 @@ export function QuestionDockBar({
 }) {
 	if (variant === "reveal") {
 		return (
-			<button
-				type="button"
-				data-testid="teach-check-reveal"
-				onClick={onExpand}
-				className="dock-variant flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/40"
-			>
-				<span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
-					<PlayIcon className="size-3.5" />
-				</span>
-				<span className="min-w-0 flex-1">
-					<span className="block text-sm font-medium">Check your understanding</span>
-					<span className="block truncate text-xs text-muted-foreground">{teaserText(question)}</span>
-				</span>
-				<span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
-					Open <ChevronRightIcon className="size-3.5" />
-				</span>
-			</button>
+			<div className="dock-variant flex w-full items-center gap-1.5 py-1.5 pl-2 pr-3">
+				<button
+					type="button"
+					data-testid="teach-check-reveal"
+					onClick={onExpand}
+					className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-accent/40"
+				>
+					<span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+						<PlayIcon className="size-3.5" />
+					</span>
+					<span className="min-w-0 flex-1">
+						<span className="block text-sm font-medium">Check your understanding</span>
+						<span className="block truncate text-xs text-muted-foreground">{teaserText(question)}</span>
+					</span>
+				</button>
+				{onAskInstead && (
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						data-testid="ask-instead"
+						onClick={onAskInstead}
+						className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
+					>
+						<MessageCircleIcon className="size-3.5" /> Ask Cairn
+					</Button>
+				)}
+				<Button type="button" size="sm" onClick={onExpand} className="shrink-0 text-xs">
+					Answer <ChevronRightIcon className="size-3.5" />
+				</Button>
+			</div>
 		);
 	}
 	return (
@@ -249,7 +304,13 @@ function QuestionDockForm({
 	initialDraft,
 	onSaveDraft,
 	compactionRunning = false,
-}: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal">) {
+	suspended = false,
+	onAskInstead,
+}: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal" | "askSlot"> & {
+	/** Ask mode is up: the form is hidden, and the window-level Enter
+	 *  (useEnterSubmits) must not submit a pre-picked answer under it. */
+	suspended?: boolean;
+}) {
 	const kind = toolQuestionKind(toolName);
 
 	// Canonical QuestionData, built once per question. Quiz options are
@@ -332,7 +393,7 @@ function QuestionDockForm({
 			: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0;
 
 	const submit = () => {
-		if (!canSubmit || compactionRunning) return;
+		if (suspended || !canSubmit || compactionRunning) return;
 		const req: AnswerRequest = {
 			dontKnow: sel.dontKnow,
 			values: [...sel.selected].map((i) => qd.options[i]!.value),
@@ -507,19 +568,31 @@ function QuestionDockForm({
 			    Capped by the measured column (--dock-max-h; the old fixed 55dvh cut
 			    long questions short — owner round, 2026-10-05). */}
 			<div data-session-find-root="" className="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
-				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-					{toolName === "probe"
-						? "Probe"
-						: toolName === "recall"
-							? "Recall"
-							: kind === "quiz"
-								? qd.questionType === "predict"
-									? "Prediction"
-									: "Check"
-									: kind === "explain"
-										? "Explain"
-											: "Question"}
-					{qd.mode === "multi-select" && " · select all that apply"}
+				<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					<span className="min-w-0 flex-1">
+						{toolName === "probe"
+							? "Probe"
+							: toolName === "recall"
+								? "Recall"
+								: kind === "quiz"
+									? qd.questionType === "predict"
+										? "Prediction"
+										: "Check"
+										: kind === "explain"
+											? "Explain"
+												: "Question"}
+						{qd.mode === "multi-select" && " · select all that apply"}
+					</span>
+					{onAskInstead && (
+						<button
+							type="button"
+							data-testid="ask-instead-form"
+							onClick={onAskInstead}
+							className="flex shrink-0 items-center gap-1 normal-case tracking-normal text-primary transition-colors hover:underline"
+						>
+							<MessageCircleIcon className="size-3.5" /> Ask Cairn instead
+						</button>
+					)}
 				</div>
 				<div className="mb-3 font-medium">
 					<ToolContentResponse>{qd.question}</ToolContentResponse>

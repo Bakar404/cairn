@@ -27,8 +27,11 @@ export function ReadingThinkingField({
 			data-testid="reading-thinking-field"
 			className="pointer-events-auto mb-2 rounded-2xl border bg-card/60 px-3 py-2 transition-colors focus-within:border-primary/50"
 		>
-			<div className="pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-				Thinking while reading
+			<div className="flex items-baseline gap-2 pb-1 text-xs">
+				<span className="font-medium uppercase tracking-wide text-muted-foreground">Thinking while reading</span>
+				{/* Names its carrier (owner, 2026-10-27): this is not a chat box —
+				    questions for Cairn go through "Ask Cairn". */}
+				<span className="text-muted-foreground/70">· sent with your answer</span>
 			</div>
 			<textarea
 				value={value}

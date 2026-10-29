@@ -958,6 +958,22 @@ describe("answer submission recovery", () => {
 		assert.equal((part.output as { dismissed: boolean }).dismissed, true);
 	});
 
+	it("a refused dismissal withdraws the optimistic skip — the question is pending again", async () => {
+		const m = model({ initialMessages: [question], fetch: async () => new Response("refused", { status: 500 }) });
+		assert.equal(await m.dismissQuestion("q1", dismissedAnswer("quiz", "Q?")), false);
+		const part = m.getState().messages.flatMap(m => m.parts).find(p => p.toolCallId === "q1")!;
+		assert.equal(part.state, "input-available");
+		assert.notEqual(m.getState().error, null);
+		assert.equal(m.status, "ready", "the follow-up send stays possible");
+	});
+
+	it("a parked dismissal (202) counts as accepted", async () => {
+		const m = model({ initialMessages: [question], fetch: async () => new Response(null, { status: 202 }) });
+		assert.equal(await m.dismissQuestion("q1", dismissedAnswer("quiz", "Q?")), true);
+		const part = m.getState().messages.flatMap(m => m.parts).find(p => p.toolCallId === "q1")!;
+		assert.equal(part.state, "output-available");
+	});
+
 	it("restores an unconfirmed optimistic answer when the post-ack record read fails", async () => {
 		let posts = 0;
 		let reads = 0;

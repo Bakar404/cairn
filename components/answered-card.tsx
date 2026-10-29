@@ -24,9 +24,14 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
 	if (answer.dismissed) {
 		return (
-			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
-				<span className="font-medium">{answer.questionText}</span> — skipped
-			</div>
+			<>
+				{answer.readingThinking && (
+					<ThinkingBlock testId="reading-thinking-block" label="YOUR THINKING" text={answer.readingThinking} defaultOpen />
+				)}
+				<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+					<span className="font-medium">{answer.questionText}</span> — skipped
+				</div>
+			</>
 		);
 	}
 

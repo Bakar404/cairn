@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MessageResponse } from "../components/ai-elements/message.tsx";
-import { QuestionDock } from "../components/question-dock.tsx";
+import { AskInsteadPanel, QuestionDock } from "../components/question-dock.tsx";
 import { ProbeDoneCard } from "../components/artifacts/probe-done-card.tsx";
 import { DispatchCard } from "../components/artifacts/dispatch-card.tsx";
 import { JobsContext } from "../components/jobs-context.ts";
@@ -69,6 +69,8 @@ function renderDock(props: {
 	toolCallId: string;
 	input: never;
 	onSubmit?: () => void;
+	onAskInstead?: () => void;
+	askSlot?: React.ReactNode;
 }) {
 	// expanded=true renders the full form (the collapsed bar is covered by the
 	// QuestionDockBar test below). No scroll context needed — the DockOverlay
@@ -362,6 +364,15 @@ describe("render smoke tests", () => {
 		const answer = { ...buildAnswer(quizQD(), { dontKnow: true }), dismissed: true };
 		const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);
 		assert.match(html, /skipped/);
+		assert.ok(!html.includes('data-testid="reading-thinking-block"'));
+	});
+
+	it("a skipped check keeps the thoughts typed while reading (the ask-instead path)", () => {
+		const answer = { ...buildAnswer(quizQD(), { dontKnow: true }), dismissed: true, readingThinking: "why is Mercury hotter than Venus?" };
+		const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);
+		assert.ok(html.includes('data-testid="reading-thinking-block"'));
+		assert.match(html, /why is Mercury hotter than Venus\?/);
+		assert.match(html, /skipped/);
 	});
 });
 
@@ -442,7 +453,48 @@ describe("teach-check reveal (W5 phase separation)", () => {
 		assert.ok(html.includes('data-testid="teach-check-reveal"'), "invitation affordance present");
 		assert.match(html, /Check your understanding/);
 		assert.match(html, /Which planet is closest/, "question teaser invites, not minimizes");
-		assert.match(html, /Open/, "a clear reveal action");
+		assert.match(html, /Answer/, "a clear reveal action");
+	});
+
+	it("the invitation names both moves when Cairn can take a message", () => {
+		const bar = (onAskInstead?: () => void) =>
+			renderToStaticMarkup(
+				<QuestionDock toolName="quiz" toolCallId="t1" input={quizInput as never} expanded={false} reveal onExpand={() => {}} onSubmit={() => {}} onAskInstead={onAskInstead} />,
+			);
+		const offered = bar(() => {});
+		assert.ok(offered.includes('data-testid="ask-instead"'));
+		assert.match(offered, /Ask Cairn/);
+		assert.ok(!bar().includes('data-testid="ask-instead"'), "no ask affordance while nothing could be sent");
+	});
+
+	it("the open form offers Ask Cairn instead", () => {
+		const html = renderDock({ toolName: "quiz", toolCallId: "t1", input: quizInput as never, onAskInstead: () => {} });
+		assert.ok(html.includes('data-testid="ask-instead-form"'));
+		assert.match(html, /Ask Cairn instead/);
+		assert.match(html, /Submit answer/);
+	});
+
+	it("ask mode swaps in the ask panel and keeps the form mounted but hidden", () => {
+		for (const expanded of [false, true]) {
+			const html = renderToStaticMarkup(
+				<QuestionDock
+					toolName="quiz"
+					toolCallId="t1"
+					input={quizInput as never}
+					expanded={expanded}
+					reveal
+					onExpand={() => {}}
+					onSubmit={() => {}}
+					onAskInstead={() => {}}
+					askSlot={<AskInsteadPanel onBack={() => {}}><textarea data-testid="ask-fixture" /></AskInsteadPanel>}
+				/>,
+			);
+			assert.ok(html.includes('data-testid="ask-instead-panel"'));
+			assert.ok(html.includes('data-testid="back-to-question"'));
+			assert.ok(html.includes('data-testid="ask-fixture"'), "the panel hosts the composer it is given");
+			assert.ok(!html.includes('data-testid="teach-check-reveal"'), "the invitation steps aside");
+			assert.match(html, /class="invisible h-0 overflow-hidden"><div[^>]*data-testid="question-dock"/, "a half-made answer survives the detour");
+		}
 	});
 
 	it("probe questions keep the plain collapsed bar (no invitation copy)", () => {
