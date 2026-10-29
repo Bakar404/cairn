@@ -48,7 +48,7 @@ import { MermaidOverlay, SessionMermaidContext } from "@/components/session-over
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { ArrowRightIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
-import { QuestionDock } from "@/components/question-dock";
+import { AskInsteadPanel, QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
 import { PracticeDock } from "@/components/practice-dock";
@@ -376,8 +376,11 @@ export function Chat({
 				problem: activeProblemRef.current !== null,
 				busy: busyRef.current,
 			});
-			if (target === "question") setAbortAsk("question");
-			else if (target === "problem") setAbortAsk("problem");
+			// Ask mode is a layer over the question: Esc steps back to it.
+			if (target === "question") {
+				if (askingRef.current) setAskFor(null);
+				else setAbortAsk("question");
+			} else if (target === "problem") setAbortAsk("problem");
 			else if (target === "turn") setAbortAsk("turn");
 			else if (target === "mermaid") setMermaidFocus(null);
 			else if (target === "plan") setPlanOpen(false);
@@ -402,6 +405,8 @@ export function Chat({
 			const p = pendingRef.current;
 			if (p) {
 				const question = (p.input as { question?: string } | null)?.question ?? "";
+				// A refused skip brings the question back; its reading draft too.
+				saveQuestionDraft(p.toolCallId, { readingThinking: readingThinkingRef.current });
 				const reading = readingThinkingRef.current.trim() || undefined;
 				clearReadingThinking();
 				const answer = dismissedAnswer(toolQuestionKind(p.tool), question);
@@ -422,7 +427,7 @@ export function Chat({
 				if (busyRef.current) abortInFlightTurn();
 			}
 		},
-		[abortInFlightTurn, dismissQuestion, dismissProblem],
+		[abortInFlightTurn, dismissQuestion, dismissProblem, saveQuestionDraft],
 	);
 	// Mount continuation: if the stored transcript ends with a fulfilled tool
 	// (a job result landed while no client was open), resume the lesson — the
@@ -457,6 +462,16 @@ export function Chat({
 	const busy = localStream || turnInFlight;
 	const busyRef = useRef(busy);
 	busyRef.current = busy;
+
+	// ASK INSTEAD (owner, 2026-10-27): a pending question used to leave no
+	// place to ask Cairn anything — questions landed in the reading field.
+	// Ask mode swaps the dock to a composer for THIS question (keyed by its
+	// id, so a new question never inherits it); sending skips the question.
+	const [askFor, setAskFor] = useState<string | null>(null);
+	const canAskInstead = status === "ready" && !busy;
+	const asking = !!pending && askFor === pending.toolCallId && canAskInstead;
+	const askingRef = useRef(asking);
+	askingRef.current = asking;
 
 	// The attach handoff (stream-reattach wave): the moment a resumed
 	// stream takes over the rendering — the SDK left "ready", so
@@ -633,7 +648,8 @@ export function Chat({
 			...pick('[data-testid="question-dock"] textarea'),
 			...pick('[data-testid="practice-dock"] textarea'),
 			...pick('[data-testid="composer"] textarea'),
-		];
+			// A hidden form (folded, or under ask mode) can't take focus.
+		].filter((el) => !el.closest(".invisible"));
 	}, []);
 	useFieldCycle(cycleChatFields);
 
@@ -1137,6 +1153,32 @@ export function Chat({
 		doSend();
 	};
 
+	/* The ask-instead send: the skip persists FIRST (a text input never
+	 * closes a dangling question call), carrying any reading thoughts;
+	 * then the message goes as a plain send — the wake. A refused skip
+	 * puts both back. */
+	const askCanSend = asking && text.trim().length > 0 && !compacting;
+	const askInsteadSend = async () => {
+		const p = pendingRef.current;
+		const t = textRef.current.trim();
+		if (!p || !t || !askingRef.current || compacting) return;
+		const question = (p.input as { question?: string } | null)?.question ?? "";
+		const readingDraft = readingThinkingRef.current;
+		const reading = readingDraft.trim() || undefined;
+		saveQuestionDraft(p.toolCallId, { readingThinking: readingDraft });
+		applyText("");
+		clearReadingThinking();
+		const answer = dismissedAnswer(toolQuestionKind(p.tool), question);
+		const ok = await dismissQuestion(p.toolCallId, reading ? { ...answer, readingThinking: reading } : answer);
+		if (!ok) {
+			if (!textRef.current.trim()) applyText(t);
+			if (!readingThinkingRef.current.trim()) applyReadingThinking(readingDraft);
+			return;
+		}
+		draftRef.current = t; // the refusal flow's preserve-and-replay seam
+		void send({ type: "text", text: t });
+	};
+
 	return (
 		<ChatActionsContext.Provider
 			value={{
@@ -1576,6 +1618,21 @@ export function Chat({
 					requiresReveal={requiresReveal}
 					readingThinking={readingThinking}
 					onReadingThinking={applyReadingThinking}
+					asking={asking}
+					onAskInstead={canAskInstead && pending ? () => setAskFor(pending.toolCallId) : undefined}
+					onBackToQuestion={() => setAskFor(null)}
+					askComposer={
+						<Composer
+							busy={false}
+							value={text}
+							onChange={applyText}
+							onSend={() => void askInsteadSend()}
+							onStop={() => {}}
+							canSend={askCanSend}
+							autoFocus
+							placeholder="Ask Cairn anything…"
+						/>
+					}
 					phase={phases.at(-1) ?? "probe"}
 					turns={turns}
 					contextTokens={contextTokens}
@@ -1799,6 +1856,10 @@ function DockOverlay({
 	requiresReveal,
 	readingThinking,
 	onReadingThinking,
+	asking,
+	onAskInstead,
+	onBackToQuestion,
+	askComposer,
 	phase,
 	turns,
 	contextTokens,
@@ -1830,6 +1891,13 @@ function DockOverlay({
 	 *  the submit + dismissal seams (outside this overlay) can merge it. */
 	readingThinking: string;
 	onReadingThinking: (v: string) => void;
+	/** Ask mode (owner, 2026-10-27): the pending question steps aside for a
+	 *  composer that talks to Cairn; the question waits under it. */
+	asking: boolean;
+	/** Enters ask mode; absent while a turn runs (nothing could be sent). */
+	onAskInstead?: () => void;
+	onBackToQuestion: () => void;
+	askComposer: React.ReactNode;
 	/** Session phase at the pending question — scales the thinking field. */
 	phase: Phase3;
 	/** The session's usage log — the stats bar beneath the composer folds it. */
@@ -1920,9 +1988,10 @@ function DockOverlay({
 	expandedRef.current = expanded;
 	// Dock ownership (the fold machine, the reserve immunity, the arrival
 	// states): a pending question OR an active practice problem — either
-	// replaces the composer and owns the band.
-	const pendingRef = useRef(!!pending || !!practice);
-	pendingRef.current = !!pending || !!practice;
+	// replaces the composer and owns the band. Ask mode hands the band back
+	// to a composer, which never folds.
+	const pendingRef = useRef((!!pending && !asking) || !!practice);
+	pendingRef.current = (!!pending && !asking) || !!practice;
 	const requiresRevealRef = useRef(requiresReveal);
 	requiresRevealRef.current = requiresReveal;
 	const revealedRef = useRef(revealed);
@@ -2102,7 +2171,7 @@ function DockOverlay({
 	// a focused button activates natively) — this listener claims only
 	// the dead case: plain focus with Enter doing nothing.
 	useEffect(() => {
-		if (!pending || expanded) return;
+		if (!pending || expanded || asking) return;
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key !== "Enter" || e.altKey) return;
 			if (e.shiftKey && !e.metaKey && !e.ctrlKey) return;
@@ -2120,7 +2189,7 @@ function DockOverlay({
 		};
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [pending, expanded]);
+	}, [pending, expanded, asking]);
 
 	useEffect(() => {
 		const el = scrollRef.current;
@@ -2192,7 +2261,12 @@ function DockOverlay({
 	// term (the fold) belongs to EVERY docked variant — question AND
 	// practice (owner fix, 2026-10-06). Typing growth keeps the key and
 	// never animates; the fold/unfold morphs like teaching always has.
-	const stateKey = dockStateKey(mode, !!pending || !!practice, expanded);
+	// Ask mode is its own variant — swapping in and out morphs too.
+	const stateKey = dockStateKey(
+		asking && pending ? `ask:${pending.toolCallId}` : mode,
+		(!!pending && !asking) || !!practice,
+		expanded,
+	);
 	const prevRef = useRef<{ key: string; height: number } | null>(null);
 	useIsoLayoutEffect(() => {
 		const el = shellRef.current;
@@ -2236,8 +2310,9 @@ function DockOverlay({
 					<QueuedSteersBody steers={queuedSteers} />
 					{/* The reading-thinking field (owner 2026-10-03): mounted while a
 					    teach-phase check waits — the same cue that collapses it.
-					    Rides the check answer on submit. */}
-					{pending && requiresReveal && (
+					    Rides the check answer on submit. Ask mode keeps one text
+					    field on screen; the draft survives and rides the skip. */}
+					{pending && requiresReveal && !asking && (
 						<ReadingThinkingField
 							value={readingThinking}
 							onChange={onReadingThinking}
@@ -2263,6 +2338,10 @@ function DockOverlay({
 									initialDraft={initialQuestionDraft}
 									onSaveDraft={onSaveQuestionDraft}
 									compactionRunning={compactionRunning}
+									onAskInstead={onAskInstead}
+									askSlot={
+										asking ? <AskInsteadPanel onBack={onBackToQuestion}>{askComposer}</AskInsteadPanel> : undefined
+									}
 								/>
 							) : practice ? (
 								<PracticeDock
@@ -2321,7 +2400,7 @@ function DockOverlay({
 						onClick={onOpenPlan}
 						style={{ left: `calc(50% + ${DOCK_W / 2 + MARGIN_GAP}px)` }}
 						className={`absolute bottom-5 right-4 top-0 cursor-pointer transition-[filter,opacity] duration-300 ease-out ${
-							expanded && flankW >= MARGIN_MIN_W
+							expanded && !asking && flankW >= MARGIN_MIN_W
 								? "pointer-events-auto opacity-100 blur-0"
 								: "pointer-events-none opacity-0 blur-md"
 						}`}

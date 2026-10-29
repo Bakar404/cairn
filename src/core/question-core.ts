@@ -761,10 +761,11 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
  */
 /** The dismissal record (ESC-abort from a pending question, owner
  *  2026-10-02): the minimum honest answer. The model sees
- *  {kind, dismissed:true} via compactAnswerForModel; the answered card
- *  renders the question text + "skipped". Rides the same answer path —
- *  the teacher acknowledges the skip in its next turn, exactly like any
- *  answer. */
+ *  {kind, dismissed:true} via compactAnswerForModel — plus any thoughts
+ *  typed while reading, which ride the skip (the ask-instead path,
+ *  2026-10-27); the answered card renders the question text + "skipped".
+ *  Rides the same answer path — the teacher acknowledges the skip in its
+ *  next turn, exactly like any answer. */
 export function dismissedAnswer(kind: QuestionKind, questionText: string): QuestionAnswerData {
 	return {
 		kind,
@@ -777,7 +778,11 @@ export function dismissedAnswer(kind: QuestionKind, questionText: string): Quest
 }
 
 export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, unknown> {
-	if (ad.dismissed) return { kind: ad.kind, dismissed: true };
+	if (ad.dismissed) {
+		return ad.readingThinking
+			? { kind: ad.kind, dismissed: true, thinkingWhileReading: ad.readingThinking }
+			: { kind: ad.kind, dismissed: true };
+	}
 	const out: Record<string, unknown> = { kind: ad.kind };
 	if (ad.dontKnow) out.dontKnow = true;
 	// Array.isArray: the seam is called with `unknown` answers (test

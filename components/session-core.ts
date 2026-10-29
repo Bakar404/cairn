@@ -801,14 +801,16 @@ export class SessionModel {
 	/** The dismissal path (owner design 2026-10-03, "A2"): the skipped
 	 * toolResult lands optimistically, then the SILENT route persists it
 	 * — no turn, no stream, nothing wakes. The session pauses at the
-	 * user's choice; the next plain send is the wake. On failure the
-	 * durable record wins: the error surfaces, the record-changed sync
-	 * (or any later refetch) replaces the optimistic append with truth. */
-	async dismissQuestion(toolCallId: string, answer: QuestionAnswerData): Promise<void> {
-		if (!this.readyRef) return;
+	 * user's choice; the next plain send is the wake. Resolves true once
+	 * the route accepted it (202 parked counts). On failure the optimistic
+	 * skip is withdrawn — the question is still pending — and the error
+	 * surfaces; the ask-instead path keys its follow-up send on this. */
+	async dismissQuestion(toolCallId: string, answer: QuestionAnswerData): Promise<boolean> {
+		if (!this.readyRef) return false;
 		const tool = pendingCallTool([...this.base, ...this.tail], toolCallId) ?? "quiz";
+		const optimistic = { ...newAnswerResult(toolCallId, tool, answer), id: localId() };
 		this.mutate(() => {
-			this.tail = [...this.tail, { ...newAnswerResult(toolCallId, tool, answer), id: localId() }];
+			this.tail = [...this.tail, optimistic];
 		});
 		try {
 			const res = await this.fetch(`/api/chats/${this.chatId}/dismiss`, {
@@ -817,8 +819,13 @@ export class SessionModel {
 				body: JSON.stringify({ input: { type: "dismiss", toolCallId, answer } }),
 			});
 			if (!res.ok) throw new Error(`The dismissal failed (${res.status}).`);
+			return true;
 		} catch (err) {
+			this.mutate(() => {
+				this.tail = this.tail.filter((m) => m.id !== optimistic.id);
+			});
 			this.setError((err as Error).message);
+			return false;
 		}
 	}
 

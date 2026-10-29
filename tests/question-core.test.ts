@@ -578,6 +578,14 @@ describe("dismissedAnswer (the ESC-abort record)", () => {
 			dismissed: true,
 		});
 	});
+
+	it("a skip carries the thoughts typed while reading (the ask-instead path)", () => {
+		assert.deepEqual(compactAnswerForModel({ ...dismissedAnswer("quiz", "Pick one"), readingThinking: "is this attention?" }), {
+			kind: "quiz",
+			dismissed: true,
+			thinkingWhileReading: "is this attention?",
+		});
+	});
 });
 
 describe("toolQuestionKind (tool→kind parity with the dock)", () => {
