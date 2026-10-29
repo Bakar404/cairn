@@ -4,7 +4,7 @@
 
 | Platform | Build runner | Packages | In-app update |
 |---|---|---|---|
-| macOS, Apple Silicon | `macos-26` (arm64) | signed/notarized DMG + ZIP | ZIP via Squirrel.Mac |
+| macOS, Apple Silicon | `macos-26` (arm64) | DMG + ZIP, notarized or ad-hoc signed (see [macOS signing](#macos-signing)) | ZIP via Squirrel.Mac when notarized; manual download when ad-hoc signed |
 | Windows, x64 | `windows-2025` | unsigned per-user NSIS installer | NSIS |
 | Linux, x64 | `ubuntu-24.04` | AppImage + `.deb` | AppImage replacement; `.deb` through dpkg/apt with elevation if needed |
 
@@ -27,6 +27,14 @@ Each OS installs its own dependencies and builds its own Next standalone tree:
 
 The shell/updater live in `app.asar`; the standalone server and native renderer binaries ship unpacked as `extraResources`. **Do not cross-build the server payload.** Next traces the build machine's native binaries, so a macOS-built standalone tree is not a Windows/Linux payload.
 
+After packaging, each release job checks what it built:
+
+- macOS: `codesign --verify --deep --strict` must pass, and the job prints the signing identity. An ad-hoc build must carry `"cairnUpdates": "manual"` in the `package.json` inside `app.asar`.
+- `scripts/smoke-provider-runtime.mjs` initializes the packaged model providers offline, in the host Node and in the packaged app's own Node.
+- `scripts/smoke-demo-runtime.mjs` runs the interactive-demo runtime in the packaged Electron, without a system browser.
+- `scripts/smoke-window.mjs` launches the packaged app, waits for its window to render the home page, and saves a dark and a light screenshot. They're uploaded as the `window-<platform>` artifact. Linux runs it under `xvfb-run`.
+- `actions/attest` records a signed build-provenance attestation for each installer (see [Verifying a download](#verifying-a-download)).
+
 `npm run desktop:dist` remains the local macOS signing path: with a Developer ID Application certificate in the login keychain and your own `APPLE_KEYCHAIN_PROFILE` and `APPLE_TEAM_ID` exported, it signs and notarizes; without them electron-builder warns and produces an unsigned, un-notarized build. For a local Windows/Linux build, run steps 1–5 above, then:
 
 ```sh
@@ -37,19 +45,35 @@ npx electron-builder --win --x64 --publish never
 npx electron-builder --linux --x64 --publish never
 ```
 
-## CI vs release
+## CI
 
 `.github/workflows/ci.yml` runs on main pushes and pull requests:
 
 - Typecheck, full deterministic test suite, and lint on Ubuntu.
 - Native renderer tests plus standalone build/boot-smoke on macOS (`macos-15`), Windows, and Linux. This macOS job does not compile the Icon Composer asset; only release packaging needs the newer runner.
+- **Docs links:** [lychee](https://github.com/lycheeverse/lychee), offline, checks every relative link and heading anchor in the Markdown files. Web links aren't checked, so the job never fails because another site is down.
+- **Workflow lint:** [actionlint](https://github.com/rhysd/actionlint), with shellcheck, checks every workflow.
+
+Alongside it:
+
+- `codeql.yml` runs CodeQL on the JavaScript/TypeScript code and on the workflows themselves, for pushes, pull requests and once a week. Findings appear under Security → Code scanning.
+- `dependency-review.yml` fails a pull request that adds a dependency with a known vulnerability of moderate severity or higher.
+- `.github/dependabot.yml` opens weekly update pull requests for GitHub Actions and npm packages. It skips the packages `package.json` pins exactly on purpose; the file says why.
+
+## Releases
 
 `.github/workflows/release.yml` has two deliberately separate modes:
 
-- **Manual / Run workflow:** unsigned rehearsal installers saved as workflow artifacts for 7 days. No signing secrets needed, no release created, and nothing published. macOS notarization is skipped. Use the Windows/Linux artifacts for the first human smoke pass. These are not production macOS installers.
-- **Push `v<package.json version>`:** gates first, then one job creates or reuses a **single draft GitHub Release** before the three OS jobs package/upload their artifacts and update metadata in parallel. This avoids competing draft creation. A published or ambiguous existing release fails the preparation step instead of being modified. Separate runs for the same ref are serialized, never cancelled mid-upload. The tag must match the package version. macOS must sign and notarize successfully; missing secrets fail loudly. The workflow never publishes the draft. After all three packaging jobs succeed, a final read-only **Verify draft release** job (below) fails the run unless that draft is complete and self-consistent.
+- **Rehearsal (Actions → Desktop release → Run workflow):** builds all three installers as workflow artifacts kept for 7 days, with the window screenshots. Windows and Linux are unsigned; macOS is ad-hoc signed, never notarized, with in-app updates off. No secrets are needed, no release is created and nothing is published. Run one on `main` before every tag.
+- **Push `v<package.json version>`:**
+  1. **Release gates.** The tag must equal `v` plus the `package.json` version, and `CHANGELOG.md` must have a non-empty `## [<version>]` section; `npx tsx scripts/release-notes.ts <version>` prints it. Typecheck, tests and lint must pass.
+  2. **One draft.** A single job creates or reuses the tag's **draft GitHub Release**, titled "Cairn &lt;version&gt;". Its body is that changelog section plus first-launch and verification notes. A reused draft keeps its title and body. A published or ambiguous existing release fails this step instead of being modified, and preparing the draft once avoids competing draft creation by the OS jobs.
+  3. **Package.** The three OS jobs package, check and upload their installers and update metadata into that draft in parallel. macOS is signed as `MAC_SIGNING` says (see [macOS signing](#macos-signing)).
+  4. **Verify draft release.** A final read-only job (below) fails the run unless the draft is complete and self-consistent.
 
-The three jobs upload distinct updater feeds: `latest-mac.yml`, `latest.yml`, `latest-linux.yml`, with the matching ZIP/NSIS/AppImage/deb assets and blockmaps. **A partially populated draft is never fit to publish — and the final job enforces it mechanically.** The app uses the baked GitHub feed without a token: **the repository must be public before end users can download updates.** Making the repository public and publishing the release remain the owner's actions.
+  Separate runs for the same ref are serialized, never cancelled mid-upload. The workflow never publishes the draft; a person does.
+
+The three jobs upload distinct updater feeds: `latest-mac.yml`, `latest.yml`, `latest-linux.yml`, with the matching ZIP/NSIS/AppImage/deb assets and blockmaps. **A partially populated draft is never fit to publish — and the final job enforces it mechanically.** The app reads the baked GitHub feed without a token, so the repository must stay public for installed apps to find updates.
 
 ### The verification job
 
@@ -72,9 +96,20 @@ The three jobs upload distinct updater feeds: `latest-mac.yml`, `latest.yml`, `l
 
 The job only reads (release list + asset downloads); it never creates, edits, publishes, or deletes anything.
 
-## macOS CI secrets
+## macOS signing
 
-Add these under repository **Settings → Secrets and variables → Actions**:
+The repository variable `MAC_SIGNING` (**Settings → Secrets and variables → Actions → Variables**) chooses how a tag's macOS build is signed:
+
+| `MAC_SIGNING` | Signature | First launch | Updates |
+|---|---|---|---|
+| `notarized` (the default when unset) | Developer ID, hardened runtime, notarized by Apple | Opens normally | In the app, through Squirrel.Mac |
+| `adhoc` | Ad-hoc, no hardened runtime, not notarized | macOS blocks it until the user chooses **Open Anyway** in System Settings → Privacy & Security | Manual downloads |
+
+Squirrel.Mac installs an update only if its signature satisfies the running app's designated requirement. For an ad-hoc signature that requirement is the hash of that one build, so no other build can satisfy it. Ad-hoc builds are therefore stamped `"cairnUpdates": "manual"`: `electron/main.cjs` then never starts the updater, and Settings shows the version with a link to the release notes. The release still carries the ZIP and `latest-mac.yml`, so the asset list doesn't depend on the signing mode.
+
+Cairn currently ships ad-hoc (`MAC_SIGNING=adhoc`) because it has no Apple Developer ID yet. To switch to notarized builds, add the five secrets below and delete the variable or set it to `notarized`. Without the secrets, a `notarized` tag build fails loudly rather than shipping an unsigned app.
+
+For notarized builds, add these under repository **Settings → Secrets and variables → Actions**:
 
 | Secret | Value |
 |---|---|
@@ -86,13 +121,25 @@ Add these under repository **Settings → Secrets and variables → Actions**:
 
 The workflow maps the certificate secrets to electron-builder's `CSC_LINK` / `CSC_KEY_PASSWORD`. GitHub's built-in `GITHUB_TOKEN` supplies `GH_TOKEN` with job-scoped `contents: write`; no separate GitHub token secret is required. Signing credentials are present only for the packaging step, not the Next build. Never commit certificates, passwords, or `.env.local`.
 
-## First release runbook
+## Verifying a download
 
-1. Push the implementation; run the manual Desktop release workflow.
-2. Human smoke on Windows/Linux: install/open, window buttons and dragging, sidebar at narrow widths, zoom, setup/keys, session/resume, native PDF/SVG verification and demo helper. macOS remains signed/notarized through the production path.
-3. Add macOS signing/notarization secrets.
-4. Bump `package.json` and the lockfile to the agreed release version; run local gates and push a matching `v...` tag.
-5. Wait for **all three** packaging jobs **and the final Verify draft release job** — the gate mechanically checks the draft's 11 assets and the three update feeds (single draft, right names/version/sizes/upload state, feeds referencing only what the release actually holds). If it fails, fix the cause and re-run the workflow before publishing; electron-builder replaces same-named assets on re-upload, and the gate rejects leftovers.
-6. Owner makes the repository public, publishes the complete draft, then checks the real GitHub update path using a prior installed version.
+Each installer the release workflow publishes (DMG, ZIP, setup EXE, AppImage, deb) has a build-provenance attestation. With the [GitHub CLI](https://cli.github.com/):
 
-A full human pass is required before the first three-platform release. Subsequent content-only updates rely on the deterministic suite plus the per-OS build/boot-smoke matrix. Changes to `electron/`, native modules, packaging/updater configuration, or Electron itself call for another platform smoke pass.
+```sh
+gh attestation verify Cairn-<version>-x64-setup.exe -R Bakar404/cairn
+```
+
+A pass proves the file was built by this repository's release workflow from the tagged commit and hasn't changed since. It isn't a code signature: Windows and macOS still show their warnings for unsigned and ad-hoc signed apps.
+
+## Release runbook
+
+1. Make sure `main` is green in CI.
+2. In `CHANGELOG.md`, turn `## [Unreleased]` into `## [x.y.z] - YYYY-MM-DD`, start a new empty `## [Unreleased]` above it, and update the comparison links at the bottom. Check the notes with `npx tsx scripts/release-notes.ts x.y.z`.
+3. Bump the version with `npm version x.y.z --no-git-tag-version`, which updates `package.json` and `package-lock.json`. Commit, push to `main` and wait for CI.
+4. Run the rehearsal on `main`. Look at the `window-*` screenshots, and install the `cairn-*` artifacts on the machines you have: open the app, sign in, start and resume a lesson, open an interactive demo, switch between light and dark, and try the window buttons, dragging and zoom.
+5. Tag and push: `git tag vx.y.z` then `git push origin vx.y.z`.
+6. Wait for **all three** packaging jobs **and Verify draft release**. The gate checks the draft's 11 assets and the three update feeds: a single draft, the right names, version, sizes and upload state, and feeds that reference only what the release holds. If anything fails, fix the cause and re-run the failed jobs before publishing; electron-builder replaces same-named assets on re-upload, and the gate rejects leftovers.
+7. Read the draft on the Releases page, then publish it with `gh release edit vx.y.z --draft=false --latest`.
+8. Download an installer from the published release and check it with `gh attestation verify`. With a notarized macOS build or on Windows or Linux, also check that an installed older version finds the update.
+
+Changes to `electron/`, native modules, packaging/updater configuration, or Electron itself call for a hands-on pass on each OS (step 4) before tagging. Other changes rely on the deterministic suite, the per-OS build and boot smoke in CI, and the release jobs' packaged-app checks.
