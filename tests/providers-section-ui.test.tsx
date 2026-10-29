@@ -9,6 +9,8 @@ import { SettingsDialogBody } from "../components/settings/settings-dialog.tsx";
 import { KeysSection } from "../components/settings/keys-section.tsx";
 import { AnimationRenderer } from "../components/settings/animation-renderer.tsx";
 import { WorkIqConnection } from "../components/settings/workiq-connection.tsx";
+import { StorageSection } from "../components/settings/storage-section.tsx";
+import type { StorageStatus, StorageSwitchRequest } from "../src/core/storage.ts";
 
 const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { window: dom.window, document: dom.document, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true, localStorage: { getItem: () => null, setItem() {} } });
@@ -27,7 +29,7 @@ afterEach(async () => {
 test("Providers is the first/default page; General is last and other pages keep relative order", () => {
 	const html = renderToStaticMarkup(<SettingsDialogBody onClose={() => {}} />);
 	const ids = [...html.matchAll(/data-testid="settings-nav-([^"]+)"/g)].map((m) => m[1]);
-	assert.deepEqual(ids, ["keys", "agent", "appearance", "graph", "keyboard", "general"]);
+	assert.deepEqual(ids, ["keys", "agent", "appearance", "graph", "keyboard", "storage", "general"]);
 	assert.match(html, /settings-nav-keys[^>]*aria-current="true"/);
 	assert.match(html, />Providers<\/button>/);
 });
@@ -128,4 +130,47 @@ test("Work IQ: Test connection asks once at a time and shows why it failed, then
 	assert.deepEqual(calls, ["POST /api/workiq", "POST /api/workiq"]);
 	assert.equal(byTest("workiq-status").textContent, "Connected");
 	assert.equal(document.querySelector('[data-testid="workiq-error"]'), null);
+});
+
+test("Storage: keeping the library in OneDrive asks before using the one already there, then follows it", async () => {
+	const drive = { root: "C:\\Users\\me\\OneDrive - Contoso", label: "OneDrive - Contoso", library: "C:\\Users\\me\\OneDrive - Contoso\\Apps\\Cairn" };
+	const status = (kind: "local" | "onedrive", chats: number): StorageStatus => ({
+		library: { root: kind === "local" ? "C:\\cairn\\data" : drive.library, kind, available: true, chats, files: 0, updatedAt: null },
+		local: "C:\\cairn\\data",
+		onedrive: drive,
+		last: null,
+	});
+	const calls: string[] = [];
+	globalThis.fetch = async (url, init) => {
+		calls.push(`${init?.method ?? "GET"} ${String(url)}${init?.body ? ` ${String(init.body)}` : ""}`);
+		if (init?.method !== "PUT") return Response.json(status("local", 3));
+		const request = JSON.parse(String(init.body)) as StorageSwitchRequest;
+		if (request.existing === "use") return Response.json({ ok: true, status: status("onedrive", 5) });
+		const target = { root: drive.library, chats: 5, files: 9, updatedAt: null };
+		return Response.json({ ok: false, code: "library_exists", message: "There's already a Cairn library there.", target }, { status: 409 });
+	};
+	let moved = 0;
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () => root!.render(<StorageSection onMoved={() => moved++} />));
+	await act(async () => {});
+	assert.equal(byTest("storage-place").textContent, "This computer · 3 chats");
+	const click = (id: string) =>
+		act(async () => {
+			byTest(id).dispatchEvent(new dom.window.Event("click", { bubbles: true, cancelable: true }));
+		});
+
+	await click("toggle-keep-my-library-in-onedrive");
+	await act(async () => {});
+	assert.equal(byTest("storage-conflict").querySelector("p")!.textContent, "OneDrive - Contoso already has a Cairn library (5 chats).");
+	assert.equal(moved, 0, "nothing moved yet");
+	assert.equal(byTest("toggle-keep-my-library-in-onedrive").hasAttribute("disabled"), true, "the question is answered first");
+
+	await click("storage-use-existing");
+	await act(async () => {});
+	assert.deepEqual(calls, ["GET /api/storage", 'PUT /api/storage {"location":"onedrive"}', 'PUT /api/storage {"location":"onedrive","existing":"use"}']);
+	assert.equal(moved, 1, "the app reloads onto the new library");
+	assert.equal(byTest("storage-place").textContent, "OneDrive - Contoso · 5 chats");
+	assert.equal(document.querySelector('[data-testid="storage-conflict"]'), null);
 });

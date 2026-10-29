@@ -30,6 +30,11 @@ export interface JobRecord {
 	status: JobStatus;
 	/** Latest human-readable activity line, e.g. `web_search: "sigma.js v3"`. */
 	activity: string;
+	/** The install that ran it (config.ts deviceId). A synced library
+	 *  carries every device's jobs; stale-job recovery leaves another
+	 *  device's alone while it may still be running there. Absent on jobs
+	 *  from before the OneDrive wave (2026-10-27): those are this device's. */
+	device?: string;
 	createdAt: string;
 	updatedAt: string;
 	/** The sub-agent's result (steer-artifact payload). */

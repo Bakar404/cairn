@@ -48,6 +48,11 @@ export function isJobLive(jobId: string): boolean {
 	return registry().has(jobId);
 }
 
+/** How many job loops this process is executing (the library-move guard). */
+export function liveJobCount(): number {
+	return registry().size;
+}
+
 /** Abort a running job's loop. Returns false when no controller is live —
  * the job's loop is not executing. The endpoint separately refuses abort
  * for a finished worker, even while its session delivery remains pending. */

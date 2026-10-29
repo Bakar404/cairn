@@ -90,7 +90,12 @@ Notes:
 
 ## Your data
 
-- Chats, the knowledge graph and settings stay on your machine as plain files you can inspect.
+- Chats, the knowledge graph and settings stay on your machine as plain files you can inspect, unless you keep your library in OneDrive.
+- **Keep my library in OneDrive** (**Settings → Storage**) moves your library (your chats, knowledge graph, animations and background-job records) into an `Apps\Cairn` folder in your work OneDrive, and the OneDrive client syncs it to your other computers. Cairn reads and writes plain files there and never contacts OneDrive itself, so your organization's OneDrive policies apply. Only a work or school OneDrive is offered. Without one signed in on this computer, or on Linux, which has no OneDrive client, the option is unavailable.
+  - Sign-in, settings and Copilot state stay on each computer.
+  - Use Cairn on one computer at a time, because two at once can overwrite each other's changes.
+  - Switching never deletes anything. The copy Cairn stops using is kept in a `library-backups` folder beside it.
+  - With OneDrive Files On-Demand, chats from your other computers download when you open them. To keep them offline, right-click the Cairn folder in OneDrive and choose **Always keep on this device**.
 - Model requests go to GitHub Copilot under your account and your organization's Copilot policies.
 - Your GitHub sign-in stays in your system keychain, kept by the GitHub Copilot runtime. Cairn stores no GitHub credentials.
 - Research queries go to GitHub Copilot's web search, which GitHub runs on Bing. With the planned Azure voice, speech goes to your own Azure Speech resource.

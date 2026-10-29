@@ -50,6 +50,7 @@ import { KeysSection } from "./keys-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
+import { REOPEN_SETTINGS_KEY, StorageSection } from "./storage-section.tsx";
 
 /** Owner (2026-09-20): hints earn their place — mechanics-explaining
  *  prose is out; only the keyboard note stays (storage location is a
@@ -60,6 +61,7 @@ const SECTIONS = [
 	{ id: "appearance", label: "Appearance" },
 	{ id: "graph", label: "Graph" },
 	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
+	{ id: "storage", label: "Storage" },
 	{ id: "general", label: "General" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -87,6 +89,18 @@ export function SettingsDialogProvider({
 		setShow(true);
 	}, []);
 	useEffect(() => window.lh?.onOpenSettings?.((section) => open(section)), [open]);
+	// Settings › Storage reloads the app after a move; land back on it.
+	useEffect(() => {
+		let section: string | null = null;
+		try {
+			if (typeof sessionStorage === "undefined") return;
+			section = sessionStorage.getItem(REOPEN_SETTINGS_KEY);
+			if (section) sessionStorage.removeItem(REOPEN_SETTINGS_KEY);
+		} catch {
+			return;
+		}
+		if (section && SECTIONS.some((s) => s.id === section)) open(section);
+	}, [open]);
 	return (
 		<DialogContext.Provider value={{ open }}>
 			{children}
@@ -425,6 +439,11 @@ export function SettingsDialogBody({
 									testid="section-keyboard"
 								>
 									<KeyboardSection />
+								</SettingsSection>
+							)}
+							{active === "storage" && (
+								<SettingsSection title="Storage" testid="section-storage">
+									<StorageSection />
 								</SettingsSection>
 							)}
 						</div>

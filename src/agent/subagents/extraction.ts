@@ -688,6 +688,12 @@ export function extractionStatuses(): RunningExtraction[] {
 	return [...runs().running.values()].sort((a, b) => a.startedAt - b.startedAt);
 }
 
+/** True while any extraction is running or claimed (the library-move guard). */
+export function extractionBusy(): boolean {
+	const r = runs();
+	return r.running.size > 0 || r.inFlight.size > 0;
+}
+
 /** True cancellation of the in-flight run for a chat (the dock's abort
  *  button): the pending model call receives the signal — the provider
  *  cancels the request, spend stops — and the run ends like a failure:

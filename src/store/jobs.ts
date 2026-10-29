@@ -1,6 +1,6 @@
 /**
  * JobStore — the fs JSON adapter: one file per background sub-agent job in
- * data/jobs/ (contracts.ts "THE ASYNC PROTOCOL"). Keyed by toolCallId for
+ * the library's jobs/ (contracts.ts "THE ASYNC PROTOCOL"). Keyed by toolCallId for
  * dedup: the chat-handler spawn hook never creates two jobs for the same
  * tool part. Implements core/ports.ts JobStore. Idioms: sync fs, id-guarded
  * filenames, JSON with tab indentation. Writes are small and rare (activity
@@ -10,18 +10,16 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { PATHS } from "../../config.ts";
+import { deviceId, PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { JobStore } from "../core/ports.ts";
 import type { CreateJobInit, JobPatch } from "../core/ports.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
-/** Background jobs (data/jobs). Not in config.ts PATHS (orchestrator-owned). */
-const JOBS_DIR = path.join(PATHS.data, "jobs");
-
+/** PATHS.jobs is read per call: the library can move (Settings › Storage). */
 function jobFile(id: string): string {
 	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid job id: ${id}`);
-	return path.join(JOBS_DIR, `${id}.json`);
+	return path.join(PATHS.jobs, `${id}.json`);
 }
 
 /** Writes announce on the events channel AFTER the write lands (the
@@ -38,10 +36,11 @@ function createJob(init: CreateJobInit): JobRecord {
 		...(init.input !== undefined ? { input: init.input } : {}),
 		status: "running",
 		activity: init.activity ?? "starting",
+		device: deviceId(),
 		createdAt: now,
 		updatedAt: now,
 	};
-	fs.mkdirSync(JOBS_DIR, { recursive: true });
+	fs.mkdirSync(PATHS.jobs, { recursive: true });
 	fs.writeFileSync(jobFile(record.id), JSON.stringify(record, null, "\t"), "utf-8");
 	emit("jobs-changed", { chatId: init.chatId });
 	return record;
@@ -73,9 +72,10 @@ function updateJob(id: string, patch: JobPatch): JobRecord | null {
 /** All jobs for a chat, newest activity first. */
 function listJobs(chatId: string): JobRecord[] {
 	try {
-		fs.mkdirSync(JOBS_DIR, { recursive: true });
+		const dir = PATHS.jobs;
+		fs.mkdirSync(dir, { recursive: true });
 		return fs
-			.readdirSync(JOBS_DIR)
+			.readdirSync(dir)
 			.filter((f) => f.endsWith(".json"))
 			.map((f) => getJob(f.slice(0, -5)))
 			.filter((j): j is JobRecord => j !== null && j.chatId === chatId)

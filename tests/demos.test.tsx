@@ -97,7 +97,7 @@ import { artifactRenderers } from "../components/artifacts/index.ts";
 
 
 
-const JOBS_DIR = path.join(PATHS.data, "jobs");
+const JOBS_DIR = PATHS.jobs;
 const createdChats: string[] = [];
 const createdJobs: string[] = [];
 

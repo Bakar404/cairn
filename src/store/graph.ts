@@ -20,7 +20,7 @@
  * build is deleted once, here, at adapter load (same doctrine as the
  * events-ledger purge below).
  *
- * Plus config.SOURCES_FILE (sources.json): the imported-notes bookkeeping
+ * Plus config.GRAPH_FILES.sources (sources.json): the imported-notes bookkeeping
  * (NOT a ledger) — one JSON map, src-id → NotesSource, read-modify-write
  * like a chat file. The format-agnostic front door (2026-09-13).
  *
@@ -34,7 +34,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { LEDGER_FILES, POSITIONS_FILE, SOURCES_FILE } from "../../config.ts";
+import { GRAPH_FILES, LEDGER_FILES } from "../../config.ts";
 import { assertGraphFormat, ensureGraphFormat } from "./graph-format.ts";
 import type {
 	GraphChain,
@@ -162,7 +162,7 @@ export const graphStore: GraphStore = {
 		return readValid(LEDGER_FILES.coverage, isCoverageEntry);
 	},
 
-	// ── imported-notes bookkeeping (config.SOURCES_FILE — a JSON map) ──
+	// ── imported-notes bookkeeping (config.GRAPH_FILES.sources — a JSON map) ──
 
 	/** Upsert: keeps the existing record's usage log when re-importing. */
 	upsertSource(source: NotesSource): void {
@@ -185,7 +185,7 @@ export const graphStore: GraphStore = {
 		writeSourceMap(all);
 	},
 
-	// ── the layout ledger (config.POSITIONS_FILE — a JSON map) ──
+	// ── the layout ledger (config.GRAPH_FILES.positions — a JSON map) ──
 	readPositions(): Record<string, Position> {
 		return readPositionMap();
 	},
@@ -241,7 +241,7 @@ export const graphStore: GraphStore = {
 function readPositionMap(): Record<string, Position> {
 	let raw: string;
 	try {
-		raw = fs.readFileSync(POSITIONS_FILE, "utf-8");
+		raw = fs.readFileSync(GRAPH_FILES.positions, "utf-8");
 	} catch {
 		return {}; // no ledger yet — nothing has ever settled
 	}
@@ -259,14 +259,14 @@ function readPositionMap(): Record<string, Position> {
 }
 
 function writePositionMap(positions: Record<string, Position>): void {
-	fs.mkdirSync(path.dirname(POSITIONS_FILE), { recursive: true });
+	fs.mkdirSync(path.dirname(GRAPH_FILES.positions), { recursive: true });
 	// Tmp + rename — the same crash-safety rewriteLedgers uses two blocks
 	// up (a9339b3 UI flag): a torn write must never replace the ledger
 	// with a half-written file the reader parses as empty.
-	const tmp = `${POSITIONS_FILE}.tmp-${crypto.randomUUID().slice(0, 8)}`;
+	const tmp = `${GRAPH_FILES.positions}.tmp-${crypto.randomUUID().slice(0, 8)}`;
 	try {
 		fs.writeFileSync(tmp, JSON.stringify({ positions, updatedAt: new Date().toISOString() }, null, "\t"), "utf-8");
-		fs.renameSync(tmp, POSITIONS_FILE);
+		fs.renameSync(tmp, GRAPH_FILES.positions);
 	} catch (err) {
 		try {
 			fs.unlinkSync(tmp);
@@ -286,7 +286,7 @@ function readSourceMap(): Record<string, NotesSource> {
 	assertGraphFormat(); // honest refusal on a newer-stamped data dir
 	let raw: string;
 	try {
-		raw = fs.readFileSync(SOURCES_FILE, "utf-8");
+		raw = fs.readFileSync(GRAPH_FILES.sources, "utf-8");
 	} catch {
 		return {};
 	}
@@ -304,9 +304,9 @@ function readSourceMap(): Record<string, NotesSource> {
 }
 
 function writeSourceMap(map: Record<string, NotesSource>): void {
-	fs.mkdirSync(path.dirname(SOURCES_FILE), { recursive: true });
+	fs.mkdirSync(path.dirname(GRAPH_FILES.sources), { recursive: true });
 	ensureGraphFormat(); // the lazy format stamp (graph-format.ts)
-	fs.writeFileSync(SOURCES_FILE, JSON.stringify(map, null, "\t"), "utf-8");
+	fs.writeFileSync(GRAPH_FILES.sources, JSON.stringify(map, null, "\t"), "utf-8");
 }
 
 // ─── one-way purges at adapter load: dead ledgers are exactly the confusion
