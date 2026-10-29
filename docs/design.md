@@ -7,6 +7,12 @@ figures). References: open-design's craft rules (anti-AI-slop, color,
 typography) and the figure grammar of the claude.dev post "Automating eval
 design and hillclimbing".
 
+Palette revised the same day (owner: "more interesting and stylish …
+simple and intuitive", and the top-left logo must adapt in light mode):
+**Ink & Paper** replaced the first wave's warm stone and clay. The clay
+accent sat between the semantic red and amber, so the main action read
+like a warning; cobalt reads only as "act".
+
 **One law: the app and everything it generates draw from ONE palette.**
 Components use tokens; Mermaid, the graph canvas, demos, SVG visuals,
 Manim renders, and code highlighting all resolve the same names, in both
@@ -17,30 +23,40 @@ modes.
 | Where | What | Who reads it |
 |---|---|---|
 | `app/globals.css` | The live tokens: light on `:root`, dark on `.dark` | Every component (Tailwind token utilities) |
-| `src/core/palette.ts` | The same values as data (`PALETTE`) | Generator prompts, the demo kit, the figure palette, the code themes, the theme-color meta, the Electron title bar |
+| `src/core/palette.ts` | The same values as data (`PALETTE`) | Generator prompts, the demo kit, the figure palette, the code themes, the theme-color meta, the Electron title bar (mirrored in `electron/main.cjs`) |
 | `components/theme-tokens.ts` | `livePalette(scheme)`: the tokens as `<html>` resolves them now | Browser painters (graph canvas, Mermaid), so a custom background still applies |
 | `tests/palette.test.ts` | Fails when the CSS and the table drift, or a contrast floor breaks | CI |
 
 ## Palette
 
-Warm stone neutrals (OKLCH hue ≈ 80, chroma ≤ 0.014), one clay accent,
-quiet semantic colors, and six muted data hues. Never pure black or white.
+Ink & paper: cream paper (OKLCH hue ≈ 85, chroma ≤ 0.016) under navy ink
+in light; dark turns it over — midnight navy (hue ≈ 262, chroma ≤ 0.031)
+under cream ink. One cobalt accent, far from the semantic green, amber,
+and red; quiet semantic colors; six even data hues. Never pure black or
+white.
 
 | Token | Light | Dark | Role |
 |---|---|---|---|
-| `--background` | `#f8f5f1` | `#131210` | The page |
-| `--card` / `--popover` | `#fcfbf9` | `#191816` | Raised paper; figure paper |
-| `--muted` / `--secondary` | `#f0ece7` | `#201e1b` | Quiet fills |
-| `--accent` | `#eae7e1` | `#262421` | Neutral hover wash — **not** a highlight |
-| `--border` | `#e0dcd5` | `#33302c` | Hairlines |
-| `--input` | `#d6d2cb` | `#3d3a35` | Control outlines |
-| `--ring` | `#918b83` | `#8a857e` | Neutral rings, diagram lines |
-| `--foreground` / `--primary` | `#211e19` | `#e9e6e0` | Ink; buttons default to ink |
-| `--muted-foreground` | `#69645c` | `#9f9b93` | Secondary text, axes, ticks |
-| `--brand` | `#ab532f` | `#db8862` | THE accent (clay): focal marks and the one send/answer action |
-| `--success` / `--warning` / `--danger` | `#3f7849` `#946523` `#af3c3a` | `#87c28f` `#e3ba74` `#e7827b` | Right / borderline / wrong |
-| `--viz-1` … `--viz-6` | `#b76849` `#5377a0` `#668c5e` `#936188` `#ac853f` `#428787` | `#d58966` `#7fa2c9` `#8ab181` `#bc8db1` `#d9b572` `#76b5b4` | Data series, in this order |
-| `--viz-muted` | `#8f8c85` | `#78746e` | De-emphasized data |
+| `--background` | `#f9f5ed` | `#0c121d` | The page |
+| `--card` / `--popover` | `#fdfbf7` | `#111825` | Raised paper; figure paper |
+| `--muted` / `--secondary` | `#f2ece1` | `#171e2d` | Quiet fills |
+| `--accent` | `#ece7dc` | `#1c2433` | Neutral hover wash — **not** a highlight |
+| `--border` | `#e1dcd1` | `#283140` | Hairlines |
+| `--input` | `#d7d2c7` | `#323b4a` | Control outlines |
+| `--ring` | `#848c9c` | `#7a8798` | Neutral rings, diagram lines |
+| `--foreground` / `--primary` | `#132243` | `#efe7d8` | Ink; buttons default to ink |
+| `--muted-foreground` | `#5e6a82` | `#9aa6b5` | Secondary text, axes, ticks |
+| `--brand` | `#2d62e7` | `#71b1fe` | THE accent (cobalt): focal marks and the one send/answer action |
+| `--success` / `--warning` / `--danger` | `#217f40` `#9c6200` `#c5403f` | `#7fd091` `#f4c26a` `#f3817c` | Right / borderline / wrong |
+| `--viz-1` … `--viz-6` | `#408ad8` `#cc6e32` `#359953` `#af6ec3` `#a58300` `#009698` | `#74b2f8` `#f2925b` `#73c385` `#ce95df` `#cfa936` `#2bc5c7` | Data series, in this order: blue, orange, green, plum, gold, teal |
+| `--viz-muted` | `#8d929c` | `#6e757f` | De-emphasized data |
+
+The data hues share one lightness and chroma per mode (OKLCH L ≈ 0.62,
+C ≈ 0.14 on paper — gold and teal less, at the sRGB edge; L 0.75, C 0.12
+at night), so no series shouts. Blue opens the order as the brand's
+neighbour and orange, its complement, follows: a chart's first two series
+are its most distinct. At night orange and gold carry C ≈ 0.135 — on the
+navy page their faint graph washes would otherwise read grey.
 
 Derived in CSS (one formula for both modes): `--brand-soft`,
 `--success-soft`, `--warning-soft`, `--danger-soft` (12–14% tints) and
@@ -68,6 +84,15 @@ Derived in CSS (one formula for both modes): `--brand-soft`,
   (`text-emerald-500`, `bg-zinc-900`) or hex. Accepted exceptions: the
   modal scrim (`bg-black/50`), the shadcn destructive button's white
   label, and a legacy demo's white ground (see Demos).
+
+### The mark
+
+The sidebar logo (`components/lh-mark.tsx`, the owner's three stones) is
+drawn in the ink, never in fixed greys: the top stone is `--foreground`
+and the two below are mixed 82% and 58% toward `--background` (the
+owner's white / 208 / 148 ramp). It turns over with the mode — cream
+stones at night, navy on paper — and follows a custom background or ink.
+It never takes the accent.
 
 ### Contrast floors (tested, both modes)
 
@@ -157,13 +182,13 @@ GitHub's light and dark themes.
 
 - Mostly ink. Punctuation and operators sit halfway to muted; comments
   are muted.
-- Token classes take data hues: keywords plum (`--viz-4`), strings sage
-  (`--viz-3`), numbers and constants ochre (`--viz-5`), functions and keys
-  slate (`--viz-2`), types teal (`--viz-6`), tags and regexes terracotta
-  (`--viz-1`). Diffs use success, danger, and warning.
+- Token classes take data hues: keywords plum (`--viz-4`), strings green
+  (`--viz-3`), numbers and constants gold (`--viz-5`), functions and keys
+  blue (`--viz-1`), types teal (`--viz-6`), tags and regexes orange
+  (`--viz-2`). Diffs use success, danger, and warning.
 - Each hue moves toward the ink only until it clears 4.5:1 on the code
   surface (`readableOn`); in dark mode the hues already clear it.
-- No brand clay in code. The theme background is transparent:
+- No brand cobalt in code. The theme background is transparent:
   `--code-surface` paints the block.
 
 ### Demos — the house kit (`src/core/demo-house.ts`)
@@ -204,12 +229,12 @@ Six roles, taken from the app palette:
 
 | Role | App token | Light | Dark | Legacy (pre-wave) |
 |---|---|---|---|---|
-| paper | `--card` | `#fcfbf9` | `#191816` | `#ffffff` |
-| ink | `--foreground` | `#211e19` | `#e9e6e0` | `#1f1f1f` |
-| muted | `--muted-foreground` | `#69645c` | `#9f9b93` | `#6b6b6b` |
-| faint | `--border` | `#e0dcd5` | `#33302c` | `#d9d9d9` |
-| accent | `--brand` | `#ab532f` | `#db8862` | `#2563eb` |
-| accent2 | `--viz-2` | `#5377a0` | `#7fa2c9` | `#ea580c` |
+| paper | `--card` | `#fdfbf7` | `#111825` | `#ffffff` |
+| ink | `--foreground` | `#132243` | `#efe7d8` | `#1f1f1f` |
+| muted | `--muted-foreground` | `#5e6a82` | `#9aa6b5` | `#6b6b6b` |
+| faint | `--border` | `#e1dcd1` | `#283140` | `#d9d9d9` |
+| accent | `--brand` | `#2d62e7` | `#71b1fe` | `#2563eb` |
+| accent2 | `--viz-2` | `#cc6e32` | `#f2925b` | `#ea580c` |
 
 Generators always draw with the **light** set — the visual maker's SVG
 prompt, the animation maker's prompt, and the Manim `cairn_style` module
@@ -219,19 +244,20 @@ cannot change after it renders; an SVG can.
 The display law (`components/artifacts/figure-image.tsx`):
 
 - **A themable SVG** — every color is a figure color (house light or dark,
-  the legacy set, white/black) or a pure grey — is re-colored by role
-  (`themeFigureSvg`). The card renders BOTH variants and CSS (`dark:`)
-  shows the right one: correct on the server render, no re-render on a
-  flip. It sits on `bg-card` with no invert switch. Under a custom
-  background, the current scheme's variant is rebuilt from the live
-  palette.
+  the warm-stone or legacy set, white/black) or a pure grey — is
+  re-colored by role (`themeFigureSvg`). The card renders BOTH variants
+  and CSS (`dark:`) shows the right one: correct on the server render, no
+  re-render on a flip. It sits on `bg-card` with no invert switch. Under a
+  custom background, the current scheme's variant is rebuilt from the
+  live palette.
 - **Anything else** — an off-palette or functional color (`rgb()`,
   `hsl()`, named hues), `<image>`, `foreignObject`, script, color
   animation — plus PNG stills and MP4 animations, shows on light paper
   (`FIGURE.light.paper`) with the manual invert switch.
 - **Downloads** always ship the original bytes.
-- Figures drawn with the legacy palette theme by role too, so older
-  lessons join the house look. Older Manim renders keep their white paper.
+- Figures drawn with the legacy palette or the first wave's warm-stone set
+  (`STONE_FIGURE`) theme by role too, so older lessons join the house
+  look. Older Manim renders keep their white paper.
 
 ## Anti-slop rules
 
@@ -258,4 +284,8 @@ For the app UI and every generated artifact (adapted from open-design):
    restyles every kit demo on its next render.
 3. Figures already drawn with the previous figure colors stop being
    themable (they fall back to paper and invert) unless the previous set
-   joins the role map in `figure-theme.ts`, the way `LEGACY_FIGURE` does.
+   joins the role map in `figure-theme.ts`, the way `LEGACY_FIGURE` and
+   `STONE_FIGURE` do.
+4. `electron/main.cjs` mirrors the page and ink of both schemes for the
+   native window (resize backing, Windows/Linux caption overlay); update
+   it and `tests/desktop-platform.test.ts` by hand.

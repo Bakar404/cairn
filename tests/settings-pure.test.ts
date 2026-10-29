@@ -43,30 +43,30 @@ describe("resolveAppearance — delta over factory", () => {
 
 describe("derivedPalette — per-mode curves track the factory palettes", () => {
 	it("dark: every surface lifts off the page (the factory dark relationships)", () => {
-		assert.deepEqual(derivedPalette("#131210"), {
-			"--background": "#131210",
-			"--card": "#191816",
-			"--popover": "#191816",
-			"--secondary": "#201f1d",
-			"--muted": "#201f1d",
-			"--accent": "#262523",
-			"--border": "#333230",
-			"--input": "#3d3c3a",
-			"--primary-foreground": "#131210",
+		assert.deepEqual(derivedPalette("#0c121d"), {
+			"--background": "#0c121d",
+			"--card": "#121823",
+			"--popover": "#121823",
+			"--secondary": "#191f2a",
+			"--muted": "#191f2a",
+			"--accent": "#1f2530",
+			"--border": "#2c323d",
+			"--input": "#363c47",
+			"--primary-foreground": "#0c121d",
 		});
 	});
 
 	it("light: paper rises, hover and edges sink into the page", () => {
-		assert.deepEqual(derivedPalette("#f8f5f1", "light"), {
-			"--background": "#f8f5f1",
-			"--card": "#fcf9f5",
-			"--popover": "#fcf9f5",
-			"--secondary": "#f0ede9",
-			"--muted": "#f0ede9",
-			"--accent": "#eae7e3",
-			"--border": "#e0ddd9",
-			"--input": "#d6d3cf",
-			"--primary-foreground": "#f8f5f1",
+		assert.deepEqual(derivedPalette("#f9f5ed", "light"), {
+			"--background": "#f9f5ed",
+			"--card": "#fdf9f1",
+			"--popover": "#fdf9f1",
+			"--secondary": "#f1ede5",
+			"--muted": "#f1ede5",
+			"--accent": "#ebe7df",
+			"--border": "#e1ddd5",
+			"--input": "#d7d3cb",
+			"--primary-foreground": "#f9f5ed",
 		});
 	});
 
@@ -82,9 +82,9 @@ describe("derivedPalette — per-mode curves track the factory palettes", () => 
 
 describe("backgroundScheme — a custom background belongs to one mode", () => {
 	it("classifies by luminance", () => {
-		assert.equal(backgroundScheme("#131210"), "dark");
+		assert.equal(backgroundScheme("#0c121d"), "dark");
 		assert.equal(backgroundScheme("#1a1a2e"), "dark");
-		assert.equal(backgroundScheme("#f8f5f1"), "light");
+		assert.equal(backgroundScheme("#f9f5ed"), "light");
 		assert.equal(backgroundScheme("#fff"), "light");
 	});
 });

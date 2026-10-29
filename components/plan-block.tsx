@@ -441,7 +441,7 @@ export function edgePathD(
 // The simple look (owner, plan-graph round 4): rectangular boxes, ink
 // outlines/arrows/text (white in dark mode, the dark ink in light); no fill
 // on visited, today's gray look on upcoming, and the current node carries a
-// faint clay glow (a blurred brand fill bleeding over the edges — the
+// faint brand glow (a blurred brand fill bleeding over the edges — the
 // design wave's one accent; yellow vanished on the light page). The
 // IN-CHAT block is monochrome ink instead — no status language; the
 // popup/window show the progression.
@@ -636,7 +636,7 @@ export function PlanDiagram({
 							strokeWidth={STROKE_W}
 						/>
 						{glow && (
-							// The current node's highlight: faint clay, blurred so it
+							// The current node's highlight: faint brand, blurred so it
 							// bleeds over the edges — static, no pulse (owner, round 6).
 							// Paints ABOVE the box fill (owner, round 10): the round-9
 							// background fill no longer dims the glow inside the box,

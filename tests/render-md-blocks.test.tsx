@@ -183,8 +183,8 @@ describe("md-blocks — key-idea callouts (GitHub alerts, owner round 2026-10-07
 		assert.match(html, /ALL X is done through Y\./, "the prose survives");
 		assert.ok(!html.includes("[!IMPORTANT]"), "the marker line never leaks as text");
 		// The owner's minimal law: sharp corners (no rounded), one thin stroke
-		// (clay since the design wave), no background, no label, no icon — and the box hugs its text.
-		assert.match(html, /border-brand\/70/, "the clay stroke");
+		// (the brand accent since the design wave), no background, no label, no icon — and the box hugs its text.
+		assert.match(html, /border-brand\/70/, "the brand stroke");
 		assert.match(html, /w-fit/, "width: fit-content — the hug");
 		assert.ok(!html.includes("rounded"), "sharp corners — no rounding anywhere");
 		assert.ok(!html.includes("bg-card") && !html.includes("bg-background"), "transparent — no background");

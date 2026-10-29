@@ -63,7 +63,7 @@ function shift(hex: string, add: number): string {
 }
 /** Per-mode derivation curves (design wave): additive channel offsets that
  *  track the factory palettes in app/globals.css. Dark lifts every surface
- *  off the page (#131210 → card #191816); light puts paper UP (+4) and
+ *  off the page (#0c121d → card #121823); light puts paper UP (+4) and
  *  hover/edges DOWN into the page. */
 const CURVES: Readonly<Record<ColorScheme, { card: number; muted: number; accent: number; border: number; input: number }>> = {
 	dark: { card: 6, muted: 13, accent: 19, border: 32, input: 42 },

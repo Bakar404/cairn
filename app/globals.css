@@ -33,50 +33,56 @@
    mode lives in settings and the boot script in app/layout.tsx sets the
    class before first paint.
 
-   - Neutrals: warm stone (OKLCH hue 80, chroma <= 0.014) — page, raised
-     paper, hover, hairlines, three inks. They carry ~90% of every screen.
-   - One accent, --brand (clay): focal marks and the screen's one
+   - Neutrals: ink & paper. Light is cream paper (OKLCH hue 85, chroma
+     <= 0.016) under navy ink (hue 264); dark turns it over — midnight
+     navy (hue 262, chroma <= 0.031) under cream ink. Page, raised paper,
+     hover, hairlines, three inks: ~90% of every screen.
+   - One accent, --brand (cobalt): focal marks and the screen's one
      send/answer action (Button variant="brand") — the active choice,
      link underlines, a chart's focal series. Never decoration; at most
-     two uses per screen.
+     two uses per screen. Blue sits far from the semantic green / amber /
+     red, so "act" never reads as a state.
    - Semantic: --success / --warning / --danger, as text + soft tints.
-   - Data: --viz-1..6 (+ --viz-muted) — muted hues in a FIXED order for
-     charts, graph regions, diagrams, and demos.
+   - Data: --viz-1..6 (+ --viz-muted) — hues in a FIXED order for charts,
+     graph regions, diagrams, and demos: blue (the brand's neighbour),
+     orange (its complement), green, plum, gold, teal. Dark gives orange
+     and gold a little more chroma: the navy page would grey their
+     low-alpha graph washes.
    Contrast (computed, both modes): inks >= 4.5:1 on page and card; the
    data colors >= 3:1 (graphical objects). */
 :root {
 	color-scheme: light;
 	--radius: 8px;
-	--background: #f8f5f1;
-	--foreground: #211e19;
-	--card: #fcfbf9;
-	--card-foreground: #211e19;
-	--popover: #fcfbf9;
-	--popover-foreground: #211e19;
-	--primary: #211e19;
-	--primary-foreground: #f8f5f1;
-	--secondary: #f0ece7;
-	--secondary-foreground: #211e19;
-	--muted: #f0ece7;
-	--muted-foreground: #69645c;
-	--accent: #eae7e1;
-	--accent-foreground: #211e19;
-	--border: #e0dcd5;
-	--input: #d6d2cb;
-	--ring: #918b83;
-	--brand: #ab532f;
-	--brand-foreground: #fcfbf9;
-	--success: #3f7849;
-	--warning: #946523;
-	--danger: #af3c3a;
+	--background: #f9f5ed;
+	--foreground: #132243;
+	--card: #fdfbf7;
+	--card-foreground: #132243;
+	--popover: #fdfbf7;
+	--popover-foreground: #132243;
+	--primary: #132243;
+	--primary-foreground: #f9f5ed;
+	--secondary: #f2ece1;
+	--secondary-foreground: #132243;
+	--muted: #f2ece1;
+	--muted-foreground: #5e6a82;
+	--accent: #ece7dc;
+	--accent-foreground: #132243;
+	--border: #e1dcd1;
+	--input: #d7d2c7;
+	--ring: #848c9c;
+	--brand: #2d62e7;
+	--brand-foreground: #fdfbf7;
+	--success: #217f40;
+	--warning: #9c6200;
+	--danger: #c5403f;
 	--destructive: var(--danger);
-	--viz-1: #b76849;
-	--viz-2: #5377a0;
-	--viz-3: #668c5e;
-	--viz-4: #936188;
-	--viz-5: #ac853f;
-	--viz-6: #428787;
-	--viz-muted: #8f8c85;
+	--viz-1: #408ad8;
+	--viz-2: #cc6e32;
+	--viz-3: #359953;
+	--viz-4: #af6ec3;
+	--viz-5: #a58300;
+	--viz-6: #009698;
+	--viz-muted: #8d929c;
 	/* Code sits a step INTO the page: darker than paper in both modes. */
 	--code-surface: color-mix(in oklab, var(--background) 95%, var(--foreground));
 	/* Soft tints: one formula, both modes (resolved against this element's
@@ -105,39 +111,39 @@
 	--lh-heading-weight: 900;
 }
 
-/* Dark: warm near-black stone. Same names, same roles; the derived tints
-   above re-resolve against these. */
+/* Dark: midnight navy under cream ink. Same names, same roles; the derived
+   tints above re-resolve against these. */
 .dark {
 	color-scheme: dark;
-	--background: #131210;
-	--foreground: #e9e6e0;
-	--card: #191816;
-	--card-foreground: #e9e6e0;
-	--popover: #191816;
-	--popover-foreground: #e9e6e0;
-	--primary: #e9e6e0;
-	--primary-foreground: #131210;
-	--secondary: #201e1b;
-	--secondary-foreground: #e9e6e0;
-	--muted: #201e1b;
-	--muted-foreground: #9f9b93;
-	--accent: #262421;
-	--accent-foreground: #e9e6e0;
-	--border: #33302c;
-	--input: #3d3a35;
-	--ring: #8a857e;
-	--brand: #db8862;
-	--brand-foreground: #131210;
-	--success: #87c28f;
-	--warning: #e3ba74;
-	--danger: #e7827b;
-	--viz-1: #d58966;
-	--viz-2: #7fa2c9;
-	--viz-3: #8ab181;
-	--viz-4: #bc8db1;
-	--viz-5: #d9b572;
-	--viz-6: #76b5b4;
-	--viz-muted: #78746e;
+	--background: #0c121d;
+	--foreground: #efe7d8;
+	--card: #111825;
+	--card-foreground: #efe7d8;
+	--popover: #111825;
+	--popover-foreground: #efe7d8;
+	--primary: #efe7d8;
+	--primary-foreground: #0c121d;
+	--secondary: #171e2d;
+	--secondary-foreground: #efe7d8;
+	--muted: #171e2d;
+	--muted-foreground: #9aa6b5;
+	--accent: #1c2433;
+	--accent-foreground: #efe7d8;
+	--border: #283140;
+	--input: #323b4a;
+	--ring: #7a8798;
+	--brand: #71b1fe;
+	--brand-foreground: #0c121d;
+	--success: #7fd091;
+	--warning: #f4c26a;
+	--danger: #f3817c;
+	--viz-1: #74b2f8;
+	--viz-2: #f2925b;
+	--viz-3: #73c385;
+	--viz-4: #ce95df;
+	--viz-5: #cfa936;
+	--viz-6: #2bc5c7;
+	--viz-muted: #6e757f;
 	--code-surface: color-mix(in oklab, var(--background) 86%, black);
 	--lh-ink-strong: var(--foreground);
 	--lh-ink-italic: var(--foreground);
@@ -278,7 +284,7 @@ body {
 	color: var(--lh-ink-italic);
 }
 
-/* Links: ink text, a clay underline — the accent marks the affordance
+/* Links: ink text, a brand (cobalt) underline — the accent marks the affordance
    without coloring whole sentences. */
 .lh-prose :where(a) {
 	text-decoration-color: color-mix(in oklab, var(--brand) 55%, transparent);

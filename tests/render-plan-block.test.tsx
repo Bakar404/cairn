@@ -227,7 +227,7 @@ describe("plan popup (live derivation)", () => {
 		assert.match(html, /data-testid="plan-node-a" data-status="visited"/);
 		assert.match(html, /data-testid="plan-node-b" data-status="current"/);
 		assert.match(html, /data-testid="plan-node-c" data-status="upcoming"/);
-		// The current node is the glow target: a faint clay fill, blurred
+		// The current node is the glow target: a faint brand fill, blurred
 		// so it bleeds over the edges — static, no pulse (owner, round 6).
 		assert.match(html, /fill-brand\/30/);
 		assert.match(html, /feGaussianBlur/);

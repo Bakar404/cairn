@@ -288,7 +288,7 @@ function createWindow(url) {
 				// height. Do not force the zoom-invariant native overlay to match
 				// the renderer's 60 CSS px bar: zooming out would cover its border.
 				// The renderer reserves the actual width via env(titlebar-area-*).
-				titleBarOverlay: { color: "#131210", symbolColor: "#e9e6e0" },
+				titleBarOverlay: { color: "#0c121d", symbolColor: "#efe7d8" },
 				// Keep the custom bar alone; Alt reveals the native menu.
 				autoHideMenuBar: true,
 			}),
@@ -302,11 +302,11 @@ function createWindow(url) {
 		// the native window surface changes size before Chromium's compositor
 		// has a frame at the new size, and the gap shows the window's NATIVE
 		// background — Electron's default is white, glaring on a dark app.
-		// The app background (#131210, dark factory) fills the lag instead;
+		// The app background (#0c121d, dark factory) fills the lag instead;
 		// the renderer's "lh:theme" IPC retints it when the mode flips. `show: false` +
 		// ready-to-show is the same treatment for first paint: the window
 		// appears only once the page has actually rendered.
-		backgroundColor: "#131210",
+		backgroundColor: "#0c121d",
 		show: false,
 		// Narrow-window behavior (owner, 2026-09-17): 640px is the floor —
 		// below it even a wrapped chrome row gets cramped and the chat header
@@ -688,8 +688,8 @@ async function main() {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win || !trustedAppWindows.has(win)) return;
 		const surface = scheme === "light"
-			? { color: "#f8f5f1", symbolColor: "#211e19" }
-			: { color: "#131210", symbolColor: "#e9e6e0" };
+			? { color: "#f9f5ed", symbolColor: "#132243" }
+			: { color: "#0c121d", symbolColor: "#efe7d8" };
 		win.setBackgroundColor(surface.color);
 		if (process.platform !== "darwin") win.setTitleBarOverlay(surface);
 	});

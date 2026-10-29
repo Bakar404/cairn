@@ -2,10 +2,10 @@
  * THE CODE PALETTE (design wave, docs/design.md): the two Shiki themes
  * every highlighted code block renders with (chat, reasoning), built from
  * the app palette so code reads as part of the page instead of GitHub's
- * blue/purple/red on warm stone. Mostly ink; five data hues carry the
+ * blue/purple/red on the house paper. Mostly ink; five data hues carry the
  * token classes, each moved toward the ink only as far as it takes to
  * clear AA on the code surface; diffs use the semantic colors. No brand
- * clay — syntax is data, not the accent. Streamdown paints both sets on
+ * cobalt — syntax is data, not the accent. Streamdown paints both sets on
  * every token and the .dark class picks one, so a mode flip needs no
  * re-highlight.
  */
@@ -45,7 +45,7 @@ export function codeTheme(scheme: ColorScheme, p: SchemePalette = PALETTE[scheme
 	// drops it.
 	const surfaces = [codeSurface(scheme, p), p.background, p.card];
 	const ink = (hex: string) => readableOn(hex, p.foreground, surfaces);
-	const [terracotta, slate, sage, plum, ochre, teal] = p.viz.map(ink) as [string, string, string, string, string, string];
+	const [blue, orange, green, plum, gold, teal] = p.viz.map(ink) as [string, string, string, string, string, string];
 	const comment = ink(p.mutedForeground);
 	const rule = (foreground: string | undefined, scope: string[], fontStyle?: string) => ({
 		scope,
@@ -67,14 +67,14 @@ export function codeTheme(scheme: ColorScheme, p: SchemePalette = PALETTE[scheme
 				"keyword.operator.logical.python", "keyword.operator.wordlike", "variable.language",
 				"punctuation.definition.template-expression",
 			]),
-			rule(sage, ["string", "punctuation.definition.string", "string.quoted", "string.template"]),
+			rule(green, ["string", "punctuation.definition.string", "string.quoted", "string.template"]),
 			rule(p.foreground, ["meta.template.expression", "variable.parameter", "variable.other"]),
-			rule(ochre, [
+			rule(gold, [
 				"constant.numeric", "constant.language", "constant.character", "constant.other",
 				"support.constant", "entity.other.attribute-name", "meta.decorator",
 				"entity.name.function.decorator", "punctuation.decorator",
 			]),
-			rule(slate, [
+			rule(blue, [
 				"entity.name.function", "support.function", "variable.function", "meta.function-call.generic",
 				"support.type.property-name", "meta.object-literal.key", "entity.name.tag.yaml",
 				"markup.underline.link", "string.other.link",
@@ -83,7 +83,7 @@ export function codeTheme(scheme: ColorScheme, p: SchemePalette = PALETTE[scheme
 				"entity.name.type", "entity.name.class", "entity.other.inherited-class", "entity.name.namespace",
 				"support.type", "support.class", "storage.type.primitive",
 			]),
-			rule(terracotta, ["entity.name.tag", "string.regexp", "markup.inline.raw"]),
+			rule(orange, ["entity.name.tag", "string.regexp", "markup.inline.raw"]),
 			rule(ink(p.success), ["markup.inserted", "punctuation.definition.inserted"]),
 			rule(ink(p.danger), ["markup.deleted", "punctuation.definition.deleted", "invalid", "invalid.illegal"]),
 			rule(ink(p.warning), ["markup.changed", "punctuation.definition.changed"]),

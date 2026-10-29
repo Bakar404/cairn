@@ -106,7 +106,7 @@ export function houseColors(
 	resolve: (css: string) => string | null = () => null,
 ): string {
 	const dark = scheme === "dark";
-	const hues = [p.danger, p.viz[0], p.warning, p.success, p.viz[5], p.viz[1], p.viz[3]].flatMap((hex) => {
+	const hues = [p.danger, p.viz[1], p.warning, p.success, p.viz[5], p.viz[0], p.viz[3]].flatMap((hex) => {
 		const rgb = parseColor(hex, () => null);
 		return rgb ? [{ hex, hue: hueOf(rgb).hue }] : [];
 	});

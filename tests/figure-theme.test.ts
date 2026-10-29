@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { FIGURE, LEGACY_FIGURE, themeFigureSvg, type FigurePalette } from "../src/core/figure-theme.ts";
+import { FIGURE, LEGACY_FIGURE, STONE_FIGURE, themeFigureSvg, type FigurePalette } from "../src/core/figure-theme.ts";
 
 const { light: L, dark: D } = FIGURE;
 const OPEN = 'xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"';
@@ -22,6 +22,13 @@ describe("themeFigureSvg", () => {
 	it("brings the legacy palette and white/black into the house palette, keeping quote style", () => {
 		const out = themeFigureSvg(svg(`<rect fill="#FFFFFF" stroke='${LEGACY_FIGURE.accent}'/><path fill="white" stroke="#000"/><path stroke=${LEGACY_FIGURE.accent2} fill="#FFF"/>`), L);
 		assert.equal(out, themed(`<rect fill="${L.paper}" stroke='${L.accent}'/><path fill="${L.paper}" stroke="${L.ink}"/><path stroke="${L.accent2}" fill="${L.paper}"/>`, L.ink));
+	});
+
+	it("re-colors figures drawn with the previous (warm-stone) house palette, both schemes", () => {
+		const body = (p: FigurePalette) =>
+			`<rect fill="${p.paper}"/><path stroke="${p.ink}"/><text fill="${p.muted}">a</text><line stroke="${p.faint}"/><circle fill="${p.accent}" stroke="${p.accent2}"/>`;
+		assert.equal(themeFigureSvg(svg(body(STONE_FIGURE.light)), D), themed(body(D), D.ink));
+		assert.equal(themeFigureSvg(svg(body(STONE_FIGURE.dark)), L), themed(body(L), L.ink));
 	});
 
 	it("keeps the relative depth of pure greys between the target's paper and ink", () => {

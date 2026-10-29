@@ -141,7 +141,7 @@ describe("mermaid — a chart's own colors snap to the house palette", () => {
 			assert.equal(out[4], `  classDef wrong fill:${tint(p.danger)},stroke:${p.danger},${ink}`);
 			assert.equal(out[5], `  classDef missing fill:${p.accent},stroke:${p.ring},${ink}`);
 			assert.equal(out[6], `  classDef untested fill:${p.card},stroke:${p.ring},stroke-dasharray:4 3,${ink}`);
-			assert.equal(out[7], `  classDef goal fill:${tint(p.viz[1])},stroke:${p.viz[1]},${ink}`);
+			assert.equal(out[7], `  classDef goal fill:${tint(p.viz[0])},stroke:${p.viz[0]},${ink}`);
 			assert.equal(out[8], "  classDef focus stroke-width:2px", "the theme draws focus in --brand");
 			assert.equal(out[9], `  style B fill:${tint(p.danger)}`, "rgb() read whole; an unreadable name dropped");
 			assert.equal(out[10], "  class A solid");
@@ -164,7 +164,7 @@ describe("mermaid — a chart's own colors snap to the house palette", () => {
 		const tint = (hex: string) => mixHex(p.card, hex, 0.2);
 		const seq = ["sequenceDiagram", "  rect rgb(191, 223, 255)", "  A->>B: hi", "  end", "  rect papayawhip", "  end"];
 		const out = houseColors(seq.join("\n"), p, "light", (css) => (css === "papayawhip" ? "#ffefd5" : null)).split("\n");
-		assert.equal(out[1], `  rect ${tint(p.viz[1])}`);
+		assert.equal(out[1], `  rect ${tint(p.viz[0])}`);
 		assert.equal(out[2], "  A->>B: hi");
 		assert.equal(out[4], `  rect ${tint(p.warning)}`);
 	});
