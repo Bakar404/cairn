@@ -14,7 +14,7 @@ import { ProblemCard, ConcludeCard } from "@/components/practice-cards";
  *
  * chat.tsx renders any tool part it doesn't specially handle (i.e. not
  * quiz/ask) by looking the tool name up here. Add your renderer — do NOT
- * edit chat.tsx (see docs/plan.md file-ownership rules).
+ * edit chat.tsx (see docs/archive/plan.md file-ownership rules).
  *
  * Typical shape: while the part is input-available render an activity card
  * (the chat view's jobs feed reads GET /api/jobs?chatId=…; on completion call

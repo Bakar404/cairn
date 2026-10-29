@@ -1,5 +1,9 @@
 # Build Plan v1 — from vision to system
 
+> **Historical build plan (2026-08-22), kept for reference.** It records how
+> LearnHarness was first built, wave by wave. For the system as it is now, see
+> [architecture.md](../architecture.md) and [development.md](../development.md).
+
 Execution plan for `docs/vision.md`. Section references (§) point into that document. Not exact — a dependency-ordered wave structure with verification gates. Written 2026-08-22.
 
 ## Execution model

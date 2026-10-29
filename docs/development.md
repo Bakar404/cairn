@@ -2,14 +2,14 @@
 
 The developer README (split out of the storefront README, 2026-10-10). Everything below is for people working ON Cairn, not using it.
 
-A standalone learning app (web + Electron desktop): a **teacher agent** (Next.js; the Vercel AI SDK's `UIMessage` protocol end-to-end, agent engine [pi](docs/pi-engine-swap.md), with every model call running on the user's GitHub Copilot subscription through the official GitHub Copilot SDK), probe→teach lessons with graded quiz/ask interactions, a formal **session plan tree** the teacher authors once (`plan_init`) and whose progress is derived from tagged quiz calls, and a persistent cross-session **knowledge graph** of what the learner knows — the graph is the app's home page.
+A standalone learning app (web + Electron desktop): a **teacher agent** (Next.js; the Vercel AI SDK's `UIMessage` protocol end-to-end, agent engine [pi](pi-engine-swap.md), with every model call running on the user's GitHub Copilot subscription through the official GitHub Copilot SDK), probe→teach lessons with graded quiz/ask interactions, a formal **session plan tree** the teacher authors once (`plan_init`) and whose progress is derived from tagged quiz calls, and a persistent cross-session **knowledge graph** of what the learner knows — the graph is the app's home page.
 
 Not a chat app with a graph bolted on: sessions are probe→teach lessons, the plan tree is a structured, schema-validated object, sessions accumulate into the graph through the extraction pipeline (propositions + reasoning chains — the stored truth; the canvas renders a derived image), and the teacher reaches back into the graph through read-only prober tools on its own judgment so probing compounds across sessions.
 
-- [`docs/architecture.md`](docs/architecture.md) is the **canonical architecture spec** — layers, the import law, the five systems, the invariants, the seam directory. (The pre-audit spec is archived under `docs/archive/` — history only.)
-- Living design doc (all decisions): [`docs/vision.md`](docs/vision.md)
-- Build plan + wave/gate results: [`docs/plan.md`](docs/plan.md)
-- Visual design system — the palette, light/dark/system modes, and how demos, diagrams, and figures follow them: [`docs/design.md`](docs/design.md)
+- [`docs/architecture.md`](architecture.md) is the **canonical architecture spec** — layers, the import law, the five systems, the invariants, the seam directory. (The pre-audit spec is archived under `docs/archive/` — history only.)
+- Living design doc (all decisions): [`docs/vision.md`](vision.md)
+- The original build plan and its wave/gate results (history only): [`docs/archive/plan.md`](archive/plan.md)
+- Visual design system — the palette, light/dark/system modes, and how demos, diagrams, and figures follow them: [`docs/design.md`](design.md)
 
 ## Commands
 
@@ -60,7 +60,7 @@ This is a **trusted single-user mode**, not multi-user hosting: everyone who can
 
 ## Architecture
 
-Five layers, dependency arrows pointing inward only, machine-enforced as four ESLint zones (shell → barrels only; core and agent never import below themselves). Two composition roots, one writer per store. The full spec — layers, systems, runtime flows, invariants, seams: [`docs/architecture.md`](docs/architecture.md).
+Five layers, dependency arrows pointing inward only, machine-enforced as four ESLint zones (shell → barrels only; core and agent never import below themselves). Two composition roots, one writer per store. The full spec — layers, systems, runtime flows, invariants, seams: [`docs/architecture.md`](architecture.md).
 
 ```mermaid
 flowchart TB
@@ -190,7 +190,7 @@ All deterministic, no LLM, no network (engines are injected — pi-ai's faux pro
 
 ## Lineage
 
-The teaching methodology comes from an Obsidian-based POC (its `knowledge graph design.md` was the original epistemic-model source, since amended — see the amendments table in `docs/vision.md`). The harness was originally built on the pi agent SDK, pivoted to standalone Next.js + the Vercel AI SDK, and later swapped its LLM engine back to pi-ai while keeping the AI SDK's `UIMessage` as the client protocol ([`docs/pi-engine-swap.md`](docs/pi-engine-swap.md)).
+The teaching methodology comes from an Obsidian-based POC (its `knowledge graph design.md` was the original epistemic-model source, since amended — see the amendments table in `docs/vision.md`). The harness was originally built on the pi agent SDK, pivoted to standalone Next.js + the Vercel AI SDK, and later swapped its LLM engine back to pi-ai while keeping the AI SDK's `UIMessage` as the client protocol ([`docs/pi-engine-swap.md`](pi-engine-swap.md)).
 
 ## Data
 
