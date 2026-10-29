@@ -10,6 +10,13 @@
  * call. Any other transcript change rebuilds the session from a replay of
  * the transcript (see replay.ts). Model calls without a sessionId run on a
  * session of their own that is deleted afterwards.
+ *
+ * A session never spends tokens on its own. The runtime gives up on an
+ * external tool call left unanswered for 30 minutes and then starts a model
+ * turn by itself, so a session still waiting on Cairn's tools after
+ * PARK_PENDING_MS (a question parked for the learner, a phase that moved on
+ * to another session) is closed, and a turn the session starts outside a
+ * call is aborted at once. Either way the next call rebuilds.
  */
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -23,7 +30,7 @@ import {
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
-import type { MessageOptions } from "@github/copilot-sdk";
+import type { MessageOptions, SessionEvent } from "@github/copilot-sdk";
 import { effortFor } from "./catalog.ts";
 import { CallTranslator, type CallOutcome } from "./events.ts";
 import { conversationOf, fingerprint, planCall, promptFromUsers, replayPrompt, toolResultImages, toolResultText, type CallPlan, type Prompt } from "./replay.ts";
@@ -32,6 +39,8 @@ import { copilotDebug, copilotRuntime, type CopilotRuntimePort, type CopilotSess
 const MAX_BINDINGS = 24;
 const IDLE_BINDING_MS = 45 * 60_000;
 const SILENCE_LIMIT_MS = 10 * 60_000;
+/** Well inside the runtime's 1800 s give-up on unanswered tool calls. */
+const PARK_PENDING_MS = 10 * 60_000;
 
 interface Binding {
 	key: string;
@@ -41,9 +50,10 @@ interface Binding {
 	pending: Map<string, string>;
 	model: string;
 	effort: string | undefined;
-	dirty: boolean;
 	active: boolean;
+	closed: boolean;
 	lastUsed: number;
+	parkTimer: ReturnType<typeof setTimeout> | undefined;
 	unwatch: () => void;
 }
 
@@ -81,16 +91,58 @@ async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 	}
 }
 
+/** Close a binding's session for good. Detaching alone keeps the session
+ *  alive in the runtime, along with any turn or tool wait it has, so the
+ *  session is aborted first. */
 function dispose(binding: Binding): void {
+	if (binding.closed) return;
+	binding.closed = true;
+	unpark(binding);
 	const { bindings } = registry();
 	if (bindings.get(binding.key) === binding) bindings.delete(binding.key);
 	binding.unwatch();
 	const { session, port } = binding;
-	void session
-		.disconnect()
-		.catch(() => undefined)
-		.then(() => port.deleteSession(session.sessionId))
-		.catch(() => undefined);
+	void (async () => {
+		await session.abort().catch(() => undefined);
+		await session.disconnect().catch(() => undefined);
+		await port.deleteSession(session.sessionId).catch(() => undefined);
+	})().catch(() => undefined);
+}
+
+function unpark(binding: Binding): void {
+	clearTimeout(binding.parkTimer);
+	binding.parkTimer = undefined;
+}
+
+/** Close a session left waiting on Cairn's tools before the runtime gives
+ *  up on them and starts a turn of its own. */
+function park(binding: Binding): void {
+	unpark(binding);
+	if (!binding.pending.size) return;
+	binding.parkTimer = setTimeout(() => {
+		binding.parkTimer = undefined;
+		if (binding.active) return;
+		copilotDebug(`close ${binding.key}: ${binding.pending.size} tool call(s) unanswered for ${PARK_PENDING_MS / 60_000} min`);
+		dispose(binding);
+	}, PARK_PENDING_MS);
+	binding.parkTimer.unref?.();
+}
+
+/** Session activity no call asked for: a turn starting (or failing), or the
+ *  runtime settling a tool call that Cairn still owes an answer. */
+function unrequested(binding: Binding, event: SessionEvent): boolean {
+	switch (event.type) {
+		case "assistant.turn_start":
+		case "assistant.message":
+		case "session.error":
+			return true;
+		case "external_tool.completed":
+			return [...binding.pending.values()].includes(event.data.requestId);
+		case "tool.execution_complete":
+			return binding.pending.has(event.data.toolCallId);
+		default:
+			return false;
+	}
 }
 
 function evictIdle(): void {
@@ -123,19 +175,19 @@ function bind(key: string, port: CopilotRuntimePort, session: CopilotSessionPort
 		pending: new Map(),
 		model: spec.model,
 		effort: spec.effort,
-		dirty: false,
 		active: false,
+		closed: false,
 		lastUsed: Date.now(),
+		parkTimer: undefined,
 		unwatch: () => undefined,
 	};
 	// Activity outside a call (e.g. the runtime giving up on a pending tool
-	// call and answering on its own) means the session no longer mirrors
-	// the transcript.
+	// call and carrying on by itself) spends tokens nobody asked for, and the
+	// session no longer mirrors the transcript: close it now.
 	binding.unwatch = session.on((event) => {
-		if (!binding.active && (event.type === "assistant.turn_start" || event.type === "assistant.message" || event.type === "session.error")) {
-			copilotDebug(`out-of-band ${event.type} on ${key}`);
-			binding.dirty = true;
-		}
+		if (binding.active || !unrequested(binding, event)) return;
+		copilotDebug(`out-of-band ${event.type} on ${key}: closing the session`);
+		dispose(binding);
 	});
 	registry().bindings.set(key, binding);
 	return binding;
@@ -262,7 +314,7 @@ async function runCall(model: Model<Api>, context: TranscriptContext, options: S
 			const port = await copilotRuntime();
 			const { bindings } = registry();
 			let binding = bindings.get(key);
-			let plan: CallPlan = planCall(binding && !binding.dirty ? binding.consumed : undefined, conversation, new Set(binding?.pending.keys()));
+			let plan: CallPlan = planCall(binding?.consumed, conversation, new Set(binding?.pending.keys()));
 			if (binding && plan.kind === "delta" && (binding.model !== spec.model || binding.effort !== spec.effort)) {
 				try {
 					await binding.session.setModel(spec.model, spec.effort);
@@ -272,6 +324,8 @@ async function runCall(model: Model<Api>, context: TranscriptContext, options: S
 					plan = { kind: "rebuild", reason: `model switch failed: ${err instanceof Error ? err.message : String(err)}` };
 				}
 			}
+			// Closed while the switch was in flight (out-of-band activity, parking, eviction).
+			if (binding?.closed && plan.kind === "delta") plan = { kind: "rebuild", reason: "session closed" };
 			let driven: Driven;
 			if (plan.kind === "rebuild") {
 				copilotDebug(`rebuild ${key} (${plan.reason}; ${conversation.length} messages)`);
@@ -280,6 +334,7 @@ async function runCall(model: Model<Api>, context: TranscriptContext, options: S
 				binding.active = true;
 				driven = await drive(binding, { kind: "replay", prompt: replayPrompt(conversation) }, translator, model, options);
 			} else {
+				unpark(binding!);
 				binding!.active = true;
 				copilotDebug(`delta ${key} (+${plan.toolResults.length} results, +${plan.users.length} user)`);
 				driven = await drive(binding!, plan, translator, model, options);
@@ -287,12 +342,12 @@ async function runCall(model: Model<Api>, context: TranscriptContext, options: S
 			const bound = binding!;
 			bound.active = false;
 			bound.lastUsed = Date.now();
-			if ((driven.kind === "toolUse" || driven.kind === "stop") && scope) {
+			if ((driven.kind === "toolUse" || driven.kind === "stop") && scope && !bound.closed) {
 				bound.consumed = [...conversation.map(fingerprint), fingerprint(translator.message)];
 				bound.pending = driven.kind === "toolUse" ? driven.requests : new Map();
+				park(bound);
 			} else {
 				// Failed, aborted or one-off: the session cannot be continued.
-				if (driven.kind === "error") void bound.session.abort().catch(() => undefined);
 				dispose(bound);
 			}
 			return driven;
