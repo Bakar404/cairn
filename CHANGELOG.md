@@ -37,6 +37,7 @@ This is an early release. The installers pass automated checks on macOS, Windows
 
 - `npm run dev`, `npm start` and `npm run desktop:dev` listen only on `127.0.0.1`, as the desktop app already did. Before, another machine on your network could reach Cairn by your computer's address.
 - A Copilot session can no longer spend tokens on its own. A session left waiting on Cairn's tools is closed after 10 minutes, and one that starts a turn by itself is stopped at once.
+- Next.js is updated to 16.4.2 for published advisories, including unauthenticated remote code execution. DOMPurify, sharp, undici, zod and source-map-js are on patched versions too.
 
 [Unreleased]: https://github.com/Bakar404/cairn/compare/v0.4.0...HEAD
 [0.4.0]: https://github.com/Bakar404/cairn/releases/tag/v0.4.0
