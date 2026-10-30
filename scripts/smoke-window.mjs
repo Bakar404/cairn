@@ -57,9 +57,24 @@ async function devtoolsEndpoint(port, app, deadline) {
 	throw new Error("DevTools endpoint did not come up within 60s");
 }
 
-/** Reload the app window in one color mode and check what it rendered. */
+/** Switch the window to one color mode the way the sidebar quick switch
+ *  does, reload, and check what it rendered. The appearance record is the
+ *  source of truth (the provider re-applies it after every load); the
+ *  cached mode in localStorage only paints the first frame. */
 async function renderIn(page, mode, out) {
-	await page.evaluate((key, value) => localStorage.setItem(key, value), MODE_STORAGE_KEY, mode);
+	await page.waitForFunction(() => document.readyState === "complete", { timeout: 60_000 });
+	const saved = await page.evaluate(async (key, value) => {
+		const current = await fetch("/api/settings").then((r) => (r.ok ? r.json() : null), () => null);
+		const appearance = current?.settings?.appearance;
+		const res = await fetch("/api/settings/appearance", {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ ...(appearance && typeof appearance === "object" ? appearance : {}), mode: value }),
+		});
+		if (res.ok) localStorage.setItem(key, value);
+		return res.status;
+	}, MODE_STORAGE_KEY, mode);
+	if (saved < 200 || saved > 299) throw new Error(`${mode}: saving the appearance mode answered HTTP ${saved}`);
 	const response = await page.reload({ waitUntil: "load", timeout: 60_000 });
 	if (!response) throw new Error(`${mode}: reload produced no document response`);
 	if (response.status() < 200 || response.status() > 299) throw new Error(`${mode}: document answered HTTP ${response.status()}`);
