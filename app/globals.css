@@ -2,6 +2,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Motion (accessibility mode, M27): Tailwind's motion-safe and
+   motion-reduce follow the Motion setting through <html data-motion>
+   (components/reduced-motion.ts), not the OS query alone. */
+@custom-variant motion-safe (&:where(html[data-motion="full"] *));
+@custom-variant motion-reduce (&:where(html[data-motion="reduced"] *));
+
 /*
  * THE SKIN — wave 5. Design tokens, the single place to restyle the app.
  *
@@ -15,16 +21,179 @@
  *     future settings UI reassigns them (configurable per the owner).
  */
 
-/* The no-ring law (owner, UI round 2026-10-01): the browser's default
-   focus/focus-visible outline appears NOWHERE in the app. Pointer focus
-   never showed it; any keypress while a clicked element still held focus
-   DID (:focus-visible re-evaluates on key input — a clicked sidebar
-   session lit up when the quiz's ←/→ were pressed). Surfaces carry their
-   own hover/active/selected affordances; the dock's keyboard walk uses
-   its own ring utilities, unaffected by an outline reset. */
+/* FOCUS (accessibility mode, M27, 2026-10-30 — replaces the no-ring law of
+   UI round 2026-10-01). Keyboard users always see where focus is; pointer
+   users never do. components/input-modality.ts marks <html
+   data-input-modality="keyboard"> on Tab or F6 and "pointer" on any
+   pointer press, so a clicked control that later sees a key (the quiz's
+   ←/→) stays unlit — the bug the old law fixed by hiding every outline.
+   One outline in --primary (ink on paper, both modes): 2px with a 2px gap,
+   4px with a 3px gap under the enhanced focus setting, the system
+   Highlight color under forced colors. Unlayered, so it beats Tailwind's
+   layered outline-none utilities. */
 *:focus,
 *:focus-visible {
 	outline: none;
+}
+:where(html[data-input-modality="keyboard"]) :focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+:where(html[data-input-modality="keyboard"][data-focus="enhanced"]) :focus-visible {
+	outline-width: 4px;
+	outline-offset: 3px;
+}
+/* Surfaces that hold focus only as a home — a dialog on open (so a screen
+   reader reads its label first), a menu body before the arrows move —
+   draw nothing; their controls do. */
+[data-focus-container]:focus-visible,
+[data-lh-menu]:focus-visible {
+	outline: none;
+}
+@media (forced-colors: active) {
+	:where(html[data-input-modality="keyboard"]) :focus-visible {
+		outline-color: Highlight;
+	}
+}
+
+/* FOLLOW THE OS (accessibility mode, M27). The AccessibilityProvider merges
+   the media queries with the desktop's nativeTheme flags.
+
+   Reduced transparency, with Follow system on: <html
+   data-transparency="reduced"> turns the translucent surfaces (floating
+   cards, overlays and dialog scrims) solid and stops the blur behind them.
+   In the utilities layer after Tailwind's own, so each rule beats
+   bg-card/85 and friends at equal specificity, while hover: variants, one
+   class more specific, still apply. */
+@layer utilities {
+	:where(html[data-transparency="reduced"]) [class*="bg-card/"] {
+		background-color: var(--card);
+	}
+	:where(html[data-transparency="reduced"]) [class*="bg-background/"] {
+		background-color: var(--background);
+	}
+	:where(html[data-transparency="reduced"]) [class*="bg-popover/"] {
+		background-color: var(--popover);
+	}
+	:where(html[data-transparency="reduced"]) [class*="backdrop-blur"] {
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+}
+
+/* Differentiate without color (macOS): every link is underlined, so none
+   is told apart by its color alone. An observation, not a preference, so
+   it ignores Follow system. */
+:where(html[data-os-differentiate="without-color"]) a[href] {
+	text-decoration-line: underline;
+}
+
+/* Forced colors, always honored: the browser repaints in the system palette
+   and drops author fills, so a state shown by fill alone disappears. The
+   switch keeps a visible disc, and on shows as Highlight. The plain disc
+   is an empty span; the icon disc draws in currentColor. */
+@media (forced-colors: active) {
+	[role="switch"] {
+		forced-color-adjust: none;
+		background-color: ButtonFace;
+		border-color: ButtonText;
+	}
+	[role="switch"] > span:empty {
+		forced-color-adjust: none;
+		background-color: ButtonText;
+	}
+	[role="switch"] > span:not(:empty) {
+		forced-color-adjust: none;
+		color: ButtonText;
+	}
+	[role="switch"][aria-checked="true"] {
+		background-color: Highlight;
+		border-color: Highlight;
+	}
+	[role="switch"][aria-checked="true"] > span:empty {
+		background-color: HighlightText;
+	}
+	[role="switch"][aria-checked="true"] > span:not(:empty) {
+		color: HighlightText;
+	}
+	[role="switch"]:disabled {
+		border-color: GrayText;
+	}
+	[role="switch"]:disabled > span:empty {
+		background-color: GrayText;
+	}
+	[role="switch"][aria-checked="true"]:disabled {
+		background-color: GrayText;
+	}
+	[role="switch"][aria-checked="true"]:disabled > span:empty {
+		background-color: ButtonFace;
+	}
+}
+
+/* Forced colors, selection: the tints that mark the current or chosen row
+   (bg-accent, bg-muted/60, a success or danger wash) all flatten to
+   Canvas, so selection is keyed off the state attribute instead and drawn
+   the way Windows draws it: a Highlight fill with HighlightText inside.
+   Everything in a selected row follows, field text and the radio dot
+   (bg-current) included, so nothing sits Canvas-on-Highlight. A switch
+   carries none of these attributes and keeps its own rules above.
+   data-selected marks a read-only record (the answered card).
+
+   data-highlighted marks the arrow-walk cursor of a list whose focus stays
+   in its search field: a dashed inset outline. It gives way to the
+   keyboard focus ring when the row itself (or its field) holds focus, and
+   still shows in pointer modality, where arrows draw no ring. */
+@media (forced-colors: active) {
+	:where(html:not([data-input-modality="keyboard"])) [data-highlighted],
+	[data-highlighted]:not(:focus-visible, :has(:focus-visible)) {
+		outline: 2px dashed Highlight;
+		outline-offset: -2px;
+	}
+	/* bg-current paints in currentColor, which forced colors turn into
+	   Canvas: the dot would vanish. */
+	.bg-current {
+		background-color: CanvasText;
+	}
+	:is(
+		[aria-current]:not([aria-current="false"]),
+		[aria-pressed="true"],
+		[role="radio"][aria-checked="true"],
+		[role="checkbox"][aria-checked="true"],
+		[role="option"][aria-selected="true"],
+		[role="tab"][aria-selected="true"],
+		[data-selected]
+	) {
+		background-color: Highlight;
+		color: HighlightText;
+		border-color: Highlight;
+
+		& * {
+			color: HighlightText;
+			background-color: transparent;
+			border-color: HighlightText;
+		}
+		& .bg-current {
+			background-color: HighlightText;
+		}
+		:where(html:not([data-input-modality="keyboard"])) &[data-highlighted],
+		&[data-highlighted]:not(:focus-visible, :has(:focus-visible)) {
+			outline-color: HighlightText;
+		}
+	}
+	/* A custom-drawn range thumb (appearance: none, filled bg-current) would
+	   paint Canvas on Canvas; native thumbs ignore these. */
+	input[type="range"]::-webkit-slider-thumb {
+		background-color: ButtonText;
+	}
+	input[type="range"]::-moz-range-thumb {
+		background-color: ButtonText;
+	}
+	input[type="range"]:disabled::-webkit-slider-thumb {
+		background-color: GrayText;
+	}
+	input[type="range"]:disabled::-moz-range-thumb {
+		background-color: GrayText;
+	}
 }
 
 /* THE PALETTE (design wave) — docs/design.md is the contract; every
@@ -49,7 +218,8 @@
      and gold a little more chroma: the navy page would grey their
      low-alpha graph washes.
    Contrast (computed, both modes): inks >= 4.5:1 on page and card; the
-   data colors >= 3:1 (graphical objects). */
+   data colors >= 3:1 (graphical objects). High contrast (below) raises
+   inks to 7:1 and edges and data to 4.5:1. */
 :root {
 	color-scheme: light;
 	--radius: 8px;
@@ -147,6 +317,125 @@
 	--code-surface: color-mix(in oklab, var(--background) 86%, black);
 	--lh-ink-strong: var(--foreground);
 	--lh-ink-italic: var(--foreground);
+}
+
+/* HIGH CONTRAST (accessibility mode, M27): the Contrast setting, or a
+   system that asks for more contrast while Follow system is on, sets
+   <html data-contrast="high">. The values are PALETTE_HC
+   (src/core/palette.ts), made from the palette above by moving lightness
+   alone, so every hue (and, where sRGB allows, its chroma) stays:
+   - inks (text, brand, the semantic colors) >= 7:1 on page, card, muted
+     and accent (WCAG AAA); a semantic ink also holds 7:1 on its own soft
+     tint over the page or a card;
+   - hairlines, field edges and the ring >= 4.5:1; the data colors
+     >= 4.5:1 on page and card.
+   The surfaces are the standard ones and every value is !important, so
+   high contrast beats a custom background or emphasis color (inline vars
+   from Appearance) that would break those ratios. The derived tokens
+   (soft tints, --code-surface, --destructive) follow. Both blocks declare
+   the same set; tests/palette.test.ts holds them to PALETTE_HC. */
+html[data-contrast="high"] {
+	--background: #f9f5ed !important;
+	--foreground: #132243 !important;
+	--card: #fdfbf7 !important;
+	--card-foreground: #132243 !important;
+	--popover: #fdfbf7 !important;
+	--popover-foreground: #132243 !important;
+	--primary: #132243 !important;
+	--primary-foreground: #f9f5ed !important;
+	--secondary: #f2ece1 !important;
+	--secondary-foreground: #132243 !important;
+	--muted: #f2ece1 !important;
+	--muted-foreground: #404c62 !important;
+	--accent: #ece7dc !important;
+	--accent-foreground: #132243 !important;
+	--border: #6c685e !important;
+	--input: #6c685e !important;
+	--ring: #616878 !important;
+	--brand: #0935b9 !important;
+	--brand-foreground: #fdfbf7 !important;
+	--success: #005322 !important;
+	--warning: #633c00 !important;
+	--danger: #8f0014 !important;
+	--viz-1: #2773bf !important;
+	--viz-2: #b35715 !important;
+	--viz-3: #14823d !important;
+	--viz-4: #9757aa !important;
+	--viz-5: #8a6d00 !important;
+	--viz-6: #007e7f !important;
+	--viz-muted: #6c717b !important;
+	--lh-ink-strong: var(--foreground) !important;
+	--lh-ink-italic: var(--foreground) !important;
+}
+
+html.dark[data-contrast="high"] {
+	--background: #0c121d !important;
+	--foreground: #efe7d8 !important;
+	--card: #111825 !important;
+	--card-foreground: #efe7d8 !important;
+	--popover: #111825 !important;
+	--popover-foreground: #efe7d8 !important;
+	--primary: #efe7d8 !important;
+	--primary-foreground: #0c121d !important;
+	--secondary: #171e2d !important;
+	--secondary-foreground: #efe7d8 !important;
+	--muted: #171e2d !important;
+	--muted-foreground: #a4b0bf !important;
+	--accent: #1c2433 !important;
+	--accent-foreground: #efe7d8 !important;
+	--border: #808b9c !important;
+	--input: #808b9c !important;
+	--ring: #7e8c9d !important;
+	--brand: #81baff !important;
+	--brand-foreground: #0c121d !important;
+	--success: #7fd091 !important;
+	--warning: #f4c26a !important;
+	--danger: #ff9993 !important;
+	--viz-1: #74b2f8 !important;
+	--viz-2: #f2925b !important;
+	--viz-3: #73c385 !important;
+	--viz-4: #ce95df !important;
+	--viz-5: #cfa936 !important;
+	--viz-6: #2bc5c7 !important;
+	--viz-muted: #7a818b !important;
+	--lh-ink-strong: var(--foreground) !important;
+	--lh-ink-italic: var(--foreground) !important;
+}
+
+/* High contrast, faded neutrals: text-muted-foreground/70 and its kin lay
+   a 7:1 ink at partial alpha, which gives the ratio back, so here they
+   take the full ink; faded hairlines take the full --border, and a hover
+   or focus edge firms up instead of fading. In the utilities layer after
+   Tailwind's own (like reduced transparency above), so each rule beats
+   its utility at equal specificity. A class must begin the attribute or
+   follow a space, so variants (hover:, dark:, disabled:) keep their own
+   colors. The border rules change nothing yet: the unlayered
+   `* { border-color }` rule below outranks every layered rule, Tailwind's
+   border utilities included, so each border already paints --border in
+   either contrast. They hold once that rule moves into a layer. */
+@layer utilities {
+	:where(html[data-contrast="high"]) :is([class^="text-muted-foreground/"], [class*=" text-muted-foreground/"]) {
+		color: var(--muted-foreground);
+	}
+	:where(html[data-contrast="high"]) :is([class^="text-foreground/"], [class*=" text-foreground/"]) {
+		color: var(--foreground);
+	}
+	:where(html[data-contrast="high"]) [class*="placeholder:text-muted-foreground/"]::placeholder {
+		color: var(--muted-foreground);
+	}
+	:where(html[data-contrast="high"])
+		:is(
+			[class^="border-border/"],
+			[class*=" border-border/"],
+			[class^="border-muted-foreground/"],
+			[class*=" border-muted-foreground/"]
+		) {
+		border-color: var(--border);
+	}
+	:where(html[data-contrast="high"]) [class*="hover:border-muted-foreground/"]:hover,
+	:where(html[data-contrast="high"]) [class*="focus:border-muted-foreground/"]:focus {
+		border-color: var(--muted-foreground);
+	}
 }
 
 /* Mode switches crossfade (the provider wraps the class flip in a view
@@ -317,6 +606,36 @@ body {
 	font-weight: var(--lh-heading-weight, 900);
 }
 
+/* Reading comfort (accessibility mode, M27). The variables come from
+   accessibilityVars (src/core/accessibility.ts) and are on <html> only
+   while the user has set them; unset, each rule reverts to the layers
+   below, so the default page is exactly what it was. Spacing is set on
+   the prose root and on headings (which carry Tailwind tracking of their
+   own); everything else inherits it. The paragraph gap replaces the
+   container's space-y margin. The width caps text blocks only: code,
+   tables, math and figures keep the full column. Mermaid labels are SVG,
+   so they keep their measured boxes. */
+.lh-prose,
+.lh-prose :where(h1, h2, h3, h4, h5, h6) {
+	letter-spacing: var(--lh-letter-spacing, revert-layer);
+	word-spacing: var(--lh-word-spacing, revert-layer);
+}
+
+.lh-prose :where(p:not(:last-child, svg *)) {
+	margin-block-end: var(--lh-paragraph-spacing, revert-layer);
+}
+
+.lh-prose :where(:is(p, ul, ol, h1, h2, h3, h4, h5, h6, blockquote):not(svg *)) {
+	max-inline-size: var(--lh-reading-width, revert-layer);
+}
+
+@layer base {
+	.lh-prose :where(pre, code, kbd, samp, .katex, table, figure, svg, [data-streamdown="mermaid"]) {
+		letter-spacing: normal;
+		word-spacing: normal;
+	}
+}
+
 /* lh-input (owner, typography round 2): lh-prose's 1.5 READING leading
    makes typing carets tower over the glyphs — the caret fills the line
    box (24px at 16px text, ~2× the glyph height). Inputs are not
@@ -356,7 +675,8 @@ body {
 
 /* Dock variant swap — quick fade/rise on content change; the shell's HEIGHT
    morph is separate (WAAPI in DockOverlay). Re-applied via class toggling, no
-   remount, so collapsed-question state survives. */
+   remount, so collapsed-question state survives. Reduced motion swaps
+   without the rise. */
 @keyframes dock-variant-in {
 	from {
 		opacity: 0;
@@ -373,6 +693,10 @@ body {
 	animation: dock-variant-in 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+html[data-motion="reduced"] .dock-variant {
+	animation: none;
+}
+
 /* ============================================================
  * W3 — presentation fixes (appended 2026-08-22)
  * ============================================================ */
@@ -383,6 +707,13 @@ body {
  * classes are dead — code blocks and mermaid containers rendered unstyled.
  * (Streamdown README, "Tailwind CSS setup".) */
 @source "../node_modules/streamdown/dist/*.js";
+
+/* Streamdown's loading spinners (code blocks, mermaid) use Tailwind's loops
+   without motion-safe:, so reduced motion stops the bare utilities here.
+   The app's own markup always gates them with motion-safe:. */
+html[data-motion="reduced"] :is(.animate-spin, .animate-pulse, .animate-ping, .animate-bounce) {
+	animation: none;
+}
 
 /* Token the streamdown utilities reference (code-block/mermaid chrome uses
  * bg-sidebar / border-sidebar): map it onto the app's card surface. */
@@ -515,15 +846,13 @@ body {
 	opacity: 1;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.braille-frame {
-		animation: none;
-	}
+html[data-motion="reduced"] .braille-frame {
+	animation: none;
 }
 
 /* Settings dialog pop (settings-app wave, 2026-09-20): a short fade +
    2% settle-scale — understated by design, the app's motion taste
-   (200ms sidebar, 150ms here); honors reduced-motion by appearing. */
+   (200ms sidebar, 150ms here); reduced motion appears instantly. */
 @keyframes settings-pop {
 	from {
 		opacity: 0;
@@ -539,17 +868,15 @@ body {
 	animation: settings-pop 150ms ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.settings-dialog-pop {
-		animation: none;
-	}
+html[data-motion="reduced"] .settings-dialog-pop {
+	animation: none;
 }
 
 /* Graph chrome fade-in (empty-graph chrome wave, owner 2026-09-25): the
    search + settings controls appear ONCE, as the first nodes land —
    Import Notes always renders (the empty graph's entry point), the other
    two mount only when the snapshot has nodes. Same understated register
-   as settings-pop (a plain fade); reduced-motion appears instantly. */
+   as settings-pop (a plain fade); reduced motion appears instantly. */
 @keyframes chrome-fade-in {
 	from {
 		opacity: 0;
@@ -563,10 +890,8 @@ body {
 	animation: chrome-fade-in 200ms ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.graph-chrome-fade-in {
-		animation: none;
-	}
+html[data-motion="reduced"] .graph-chrome-fade-in {
+	animation: none;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -652,7 +977,7 @@ body {
    mount — a subtle fade + 4px rise, the app's motion register (150ms,
    dock-variant/settings-pop taste). Nothing on update, nothing on
    unmount. Applied by the unified ThinkingBlock and the practice
-   cards; honors reduced-motion by appearing. */
+   cards; reduced motion appears instantly. */
 @keyframes lh-card-enter {
 	from {
 		opacity: 0;
@@ -668,10 +993,8 @@ body {
 	animation: lh-card-enter 120ms ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.lh-card-enter {
-		animation: none;
-	}
+html[data-motion="reduced"] .lh-card-enter {
+	animation: none;
 }
 
 /* Source-message arrival: a brief, static theme-colored spotlight. */

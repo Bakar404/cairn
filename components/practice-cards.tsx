@@ -2,7 +2,7 @@
 
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
-import type { ArtifactPartProps } from "@/src/core";
+import { JUDGMENT_LABEL, type ArtifactPartProps, type PracticeAssessment } from "@/src/core";
 
 /**
  * The practice transcript cards (practice sessions, owner design
@@ -20,9 +20,10 @@ import type { ArtifactPartProps } from "@/src/core";
  *   language in a faint user-side shell, never collapsible.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { AssessmentsContext } from "@/components/assessments-context";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 
@@ -105,6 +106,10 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 	const verdict = typeof input.verdict === "string" ? input.verdict : "";
 	const reveal =
 		typeof part.reveal === "string" ? part.reveal : typeof input.solutionReveal === "string" ? input.solutionReveal : "";
+	// The answer check (M24): a second model's blind grade, landed after the
+	// turn settled. Shown on the card only when it disagrees; an agreeing
+	// check is one quiet row in the metadata box.
+	const assessment = useContext(AssessmentsContext)[part.toolCallId];
 
 	// The dismissal synthesis: no verdict, no reveal — one muted line (the
 	// learner clicked; the record needs only the fact).
@@ -136,6 +141,18 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 					<ToolContentResponse>{verdict}</ToolContentResponse>
 				</div>
 			)}
+			{assessment && !assessment.agrees && (
+				<div
+					data-testid="assessor-flag"
+					role="note"
+					className="mt-2 rounded-md border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-sm text-foreground/80"
+				>
+					<span className="font-medium text-warning">Answer check disagrees.</span>{" "}
+					{assessment.judgment === "unanswered"
+						? "No answer was submitted for this problem."
+						: `A second model graded the final answer ${JUDGMENT_LABEL[assessment.judgment]}: ${assessment.reason}`}
+				</div>
+			)}
 			{/* Then the divider, then the labeled model solution (Slice G: the
 			    hero is the pose's commitment, verbatim). */}
 			{reveal.length > 0 && (
@@ -152,6 +169,7 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 			<MetadataPopover
 				concludeInput={input}
 				problemInput={(part.problemInput ?? {}) as { mode?: unknown; target?: unknown }}
+				assessment={assessment}
 			/>
 		</div>
 	);
@@ -173,9 +191,11 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 function MetadataPopover({
 	concludeInput,
 	problemInput,
+	assessment,
 }: {
 	concludeInput: { outcome?: string; rung?: unknown; missClass?: unknown; retest?: unknown };
 	problemInput: { mode?: unknown; target?: unknown };
+	assessment?: PracticeAssessment;
 }) {
 	const [open, setOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -215,7 +235,7 @@ function MetadataPopover({
 	const miss = typeof concludeInput.missClass === "string" ? concludeInput.missClass : "";
 	const retest = typeof concludeInput.retest === "boolean" ? concludeInput.retest : undefined;
 	const outcome = typeof concludeInput.outcome === "string" ? concludeInput.outcome : "";
-	if (!mode && targets.length === 0 && !rung && !miss && retest === undefined) return null;
+	if (!mode && targets.length === 0 && !rung && !miss && retest === undefined && !assessment) return null;
 
 	return (
 		<div ref={rootRef} className="relative mt-3">
@@ -281,6 +301,26 @@ function MetadataPopover({
 						<dd className="font-mono">{miss || "none"}</dd>
 						<dt className="text-muted-foreground">Retest</dt>
 						<dd className="font-mono">{retest === undefined ? "—" : retest ? "yes" : "no"}</dd>
+						{assessment && (
+							<>
+								<dt className="text-muted-foreground">Answer check</dt>
+								<dd data-testid="assessor-metadata" className="font-mono">
+									{assessment.agrees ? "agrees" : "disagrees"} ({JUDGMENT_LABEL[assessment.judgment]})
+								</dd>
+								{assessment.judgment !== "unanswered" && (
+									<>
+										<dt className="text-muted-foreground">Check note</dt>
+										<dd>{assessment.reason}</dd>
+									</>
+								)}
+								{assessment.model && (
+									<>
+										<dt className="text-muted-foreground">Check model</dt>
+										<dd className="break-all font-mono">{assessment.model}</dd>
+									</>
+								)}
+							</>
+						)}
 					</dl>
 					</div>,
 					document.body,

@@ -100,7 +100,8 @@ export type ModelRole =
 	| "animationMaker"
 	| "pdfReader"
 	| "extractor"
-	| "auditor";
+	| "auditor"
+	| "assessor";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction

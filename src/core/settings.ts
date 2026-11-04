@@ -30,6 +30,19 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
+import {
+	A11Y_RANGES,
+	ACCESSIBILITY_DEFAULTS,
+	isContrastPreference,
+	isFocusIndicator,
+	isMotionPreference,
+	snapToRange,
+	type A11yRangeField,
+	type ContrastPreference,
+	type FocusIndicator,
+	type MotionPreference,
+	type ResolvedAccessibility,
+} from "./accessibility.ts";
 import { isAppearanceMode, type AppearanceMode } from "./theme-mode.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
@@ -228,6 +241,7 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	demoBuilder: "cheap",
 	extractor: "cheap",
 	auditor: "cheap",
+	assessor: "cheap",
 	visualMaker: "vision",
 	animationMaker: "vision",
 	pdfReader: "vision",
@@ -260,6 +274,17 @@ export interface AgentSettings {
 	 *  OPT-IN — absent = OFF (unlike the other toggles): it sends the topic
 	 *  to the learner's Microsoft 365 tenant. Consumers use workIqEnabled. */
 	workIq?: { enabled?: boolean };
+	/** Microsoft Learn (M21): lets the researcher search and read
+	 *  learn.microsoft.com, Microsoft's official documentation, through
+	 *  Microsoft's public Learn MCP server (no sign-in; it receives the
+	 *  research query). Absent = ON. Consumers use learnDocsEnabled. */
+	learnDocs?: { enabled?: boolean };
+	/** The answer check (M24): after a practice problem concludes, a second
+	 *  model compares the learner's answer with the committed solution
+	 *  without seeing the hints, and flags a disagreement with the tutor's
+	 *  outcome. One cheap-slot call per problem. Absent = ON. Consumers use
+	 *  assessorEnabled. */
+	assessor?: { enabled?: boolean };
 	/** System-prompt override SWITCHES keyed by segment path (absent key =
 	 *  off). Switch-on requires the override file to exist (enforced by the
 	 *  route); the switch is explicit so users keep a file on disk but run
@@ -359,6 +384,35 @@ export interface CompactionSettings {
 	thresholdTokens?: number;
 }
 
+/** Accessibility mode (M27). A delta like appearance: an absent field is
+ *  its default (ACCESSIBILITY_DEFAULTS in accessibility.ts, which also
+ *  holds the ranges). Spacing is in em, the reading width in ch. */
+export interface AccessibilitySettings {
+	/** Follow the OS: raise contrast when it asks for more (default true). */
+	followSystem?: boolean;
+	/** "standard" | "high" (default standard). */
+	contrast?: ContrastPreference;
+	/** "system" follows prefers-reduced-motion (default system). */
+	motion?: MotionPreference;
+	/** "enhanced" draws a thicker keyboard focus outline (default standard). */
+	focus?: FocusIndicator;
+	/** Prose line height, 1–2 in steps of 0.05 (default 1.5). */
+	lineHeight?: number;
+	/** Space after a paragraph, 0–2.5em in steps of 0.05. Absent = the
+	 *  stylesheet's gap. */
+	paragraphSpacing?: number;
+	/** 0–0.5em in steps of 0.01. Absent = the font's own. */
+	letterSpacing?: number;
+	/** 0–1em in steps of 0.01. Absent = the font's own. */
+	wordSpacing?: number;
+	/** Text block width cap, 45–90ch in steps of 5. Absent = full width. */
+	readingWidth?: number;
+	/** Figure descriptions and transcripts start open (default false). */
+	expandDescriptions?: boolean;
+	/** Long-running tool steps are announced (default false). */
+	announceToolSteps?: boolean;
+}
+
 /** THE record. Every section optional (delta); unknown top-level keys are
  *  preserved verbatim by the sanitizer (forward-compat with newer records). */
 export interface UserSettings {
@@ -368,6 +422,7 @@ export interface UserSettings {
 	/** The strong/cheap/vision model slots (model slots wave, 2026-09-20). */
 	models?: ModelsSettings;
 	appearance?: AppearanceSettings;
+	accessibility?: AccessibilitySettings;
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
 	[key: string]: unknown;
@@ -393,6 +448,7 @@ export interface FactorySettings {
 			italicColor: string | null;
 		};
 	};
+	accessibility: ResolvedAccessibility;
 	graph: Required<GraphSettings>;
 	compaction: Required<CompactionSettings>;
 }
@@ -408,6 +464,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 		sessionNameSerif: true,
 		mdRendering: { headingWeight: 900, boldColor: null, italicColor: null },
 	},
+	accessibility: { ...ACCESSIBILITY_DEFAULTS },
 	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
 	compaction: { thresholdTokens: 150_000 },
 };
@@ -534,6 +591,19 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 		if (enabled === undefined) out.workIq = {};
 		else if (typeof enabled === "boolean") out.workIq = { enabled };
 	}
+	// Microsoft Learn (M21): lenient too — a bad shape drops the key and the
+	// default ON resumes.
+	if (raw.learnDocs !== null && typeof raw.learnDocs === "object" && !Array.isArray(raw.learnDocs)) {
+		const enabled = (raw.learnDocs as Record<string, unknown>).enabled;
+		if (enabled === undefined) out.learnDocs = {};
+		else if (typeof enabled === "boolean") out.learnDocs = { enabled };
+	}
+	// The answer check (M24): lenient the same way, default ON.
+	if (raw.assessor !== null && typeof raw.assessor === "object" && !Array.isArray(raw.assessor)) {
+		const enabled = (raw.assessor as Record<string, unknown>).enabled;
+		if (enabled === undefined) out.assessor = {};
+		else if (typeof enabled === "boolean") out.assessor = { enabled };
+	}
 	return out;
 }
 
@@ -562,6 +632,26 @@ function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	const sessionNameSerif = boolOrDrop(raw.sessionNameSerif);
 	if (sessionNameSerif !== undefined) out.sessionNameSerif = sessionNameSerif;
 	if (raw.mdRendering !== undefined) out.mdRendering = sanitizeMdRendering(raw.mdRendering);
+	return out;
+}
+
+/** Invalid choices and non-booleans drop; a finite number clamps into its
+ *  range and snaps to a step; any other number drops. */
+function sanitizeAccessibility(raw: Record<string, unknown>): AccessibilitySettings {
+	const out: AccessibilitySettings = {};
+	const followSystem = boolOrDrop(raw.followSystem);
+	if (followSystem !== undefined) out.followSystem = followSystem;
+	if (isContrastPreference(raw.contrast)) out.contrast = raw.contrast;
+	if (isMotionPreference(raw.motion)) out.motion = raw.motion;
+	if (isFocusIndicator(raw.focus)) out.focus = raw.focus;
+	for (const field of Object.keys(A11Y_RANGES) as A11yRangeField[]) {
+		const value = raw[field];
+		if (typeof value === "number" && Number.isFinite(value)) out[field] = snapToRange(field, value);
+	}
+	const expandDescriptions = boolOrDrop(raw.expandDescriptions);
+	if (expandDescriptions !== undefined) out.expandDescriptions = expandDescriptions;
+	const announceToolSteps = boolOrDrop(raw.announceToolSteps);
+	if (announceToolSteps !== undefined) out.announceToolSteps = announceToolSteps;
 	return out;
 }
 
@@ -626,6 +716,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.appearance !== null && typeof r.appearance === "object" && !Array.isArray(r.appearance)) {
 		out.appearance = sanitizeAppearance(r.appearance as Record<string, unknown>);
+	}
+	if (r.accessibility !== null && typeof r.accessibility === "object" && !Array.isArray(r.accessibility)) {
+		out.accessibility = sanitizeAccessibility(r.accessibility as Record<string, unknown>);
 	}
 	if (r.models !== null && typeof r.models === "object" && !Array.isArray(r.models)) {
 		const models = sanitizeModels(r.models as Record<string, unknown>);

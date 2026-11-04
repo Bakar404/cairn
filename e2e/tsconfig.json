@@ -1,0 +1,13 @@
+{
+  // The Playwright checks get their own type program. @playwright/test's
+  // types pull in electron.d.ts (for its Electron API), and that file
+  // augments the DOM and Node globals (Document.createElement("webview"),
+  // process.resourcesPath, ...) — fine here, wrong for the app's code.
+  // `npm run typecheck` checks both programs.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": ["**/*.ts", "../playwright.config.ts"],
+  "exclude": []
+}

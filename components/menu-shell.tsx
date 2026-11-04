@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { keyboardModality } from "@/components/input-modality";
 
 /**
  * THE shared menu shell (menu standardization, fix wave chunk B): one
@@ -35,6 +36,12 @@ import { createPortal } from "react-dom";
  * SSR: menus only mount client-side while open; the hidden measuring pass
  * below is the only pre-placement render, so a server render never emits
  * a positioned menu.
+ *
+ * Keyboard (accessibility mode, M27): Tab and Shift+Tab stay in the menu —
+ * it's portaled to the end of <body>, so the browser's next stop would sit
+ * outside the page with the menu still open; arrows move, Enter picks,
+ * the site's Esc closes. Closing with keyboard focus inside hands focus
+ * back to the trigger.
  */
 
 const GAP = 4; // anchor edge → menu (the bespoke shells' settled 4px)
@@ -159,6 +166,12 @@ export function MenuShell({
 	// input (their clamped-walk machine, 2026-09-17) — those events never
 	// bubble here, and the input/textarea guard is belt-and-braces.
 	const onBodyKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+		// Tab stays in the menu (see the header) — checked before the input
+		// guard, so a search menu's field refuses it too.
+		if (e.key === "Tab") {
+			e.preventDefault();
+			return;
+		}
 		if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 		const { key } = e;
 		if (key !== "ArrowDown" && key !== "ArrowUp" && key !== "Home" && key !== "End") return;
@@ -189,6 +202,20 @@ export function MenuShell({
 		if (anchorTestid !== undefined) return document.querySelector(`[data-testid="${anchorTestid}"]`);
 		return null;
 	};
+
+	// Focus back to the trigger on close (M27): a pick or Esc that unmounts
+	// the menu with keyboard focus inside must not drop it on <body>. A
+	// layout cleanup runs before React removes the menu's DOM, so "inside"
+	// is still answerable. Pointer closes keep focus where the click left it.
+	// Unmount only: the anchor seam is fixed for a menu's lifetime.
+	useLayoutEffect(
+		() => () => {
+			const menu = menuRef.current;
+			if (!menu || !keyboardModality() || !menu.contains(document.activeElement)) return;
+			(anchor() as HTMLElement | null)?.focus({ preventScroll: true });
+		},
+		[],
+	);
 
 	// Measure + (re)place: on mount, then on every capture-phase scroll and
 	// resize (rAF-throttled). scrollHeight keeps the flip decision honest

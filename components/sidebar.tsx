@@ -64,6 +64,12 @@ declare global {
 			/** The zoom truth (owner round 7): subscribes to "lh:zoom" pushes; returns unsubscribe. */
 			onZoom?: (cb: (factor: number) => void) => () => void;
 			getZoom?: () => Promise<number>;
+			/** One rung of the ⌘± ladder (the Low vision preset); main ignores other values. */
+			setZoom?: (factor: number) => void;
+			/** Follow the OS (M27): the nativeTheme accessibility flags, as an
+			 *  unchecked payload for systemAccessibility (src/core/accessibility.ts). */
+			getSystemAccessibility?: () => Promise<unknown>;
+			onSystemAccessibility?: (cb: (flags: unknown) => void) => () => void;
 			/** Observational update events and a snapshot for late subscribers. */
 			onUpdateStatus?: (cb: (status: UpdateState) => void) => () => void;
 			getUpdateState?: () => Promise<UpdateState>;
@@ -164,8 +170,8 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
 	return (
 		<SidebarContext.Provider value={{ open: open && !narrow, toggle }}>
-			{/* transitions gated on mount: no slide-in flash on page load */}
-			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
+			{/* transitions gated on mount (no slide-in flash on page load) and on motion */}
+			<div className={cn("flex h-dvh", mounted && "motion-safe:[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
 		</SidebarContext.Provider>
 	);
 }
@@ -302,8 +308,9 @@ export function SessionRow({
 	chat: ChatListItem;
 	active: boolean;
 	onOpen: () => void;
-	/** Keyboard-cycle highlight (shortcut wave A: Alt+↑/↓ + Alt+Enter) —
-	 *  visually distinct from the active session, which stays filled. */
+	/** The search box's ↑/↓ walk — visually distinct from the active
+	 *  session, which stays filled. Focus stays in the search, so the row
+	 *  also carries data-highlighted for the forced-colors outline. */
 	kbdSelected?: boolean;
 	/** Right-click opens the context menu (wave 6: Rename / Delete). */
 	onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
@@ -314,6 +321,8 @@ export function SessionRow({
 			onClick={onOpen}
 			onContextMenu={onContextMenu}
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
+			aria-current={active ? "page" : undefined}
+			data-highlighted={kbdSelected ? "" : undefined}
 			className={cn(
 				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent",
 				active && "bg-accent",
@@ -800,6 +809,7 @@ function SessionsSidebar() {
 							key={f}
 							type="button"
 							data-testid={`kind-filter-${f}`}
+							aria-pressed={kindFilter === f}
 							onClick={() => setFilter(f)}
 							className={cn(
 								"flex-1 rounded-sm px-2 py-1 text-[11px] uppercase tracking-wider transition-colors",

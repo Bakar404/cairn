@@ -86,12 +86,15 @@ describe("FontMenuList (thin SSR)", () => {
 		assert.ok(html.includes("Search fonts…"), "the search placeholder");
 	});
 
-	it("the effective family's row carries the quiet highlight; the default row does when unset", () => {
+	it("the effective family's row carries the quiet highlight and aria-current; the default row does when unset", () => {
+		// aria-current is the mark assistive tech and forced colors read:
+		// the ✓ is aria-hidden and forced colors flatten the tint.
 		const unset = renderToStaticMarkup(
 			<FontMenuList families={["Georgia", "Menlo"]} effectiveFamily={null} onPick={() => {}} />,
 		);
 		const defaultRow = unset.split('data-testid="font-option-default"')[1]?.split("</button>")[0] ?? "";
 		assert.ok(defaultRow.includes("bg-muted/60"), "unset → the default row is the effective one");
+		assert.ok(defaultRow.includes('aria-current="true"'));
 
 		const menlo = renderToStaticMarkup(
 			<FontMenuList families={["Georgia", "Menlo"]} effectiveFamily="Menlo" onPick={() => {}} />,
@@ -100,6 +103,8 @@ describe("FontMenuList (thin SSR)", () => {
 		const georgiaRow = menlo.split('data-testid="font-option-Georgia"')[1]?.split("</button>")[0] ?? "";
 		assert.ok(menloRow.includes("bg-muted/60"), "the stored family highlights");
 		assert.ok(!georgiaRow.includes("bg-muted/60"), "others do not");
+		assert.ok(menloRow.includes('aria-current="true"'));
+		assert.equal((menlo.match(/aria-current/g) ?? []).length, 1, "only the stored family is current");
 	});
 
 	it("undefined families = the enumerating state (Loading fonts…), not an empty picker", () => {
@@ -140,8 +145,9 @@ describe("the emphasis-ink factory ruling (globals.css)", () => {
 
 	it("both blocks default the inks to the regular text color", () => {
 		const css = fs.readFileSync("app/globals.css", "utf-8");
-		assert.equal((css.match(/--lh-ink-strong: var\(--foreground\)/g) ?? []).length, 2, "both theme blocks");
-		assert.equal((css.match(/--lh-ink-italic: var\(--foreground\)/g) ?? []).length, 2, "both theme blocks");
+		// the plain declarations; high contrast pins the same value with !important
+		assert.equal((css.match(/--lh-ink-strong: var\(--foreground\);/g) ?? []).length, 2, "both theme blocks");
+		assert.equal((css.match(/--lh-ink-italic: var\(--foreground\);/g) ?? []).length, 2, "both theme blocks");
 	});
 
 	it("the appearance rows' empty-state labels say 'same as text'", () => {

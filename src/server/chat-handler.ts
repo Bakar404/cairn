@@ -29,10 +29,12 @@ import { effectiveSettings, stores } from "./stores.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { manimRenderer } from "./manim.ts";
 import { workIqClient } from "./workiq.ts";
+import { learnDocsClient } from "./learn-docs.ts";
 import { providerKeyPresent } from "./keys.ts";
 import {
 	extractionEnabled,
 	graphToolsEnabled,
+	learnDocsEnabled,
 	resolveConversationSpec,
 	resolveRoleSpec,
 	workIqEnabled,
@@ -42,6 +44,8 @@ import { beginTurn, endTurn } from "./turn-liveness.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
 import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
+import { triggerAssessments } from "./practice-assessment.ts";
+import { concludeCallIdsOf } from "../core/practice-assessment.ts";
 import { hasProbeDone, danglingQuestionOf } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
@@ -108,6 +112,8 @@ const jobRunner = createJobRunner({
 	// M10: Work IQ, read fresh per job — null while it's switched off in
 	// Settings (a switch flipped between dispatch and run lands).
 	workIq: () => (workIqEnabled(effectiveSettings()) ? workIqClient : null),
+	// M21: Microsoft Learn for the researcher, read fresh per job the same way.
+	learnDocs: () => (learnDocsEnabled(effectiveSettings()) ? learnDocsClient : null),
 });
 
 /** The process's first Manim status check, awaited once and never for
@@ -546,6 +552,13 @@ export async function handleChatInput(
 					// (extraction-UX redesign, 2026-09-24): the trigger compares
 					// against it and the pipeline's batches share it.
 					triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens);
+				}
+				// THE ANSWER CHECK (M24): each problem THIS turn concluded gets an
+				// independent grade in the background (never a gate; the service
+				// swallows its own failures). Skipped under tests — scripted chats
+				// are fixtures; the service is pinned directly.
+				if (record.kind === "practice" && process.env.NODE_ENV !== "test") {
+					void triggerAssessments(chatId, concludeCallIdsOf(stamped));
 				}
 				// PARKED DISMISSAL (owner, 2026-10-04): a dismissal that arrived
 				// mid-turn was parked by the dismiss route (202); now that

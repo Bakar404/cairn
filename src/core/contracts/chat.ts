@@ -50,6 +50,11 @@ export interface ChatRecord {
 	 *  spend too. Same parallel-log discipline as `turns` (nothing rides
 	 *  inside messages). Keyed by startedAt; idempotent appends. */
 	extractions?: ExtractionRunUsage[];
+	/** The answer check's log (M24): one entry per concluded practice
+	 *  problem a second model graded. Same parallel-log discipline as
+	 *  `turns`; idempotent per concludeCallId, and the transcript folds
+	 *  each entry onto its conclude card by that id. */
+	assessments?: PracticeAssessment[];
 	/** Per-chat model/thinking overrides for the conversation agents. */
 	settings?: ChatSettings;
 	/** SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY v1 —
@@ -80,6 +85,34 @@ export interface ChatSettings {
 	thinkingLevel?: ThinkingLevel;
 }
 
+
+// ─── The answer check (M24) ───────────────────────────────────────────────────
+
+/** A second model's grade of the learner's final answer, judged against
+ *  the solution the tutor committed at pose time. "unanswered" is never
+ *  the model's: it is recorded without a call when a problem was credited
+ *  but the learner submitted nothing. */
+export type AssessorJudgment = "correct" | "partial" | "incorrect" | "unanswered";
+
+/** One concluded practice problem's independent check. */
+export interface PracticeAssessment {
+	/** The conclude tool call this checks (the idempotency key). */
+	concludeCallId: string;
+	/** The problem tool call that conclude closed. */
+	problemCallId: string;
+	at: string;
+	/** The tutor's outcome, copied for the record. The assessor never sees it. */
+	outcome: string;
+	judgment: AssessorJudgment;
+	/** The assessor's short reason, in its own words. */
+	reason: string;
+	/** Whether the judgment backs the tutor's outcome. */
+	agrees: boolean;
+	/** The model that judged, "provider:id"; absent when no call was made. */
+	model?: string;
+	/** Per-step usage (the CallUsage capture shape); empty when no call was made. */
+	steps: CallUsage[];
+}
 
 // ─── Background-extraction usage (the money channel, extraction side) ────────
 

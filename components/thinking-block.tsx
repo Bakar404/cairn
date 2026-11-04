@@ -124,7 +124,7 @@ export function ThinkingBlock({
 				className="flex w-full items-center gap-2 font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
 			>
 				{label}
-				<ChevronDownIcon className={cn("size-4 shrink-0 transition-transform", open ? "rotate-180" : "rotate-0")} />
+				<ChevronDownIcon className={cn("size-4 shrink-0 motion-safe:transition-transform", open ? "rotate-180" : "rotate-0")} />
 			</button>
 			{open && (
 				<span className="lh-prose mt-1.5 block whitespace-pre-wrap text-[15px] italic text-foreground/50">{text}</span>

@@ -4,11 +4,12 @@
  * single source of truth: the boot script (app/layout.tsx) sets it before
  * first paint and only the AppearanceProvider flips it afterwards. Painters
  * that live outside CSS (graph canvas, Mermaid, demo iframes) subscribe
- * here and redraw on a flip.
+ * here and redraw on a flip, and on the accessibility mode's contrast and
+ * forced colors (M27), which repaint the palette too.
  */
 
 import { useSyncExternalStore } from "react";
-import type { ColorScheme } from "@/src/core";
+import { A11Y_ATTRIBUTES, OS_ATTRIBUTES, type ColorScheme } from "@/src/core";
 
 function read(): ColorScheme {
 	return document.documentElement.classList.contains("dark") ? "dark" : "light";
@@ -26,7 +27,10 @@ function subscribe(listener: () => void): () => void {
 		observer = new MutationObserver(() => {
 			for (const l of listeners) l();
 		});
-		observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
+		observer.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ["class", "style", A11Y_ATTRIBUTES.contrast, OS_ATTRIBUTES.forcedColors],
+		});
 	}
 	return () => {
 		listeners.delete(listener);
@@ -47,15 +51,20 @@ export function useColorScheme(): ColorScheme {
 	return useSyncExternalStore(subscribe, read, () => "dark");
 }
 
-/** Changes whenever the painted palette does: the scheme, or a custom
- *  background (the AppearanceProvider sets it inline on <html>). Painters
- *  that bake colors in (Mermaid svgs) re-render on it. */
+/** Changes whenever the painted palette does: the scheme, a custom
+ *  background (the AppearanceProvider sets it inline on <html>), high
+ *  contrast, or forced colors. Painters that bake colors in (Mermaid svgs)
+ *  re-render on it. Each attribute counts only when on, so the provider's
+ *  first write of the defaults doesn't change the key. */
 function readPaletteKey(): string {
-	return `${read()}|${document.documentElement.style.getPropertyValue("--background")}`;
+	const root = document.documentElement;
+	const contrast = root.getAttribute(A11Y_ATTRIBUTES.contrast) === "high" ? "high" : "";
+	const forced = root.getAttribute(OS_ATTRIBUTES.forcedColors) === "active" ? "forced" : "";
+	return `${read()}|${root.style.getPropertyValue("--background")}|${contrast}|${forced}`;
 }
 
 export function usePaletteKey(): string {
-	return useSyncExternalStore(subscribe, readPaletteKey, () => "dark|");
+	return useSyncExternalStore(subscribe, readPaletteKey, () => "dark|||");
 }
 
 function subscribeSystem(listener: () => void): () => void {

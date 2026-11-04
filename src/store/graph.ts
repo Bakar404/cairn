@@ -89,10 +89,19 @@ function readValid<T>(file: string, isValid: (v: unknown) => v is T): T[] {
 	return readRawLines(file).filter(isValid);
 }
 
-/** Provenance points are (chatId, messageId) pairs — message-granular. */
-const isProvenancePoint = (v: unknown): v is ProvenancePoint =>
-	isRecord(v) && isString(v.chatId) && isString(v.messageId);
+/** Provenance points are (chatId, messageId) pairs — message-granular —
+ *  optionally carrying an import's checked quote, page, and hunk (M25).
+ *  A malformed optional field rejects the line like any other bad shape. */
+const isSourceHunk = (v: unknown): boolean =>
+	isRecord(v) && isString(v.file) && isString(v.header) && isString(v.text);
 
+const isProvenancePoint = (v: unknown): v is ProvenancePoint =>
+	isRecord(v) &&
+	isString(v.chatId) &&
+	isString(v.messageId) &&
+	(v.quote === undefined || isString(v.quote)) &&
+	(v.page === undefined || (Number.isInteger(v.page) && (v.page as number) > 0)) &&
+	(v.hunk === undefined || isSourceHunk(v.hunk));
 
 const isGraphNode = (v: unknown): v is GraphNode =>
 	isRecord(v) &&

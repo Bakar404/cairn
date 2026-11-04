@@ -19,6 +19,9 @@ describe("LiveToolCard (the working-state grammar)", () => {
 		const html = renderToStaticMarkup(<LiveToolCard part={part("read", { path: "notes.md" }) as never} />);
 		assert.match(html, /data-testid="live-tool-card"/);
 		assert.match(html, /data-testid="braille-spinner"/);
+		// a labeled image, not a live region: the reply announcer speaks (M27)
+		assert.match(html, /<svg[^>]*role="img"[^>]*aria-label="Reading a file… — live"/);
+		assert.ok(!html.includes('role="status"'));
 		// the label names the ACTUAL tool (the old bottom line's text)
 		assert.match(html, /Reading a file…/);
 		// the headline argument rides the header

@@ -10,6 +10,7 @@ import { downloadFile } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
 import { SvgImage } from "@/components/artifacts/svg-image";
 import { paperStyle, ThemedSvgImage, useFigureVariants } from "@/components/artifacts/figure-image";
+import { FigureDescription } from "@/components/artifacts/text-alternative";
 import { mediaUrl, type ArtifactPartProps, type VisualResult } from "@/src/core";
 
 /**
@@ -25,6 +26,9 @@ import { mediaUrl, type ArtifactPartProps, type VisualResult } from "@/src/core"
  * invert switch; any other figure keeps the paper backing and the switch.
  * A Manim still (M13) is a PNG from the chat's media route instead; it
  * keeps the paper chrome (invert, download, fullscreen).
+ *
+ * The maker's text alternative (M27) is the image's alt ("Figure" without
+ * one) and a "Describe" disclosure under the caption row.
  */
 
 /** The svg root's DECLARED width in px, when there is one — the natural
@@ -91,7 +95,20 @@ export function VisualOutputCard({
 			</div>
 		);
 	}
-	if (png) return <PngFigure file={png.file} width={png.width} height={png.height} inverted={inverted} onInvert={toggleInverted} />;
+	const alt = typeof result.alt === "string" ? result.alt : undefined;
+	const description = typeof result.description === "string" && result.description ? result.description : null;
+	if (png)
+		return (
+			<PngFigure
+				file={png.file}
+				width={png.width}
+				height={png.height}
+				alt={alt}
+				description={description}
+				inverted={inverted}
+				onInvert={toggleInverted}
+			/>
+		);
 	const failed = result.svg.length === 0;
 	if (failed) {
 		return (
@@ -135,12 +152,14 @@ export function VisualOutputCard({
 					<ThemedSvgImage
 						variants={variants}
 						width={natural ?? undefined}
+						alt={alt}
 						className={natural !== null ? "block h-auto max-w-full" : "block h-auto w-full"}
 					/>
 				) : (
 					<SvgImage
 						svg={result.svg}
 						width={natural ?? undefined}
+						alt={alt}
 						className={natural !== null ? "block h-auto max-w-full" : "block h-auto w-full"}
 					/>
 				)}
@@ -183,6 +202,7 @@ export function VisualOutputCard({
 					)}
 				</div>
 			</div>
+			{description && <FigureDescription description={description} />}
 		</div>
 	);
 }
@@ -215,12 +235,16 @@ function PngFigure({
 	file,
 	width,
 	height,
+	alt,
+	description,
 	inverted,
 	onInvert,
 }: {
 	file: string;
 	width?: number;
 	height?: number;
+	alt?: string;
+	description: string | null;
 	inverted: boolean;
 	onInvert: (next: boolean) => void;
 }) {
@@ -260,7 +284,7 @@ function PngFigure({
 			<div className="w-full overflow-hidden rounded-lg" style={paperStyle(inverted)} data-testid="visual-png">
 				{/* A rendered file from the media route; no Next image optimization. */}
 				{/* eslint-disable-next-line @next/next/no-img-element */}
-				<img ref={imgRef} src={src} alt="Figure" width={width} height={height} className="block h-auto w-full" draggable={false} />
+				<img ref={imgRef} src={src} alt={alt || "Figure"} width={width} height={height} className="block h-auto w-full" draggable={false} />
 			</div>
 			<div className="mt-2 flex items-center justify-between gap-2">
 				<div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Figure</div>
@@ -290,6 +314,7 @@ function PngFigure({
 					)}
 				</div>
 			</div>
+			{description && <FigureDescription description={description} />}
 		</div>
 	);
 }

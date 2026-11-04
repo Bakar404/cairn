@@ -14,6 +14,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { isHexColor, type ChatSettings } from "../core";
 import type {
+	AccessibilitySettings,
 	AgentSettings,
 	AppearanceSettings,
 	BackgroundModelRole,
@@ -24,6 +25,18 @@ import type {
 	RoleModelOverride,
 } from "../core/settings.ts";
 import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
+import {
+	A11Y_RANGES,
+	CONTRAST_PREFERENCES,
+	FOCUS_INDICATORS,
+	MOTION_PREFERENCES,
+	isContrastPreference,
+	isFocusIndicator,
+	isMotionPreference,
+	isOnStep,
+	snapToRange,
+	type A11yRangeField,
+} from "../core/accessibility.ts";
 import { isAppearanceMode } from "../core/theme-mode.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 
@@ -196,6 +209,24 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 			return { ok: false, error: "workIq.enabled must be a boolean" };
 		}
 		settings.workIq = workIq.enabled === undefined ? {} : { enabled: workIq.enabled };
+	}
+	// Microsoft Learn (M21): same strict write side. Absent = ON.
+	if (raw.learnDocs !== undefined) {
+		const learnDocs = asRecord(raw.learnDocs);
+		if (!learnDocs) return { ok: false, error: "learnDocs must be an object" };
+		if (learnDocs.enabled !== undefined && typeof learnDocs.enabled !== "boolean") {
+			return { ok: false, error: "learnDocs.enabled must be a boolean" };
+		}
+		settings.learnDocs = learnDocs.enabled === undefined ? {} : { enabled: learnDocs.enabled };
+	}
+	// The answer check (M24): same strict write side. Absent = ON.
+	if (raw.assessor !== undefined) {
+		const assessor = asRecord(raw.assessor);
+		if (!assessor) return { ok: false, error: "assessor must be an object" };
+		if (assessor.enabled !== undefined && typeof assessor.enabled !== "boolean") {
+			return { ok: false, error: "assessor.enabled must be a boolean" };
+		}
+		settings.assessor = assessor.enabled === undefined ? {} : { enabled: assessor.enabled };
 	}
 	return { ok: true, settings };
 }
@@ -377,6 +408,51 @@ export function parseCompactionSettingsBody(body: unknown): SettingsBodyResult<C
 	return { ok: true, settings };
 }
 
+/** accessibility (accessibility mode, M27): each choice must be a known
+ *  value, each switch a boolean, and each reading number inside its range
+ *  and on a step (A11Y_RANGES). A value a float's hair off a step is stored
+ *  on the step. Absent fields are defaults; readingWidth absent = full
+ *  width. */
+export function parseAccessibilitySettingsBody(body: unknown): SettingsBodyResult<AccessibilitySettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: AccessibilitySettings = {};
+	for (const field of ["followSystem", "expandDescriptions", "announceToolSteps"] as const) {
+		const value = raw[field];
+		if (value === undefined) continue;
+		if (typeof value !== "boolean") return { ok: false, error: `${field} must be a boolean` };
+		settings[field] = value;
+	}
+	if (raw.contrast !== undefined) {
+		if (!isContrastPreference(raw.contrast)) {
+			return { ok: false, error: `contrast must be one of: ${CONTRAST_PREFERENCES.join(", ")}` };
+		}
+		settings.contrast = raw.contrast;
+	}
+	if (raw.motion !== undefined) {
+		if (!isMotionPreference(raw.motion)) {
+			return { ok: false, error: `motion must be one of: ${MOTION_PREFERENCES.join(", ")}` };
+		}
+		settings.motion = raw.motion;
+	}
+	if (raw.focus !== undefined) {
+		if (!isFocusIndicator(raw.focus)) {
+			return { ok: false, error: `focus must be one of: ${FOCUS_INDICATORS.join(", ")}` };
+		}
+		settings.focus = raw.focus;
+	}
+	for (const field of Object.keys(A11Y_RANGES) as A11yRangeField[]) {
+		const value = raw[field];
+		if (value === undefined) continue;
+		if (typeof value !== "number" || !isOnStep(field, value)) {
+			const { min, max, step } = A11Y_RANGES[field];
+			return { ok: false, error: `${field} must be a number from ${min} to ${max} in steps of ${step}` };
+		}
+		settings[field] = snapToRange(field, value);
+	}
+	return { ok: true, settings };
+}
+
 /** The section→parser map for PUT /api/settings/[section] (the route also
  *  carries the special prompts sub-resource). */
 export const SETTINGS_SECTIONS = {
@@ -384,6 +460,7 @@ export const SETTINGS_SECTIONS = {
 	chat: parseSettingsBody,
 	agent: parseAgentSettingsBody,
 	appearance: parseAppearanceSettingsBody,
+	accessibility: parseAccessibilitySettingsBody,
 	graph: parseGraphSettingsBody,
 	compaction: parseCompactionSettingsBody,
 	models: parseModelsSettingsBody,

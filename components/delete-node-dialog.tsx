@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 
 /** The 409 extraction_running line (owner phrasing, node interlude):
  *  the server's error names the extraction; the ACTIVITY DOCK is the
@@ -45,11 +46,18 @@ export function DeleteNodeBody({
 	onClose: () => void;
 	onRun: () => void;
 }) {
+	const dialogRef = useRef<HTMLDivElement>(null);
+	const cancelRef = useRef<HTMLButtonElement>(null);
+	// Focus starts on Cancel: deleting is permanent.
+	useDialogFocus(dialogRef, true, { initialFocus: cancelRef });
 	return (
 		<div
+			ref={dialogRef}
 			role="dialog"
 			aria-modal="true"
 			aria-label="Delete node"
+			tabIndex={-1}
+			data-focus-container=""
 			data-testid="delete-node-dialog"
 			onClick={(e) => e.stopPropagation()}
 			className="w-[32rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-5 shadow-xl"
@@ -105,6 +113,7 @@ export function DeleteNodeBody({
 			)}
 			<div className="mt-4 flex justify-end gap-2">
 				<button
+					ref={cancelRef}
 					type="button"
 					data-testid="node-delete-cancel"
 					onClick={onClose}

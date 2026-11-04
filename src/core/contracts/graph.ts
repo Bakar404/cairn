@@ -80,6 +80,25 @@ export interface ProvenancePoint {
 	 *  recorded through the mapping line + the source record). */
 	chatId: string;
 	messageId: string;
+	/** OPTIONAL, IMPORTS ONLY (M25, checked quotes): the source's own words
+	 *  for this proposition — a verbatim span the extractor quoted and the
+	 *  import found in the text it read (core/quote-check.ts). An unmatched
+	 *  quote is dropped, never stored. Old points simply lack it. */
+	quote?: string;
+	/** OPTIONAL: the PDF page the quote sits on (1-based). */
+	page?: number;
+	/** OPTIONAL: the diff hunk around the quote (code-change imports, M22). */
+	hunk?: SourceHunk;
+}
+
+/** A short excerpt of one diff hunk — where a code-change proposition
+ *  comes from. `text` keeps the diff's +/-/space line prefixes. */
+export interface SourceHunk {
+	/** The file's new path (the "b/" side of "diff --git"). */
+	file: string;
+	/** The hunk's "@@ -a,b +c,d @@ …" line. */
+	header: string;
+	text: string;
 }
 
 /** One imported notes file — the format-agnostic front door's bookkeeping
@@ -102,7 +121,12 @@ export interface NotesSource {
 	/** The run's usage log — same append-only discipline as
 	 *  ChatRecord.extractions, idempotent per startedAt. */
 	extractions?: ExtractionRunUsage[];
+	/** OPTIONAL (M25/M22): what was imported — notes text (absent on old
+	 *  records), a PDF, or a code change (commit range or pull request). */
+	kind?: NotesSourceKind;
 }
+
+export type NotesSourceKind = "notes" | "pdf" | "change";
 
 /** What one cluster-naming refresh did — the namer's ClusterRefreshStats,
  *  contract-shaped so the agent layer needs no contracts import.
@@ -243,6 +267,13 @@ export interface ExtractedProposition {
 	 *  undefined → messageId "" (chat-level), so NO persisted shape or
 	 *  format version changes (GraphNode / ProvenancePoint untouched). */
 	messageId?: string;
+	/** OPTIONAL, IMPORT PATH ONLY (M25): a quote the import CHECKED against
+	 *  the text the extractor read — set by the import, never by the model
+	 *  directly — with the page (PDF) or hunk (code change) it sits in. The
+	 *  merger stamps them on the provenance point. */
+	quote?: string;
+	page?: number;
+	hunk?: SourceHunk;
 }
 
 /** One proposed argument (extractor redesign, 2026-09-30). Endpoints are

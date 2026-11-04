@@ -55,6 +55,7 @@ import { select } from "d3-selection";
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
 import type { Simulation, SimulationLinkDatum } from "d3-force";
 import { clusterHue, type Pt } from "./cluster-geometry.ts";
+import { motionReduced } from "./reduced-motion.ts";
 import {
 	CHARGE_STRENGTH,
 	CLUSTER_PULL_STRENGTH,
@@ -314,6 +315,10 @@ const CLICK_SLOP = 4;
 const LIVE_ALPHA_DECAY = 0.05; // snappier anneal than the settle's 0.0228
 const DRAG_ALPHA_TARGET = 0.3; // d3-drag's own reheat constant
 const SIM_SETTLE_ALPHA = 0.005; // below this, the sim counts as settled
+/** Ticks for a full re-anneal (alpha 1 → SIM_SETTLE_ALPHA at
+ *  LIVE_ALPHA_DECAY: 104). Reduced motion runs them in one go — the same
+ *  rest state the animated re-anneal reaches, drawn without the drift. */
+const SIM_SETTLE_TICKS = Math.ceil(Math.log(SIM_SETTLE_ALPHA) / Math.log(1 - LIVE_ALPHA_DECAY));
 const COMMIT_DEBOUNCE_MS = 250; // settle → ledger PUT delay (new drags cancel)
 
 /** Cluster region styling — a low-res world-space SPLAT bitmap (the
@@ -840,10 +845,14 @@ export class GraphCanvasRenderer {
 		// Reheat: a tuning change re-anneals the layout from its current
 		// state, so mode toggles (off/vertical/radial) visibly RE-FORM the
 		// graph instead of waiting for the next drag. Mid-drag is safe —
-		// buildSim preserved the pinned node's fx/fy.
+		// buildSim preserved the pinned node's fx/fy. Reduced motion settles
+		// before the next frame instead (this also runs at load, so the graph
+		// opens at rest); a drag in progress keeps its live sim — the user
+		// is moving the graph on purpose.
 		if (this.sim) {
 			this.sim.alpha(1);
-			this.simActive = true;
+			if (motionReduced() && !this.dragId) this.settleNow();
+			else this.simActive = true;
 		}
 		this.markDirty();
 	}
@@ -1171,6 +1180,20 @@ export class GraphCanvasRenderer {
 		return true;
 	}
 
+	/** The whole re-anneal in one synchronous run (reduced motion). Same
+	 *  movement check and commit as advanceSim's settle. */
+	private settleNow(): void {
+		const sim = this.sim;
+		if (!sim) return;
+		for (let i = 0; i < SIM_SETTLE_TICKS; i++) {
+			sim.tick();
+			if (!this.simMoved && sim.nodes().some((n) => n.vx || n.vy)) this.simMoved = true;
+		}
+		this.simActive = false;
+		this.geoVersion++;
+		this.scheduleCommit();
+	}
+
 	/** Debounced rest-state commit. A new drag or setData cancels it. */
 	private scheduleCommit(): void {
 		if (this.commitTimer) clearTimeout(this.commitTimer);
@@ -1196,12 +1219,13 @@ export class GraphCanvasRenderer {
 
 	/** Zoom glide step: ease k toward the wheel target, keeping the world
 	 *  point under the cursor pinned. Frame-rate independent (exponential
-	 *  approach, time constant ZOOM_EASE_MS). Returns true while gliding. */
+	 *  approach, time constant ZOOM_EASE_MS). Reduced motion lands on the
+	 *  target in one step. Returns true while gliding. */
 	private advanceZoom(dt: number): boolean {
 		const target = this.zoomTarget;
 		if (!target) return false;
 		const t = this.transform;
-		const blend = 1 - Math.exp(-dt / ZOOM_EASE_MS);
+		const blend = motionReduced() ? 1 : 1 - Math.exp(-dt / ZOOM_EASE_MS);
 		let k = t.k + (target.k - t.k) * blend;
 		let done = false;
 		if (Math.abs(target.k - k) / target.k < 0.002) {

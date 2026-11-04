@@ -21,17 +21,20 @@ export function svgImageSource(svg: string): string {
 }
 
 /** Keep generated SVG in an image document, outside the app's CSS and ID scope.
- * This is a display boundary, not a sanitizer for the original SVG download. */
+ * This is a display boundary, not a sanitizer for the original SVG download.
+ * The alt is the maker's (describe_figure, M27); without one it is "Figure". */
 export function SvgImage({
 	svg,
 	className,
 	width,
+	alt,
 }: {
 	svg: string;
 	className?: string;
 	width?: number;
+	alt?: string;
 }) {
 	// The source is already an in-memory vector image; no Next image optimization.
 	// eslint-disable-next-line @next/next/no-img-element
-	return <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgImageSource(svg))}`} alt="Figure" className={className} width={width} draggable={false} />;
+	return <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgImageSource(svg))}`} alt={alt || "Figure"} className={className} width={width} draggable={false} />;
 }

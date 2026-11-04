@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ListTreeIcon, UploadIcon } from "lucide-react";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { GraphCostControl } from "@/components/graph-view.tsx";
+import { CodeChangeImportControl, useCodeChangeImport } from "@/components/code-change-import";
 import { NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
 import { Hint } from "@/components/ui/hint";
 import type { ChatSummary, GraphCostSummary, GraphSnapshot } from "@/src/core";
@@ -126,6 +127,7 @@ export function MinimalHome({
 	// Refetch even after incomplete imports: earlier writes and spend remain.
 	const notesImport = useNotesImport({ onFinish: readState });
 	const { importing, onImportFiles } = notesImport;
+	const codeChange = useCodeChangeImport({ onFinish: readState });
 
 	const teachSessions = chats.filter((c) => c.kind === "teach").length;
 	const practiceSessions = chats.filter((c) => c.kind === "practice").length;
@@ -136,7 +138,7 @@ export function MinimalHome({
 				ref={fileInputRef}
 				type="file"
 				multiple
-				accept=".md,.markdown,.txt"
+				accept=".md,.markdown,.txt,.pdf,application/pdf"
 				className="hidden"
 				onChange={(e) => {
 					onImportFiles(e.target.files);
@@ -193,6 +195,11 @@ export function MinimalHome({
 							</button>
 						</Hint>
 					</div>
+					<CodeChangeImportControl
+						importing={codeChange.importing}
+						result={codeChange.result}
+						onSubmit={codeChange.submit}
+					/>
 				</div>
 				<NotesImportErrors errors={notesImport.errors} />
 				{costs && costs.runs.length > 0 && <GraphCostControl costs={costs} />}

@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { displayCostTotals, isNodeVisible } from "../components/graph-view.tsx";
+import { displayCostTotals, graphImageLabel, isNodeVisible } from "../components/graph-view.tsx";
 
 const node = {
 	name: "Money multiplier",
@@ -65,5 +65,13 @@ describe("displayCostTotals (naming-free cost fold)", () => {
 
 	it("unpriced counts fold the same two stages", () => {
 		assert.equal(displayCostTotals(costs).unpricedRuns, 1);
+	});
+});
+
+describe("graphImageLabel (the canvas's accessible name)", () => {
+	it("counts propositions and chains, singular and plural", () => {
+		assert.equal(graphImageLabel(1, 1), "Knowledge graph: 1 proposition in 1 chain.");
+		assert.equal(graphImageLabel(12, 3), "Knowledge graph: 12 propositions in 3 chains.");
+		assert.equal(graphImageLabel(0, 0), "Knowledge graph: 0 propositions in 0 chains.");
 	});
 });

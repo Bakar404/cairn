@@ -4,11 +4,23 @@ import { Type } from "typebox";
 import { piEngineFor, type PiEngine } from "../models.ts";
 import { providerEventObserver } from "../provider-events.ts";
 import { releaseCopilotSessions } from "../copilot/index.ts";
-import type { AnimationResult, AnimationToolInput } from "../../core/contracts.ts";
+import type { AnimationBeat, AnimationResult, AnimationToolInput } from "../../core/contracts.ts";
 import { MANIM_MAX_SECONDS, type ManimRenderer } from "../../core/manim.ts";
 import { FIGURE } from "../../core/figure-theme.ts";
 import { providerSafePng } from "./headless.ts";
-import { applyExactEdit, issueLines, layoutReport, lookMessage, nudgeMessage, streamOnce, textOf, toolCallsOf, toolText } from "./maker-kit.ts";
+import {
+	applyExactEdit,
+	issueLines,
+	layoutReport,
+	lookMessage,
+	nudgeMessage,
+	readBeats,
+	readTextAlternative,
+	streamOnce,
+	textOf,
+	toolCallsOf,
+	toolText,
+} from "./maker-kit.ts";
 
 /**
  * The animation-maker sub-agent (M13): writes ONE short Manim scene from the
@@ -27,6 +39,12 @@ import { applyExactEdit, issueLines, layoutReport, lookMessage, nudgeMessage, st
  * last looked at. Out of turns, the newest scene a model call looked at
  * ships (a preview made on the last turn gets one more call to look at
  * it); with none, the failure names the last render error.
+ *
+ * TEXT ALTERNATIVE (M27): describe_animation records an alt, a description
+ * and the beats of the scene as it stands. A finish whose scene isn't
+ * described gets one nudge; after that it ships without. A description
+ * ships only with the scene it was written for; the runner turns its beats
+ * into the player's descriptions track.
  *
  * Failure semantics: { title, video: null, notes: "FAILED: …" }.
  */
@@ -131,6 +149,12 @@ A clean frame — what makes an animation look careful rather than rough:
 - Indicate, Circumscribe and Flash already use the accent. After each beat, hold 0.5 to 1.5 s with
   self.wait so it can be read.
 
+Before you finish, call describe_animation({ alt, description, beats }) for learners who can't see the video:
+- alt: ONE sentence saying what the animation shows, under 150 characters.
+- description: what happens overall, 2-4 short sentences.
+- beats: one entry per beat, in order: { at, text }. at is the second the beat settles, read from the contact sheet's frame captions; text is one short sentence saying what is on screen then, including any on-screen words that matter.
+If you change the scene after describing it, call describe_animation again.
+
 Your FINAL message: 1-2 sentences of notes for the teacher (what the animation shows and any caveats) —
 NEVER the code itself. If you genuinely cannot make a correct animation of the brief, say exactly that
 in your final message and why.`;
@@ -147,6 +171,8 @@ const EARLIER_VERSION_NOTE =
 const LAYOUT_GATE_MESSAGE = "Before you finish: the layout check still reports these problems in your final scene:";
 const LAYOUT_GATE_ASK =
 	"Fix them and preview again — or, if one is deliberate, reply with your notes again and say why.";
+const DESCRIBE_NUDGE =
+	"Before you finish, call describe_animation with the alt text, description and beats of your final scene.";
 
 const SCENE_EDIT = { write: "write_scene", render: "render_preview", noun: "scene" };
 
@@ -183,6 +209,24 @@ export function createAnimationTools(): Record<string, Tool> {
 			description:
 				"Render the current scene at low quality and show you a contact sheet of the moments it settles into, then its final frame, with its length and any layout problems the renderer measured. No arguments.",
 			parameters: Type.Object({}),
+		},
+		describe_animation: {
+			name: "describe_animation",
+			description:
+				"Give the animation's text alternative for learners who can't see it: a one-sentence alt, a short description and one line per beat.",
+			parameters: Type.Object({
+				alt: Type.String({ description: "One sentence: what the animation shows (under 150 characters)." }),
+				description: Type.String({ description: "What happens overall, 2-4 short sentences." }),
+				beats: Type.Array(
+					Type.Object({
+						at: Type.Number({ description: "The second the beat settles, read from the contact sheet's frame captions." }),
+						text: Type.String({
+							description: "One short sentence: what is on screen then, including any on-screen words that matter.",
+						}),
+					}),
+					{ description: "One entry per beat, in order." },
+				),
+			}),
 		},
 	};
 }
@@ -222,6 +266,15 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 	/** The scene a finish was last reminded of its layout problems (once per scene). */
 	let remindedScene: string | null = null;
 	let finalText = "";
+	/** describe_animation's text alternative and the scene it was written
+	 *  for: it ships only with that scene. */
+	let sceneText: { alt: string; description: string; beats: AnimationBeat[] } | null = null;
+	let describedFor: string | null = null;
+	/** The describe gate nudges once. The notes of the finish it held back
+	 *  outlive a bare "Done" after the nudge. */
+	let describeNudged = false;
+	let heldNotes: { scene: string; notes: string } | null = null;
+	const notesFor = (scene: string): string => (heldNotes?.scene === scene && heldNotes.notes ? heldNotes.notes : finalText);
 
 	const render = (code: string, mode: "preview" | "final") =>
 		opts.manim.render({
@@ -248,7 +301,8 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 		return { error: lastError };
 	};
 
-	/** Render the final video of the scene the model last looked at. */
+	/** Render the final video of the scene the model last looked at, with
+	 *  the text alternative when it describes that scene. */
 	const deliver = async (code: string, notes: string): Promise<AnimationResult | { error: string }> => {
 		opts.onActivity?.("rendering the final video");
 		const out = await render(code, "final");
@@ -259,6 +313,7 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 			...(out.poster ? { poster: out.poster } : {}),
 			...(out.durationSec !== undefined ? { durationSec: out.durationSec } : {}),
 			...(notes ? { notes } : {}),
+			...(sceneText && describedFor === code ? sceneText : {}),
 		};
 	};
 
@@ -320,7 +375,16 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 					messages = [...messages, nudgeMessage(`${LAYOUT_GATE_MESSAGE}\n${issueLines(previewIssues)}\n${LAYOUT_GATE_ASK}`)];
 					continue;
 				}
-				const out = await deliver(currentScene, finalText);
+				// Text-alternative gate (M27): one nudge to describe the scene being
+				// delivered (a description of an earlier version doesn't count).
+				// After that, or on the last turn, it ships without one.
+				if (describedFor !== currentScene && !describeNudged && !lastTurn) {
+					describeNudged = true;
+					heldNotes = { scene: currentScene, notes: finalText };
+					messages = [...messages, nudgeMessage(DESCRIBE_NUDGE)];
+					continue;
+				}
+				const out = await deliver(currentScene, notesFor(currentScene));
 				if ("error" in out) {
 					// The model must fix the scene and look again before the next try;
 					// out of turns, this scene is not tried again.
@@ -381,8 +445,39 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 							`Rendered — ${shot.durationSec.toFixed(1)} s long. The contact sheet follows in the next message. Look at it.${layoutReport(shot.issues)}`,
 						),
 					);
+				} else if (call.name === "describe_animation") {
+					const text = readTextAlternative(call.arguments);
+					if ("error" in text) {
+						toolResults.push(toolText(call.id, call.name, text.error));
+						continue;
+					}
+					const beats = readBeats((call.arguments as { beats?: unknown }).beats);
+					if ("error" in beats) {
+						toolResults.push(toolText(call.id, call.name, beats.error));
+						continue;
+					}
+					if (!currentScene) {
+						toolResults.push(toolText(call.id, call.name, "ERROR: nothing to describe — call write_scene first."));
+						continue;
+					}
+					sceneText = { ...text, beats };
+					describedFor = currentScene;
+					opts.onActivity?.("describe_animation: saved");
+					toolResults.push(
+						toolText(
+							call.id,
+							call.name,
+							`Saved the alt text, description and ${beats.length} beat${beats.length === 1 ? "" : "s"}.`,
+						),
+					);
 				} else {
-					toolResults.push(toolText(call.id, call.name, `ERROR: unknown tool "${call.name}". Use write_scene, edit_scene, or render_preview.`));
+					toolResults.push(
+						toolText(
+							call.id,
+							call.name,
+							`ERROR: unknown tool "${call.name}". Use write_scene, edit_scene, render_preview, or describe_animation.`,
+						),
+					);
 				}
 			}
 			// Message order: assistant tool-calls → tool results → contact sheet.
@@ -411,7 +506,7 @@ export async function runAnimationMaker(input: AnimationToolInput, opts: Animati
 		}
 		// Deliver the newest scene a model call looked at — never an unlooked one.
 		if (lastLooked) {
-			const notes = lastLooked === currentScene ? finalText || LIMIT_NOTE : EARLIER_VERSION_NOTE;
+			const notes = lastLooked === currentScene ? notesFor(lastLooked) || LIMIT_NOTE : EARLIER_VERSION_NOTE;
 			const out = await deliver(lastLooked, notes);
 			if (!("error" in out)) return out;
 			return failed(`iteration limit (${maxIterations}) reached, and the final render failed — ${out.error}`);

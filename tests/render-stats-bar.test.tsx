@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { StatsBar, formatContextMeasurement } from "../components/stats-bar.tsx";
 import { sessionCost } from "../src/server/pricing.ts";
 import { catalogLimits } from "../components/model-picker.tsx";
+import { ModelMenuList, ThinkingMenuList } from "../components/settings/model-menu.tsx";
 import type { ModelCatalogEntry, ModelCatalogResponse } from "../src/core/contracts.ts";
 import { prettyModel } from "../components/usage-format.ts";
 import type { ChatSettings, TurnUsage } from "../src/core/contracts.ts";
@@ -23,6 +24,18 @@ function turn(over: Partial<TurnUsage> = {}): TurnUsage {
 		at: "2026-09-09T12:00:00Z",
 		model: "openrouter:z-ai/glm-5.3-flash",
 		steps: [step(10_000, 1_000)],
+		...over,
+	};
+}
+
+function entry(over: Pick<ModelCatalogEntry, "id" | "provider" | "contextWindow">): ModelCatalogEntry {
+	return {
+		name: over.id,
+		reasoning: false,
+		input: ["text"],
+		supportedLevels: [],
+		cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+		maxTokens: 32_768,
 		...over,
 	};
 }
@@ -115,15 +128,6 @@ describe("catalogLimits (the stats-bar live-limits join, pure)", () => {
 	// concern — Playwright verifies the wiring), so the pure index shape
 	// is pinned here: one entry per model, the exact key contextWindow()
 	// looks up, missing models absent (→ limit null → usage-only).
-	const entry = (over: Pick<ModelCatalogEntry, "id" | "provider" | "contextWindow">): ModelCatalogEntry => ({
-		name: over.id,
-		reasoning: false,
-		input: ["text"],
-		supportedLevels: [],
-		cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
-		maxTokens: 32_768,
-		...over,
-	});
 	const catalog: Pick<ModelCatalogResponse, "models"> = {
 		models: [
 			entry({ id: "z-ai/glm-5.3-flash", provider: "openrouter", contextWindow: 1_048_576 }),
@@ -150,5 +154,38 @@ describe("catalogLimits (the stats-bar live-limits join, pure)", () => {
 		const limits = catalogLimits(twin);
 		assert.equal(limits.get("openrouter:z-ai/glm-5.3-flash"), 1_048_576);
 		assert.equal(limits.get("zai:z-ai/glm-5.3-flash"), 200_000);
+	});
+});
+
+describe("the model and thinking menus mark the current row (aria-current)", () => {
+	// Besides an aria-hidden ✓, the current row's only mark is the
+	// bg-muted/60 tint, which forced colors flatten; aria-current carries it
+	// to assistive tech and to the forced-colors selection rule.
+	const currentRows = (html: string) =>
+		html.split("<button").slice(1).filter((row) => row.includes('aria-current="true"'));
+
+	it("the effective model's row, matched on provider and id both", () => {
+		const models = [
+			entry({ id: "z-ai/glm-5.3-flash", provider: "openrouter", contextWindow: 1_048_576 }),
+			entry({ id: "z-ai/glm-5.3-flash", provider: "zai", contextWindow: 200_000 }),
+			entry({ id: "gpt-x", provider: "openai", contextWindow: 400_000 }),
+		];
+		const html = renderToStaticMarkup(
+			<ModelMenuList models={models} effectiveId="z-ai/glm-5.3-flash" effectiveProvider="zai" onPick={() => {}} />,
+		);
+		const current = currentRows(html);
+		assert.equal(current.length, 1, "not both providers' twins");
+		assert.ok(current[0]!.includes(">zai"), "the zai twin");
+		const none = renderToStaticMarkup(<ModelMenuList models={models} effectiveId={undefined} onPick={() => {}} />);
+		assert.equal(currentRows(none).length, 0);
+	});
+
+	it("the effective thinking level's row", () => {
+		const html = renderToStaticMarkup(
+			<ThinkingMenuList levels={["low", "medium", "high"]} effectiveLevel="medium" onPick={() => {}} />,
+		);
+		const current = currentRows(html);
+		assert.equal(current.length, 1);
+		assert.match(current[0]!, /data-testid="thinking-option-medium"/);
 	});
 });

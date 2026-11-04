@@ -21,7 +21,11 @@ updates:
       # dagre-d3-es must match the copy mermaid ships, electron-builder.yml
       # depends on the packager's internals (see its comments), and the
       # agent engine and math parsers move only with their tests.
+      # @playwright/test pins the Chromium build that e2e/a11y-baseline.json
+      # was recorded on: bump it by hand and re-record the baseline in the
+      # same commit (docs/development.md#accessibility-checks).
       - dependency-name: "@earendil-works/*"
+      - dependency-name: "@playwright/test"
       - dependency-name: dagre-d3-es
       - dependency-name: katex
       - dependency-name: mdast-util-from-markdown

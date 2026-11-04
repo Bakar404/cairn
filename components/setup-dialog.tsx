@@ -29,9 +29,10 @@
  * CMU title, z-50.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 import { type ModelCatalogEntry, type ModelSlotName, type ModelsSettings } from "@/src/core";
 import { prettyModel } from "@/components/usage-format";
 import { ModelMenuList } from "@/components/settings/model-menu";
@@ -238,6 +239,11 @@ export function SetupDialog({
 		};
 	}, [open, onClose, openMenu]);
 
+	// Called before the closed early-return: the hook remembers the opener
+	// while closed and hands focus back when `open` drops.
+	const dialogRef = useRef<HTMLDivElement>(null);
+	useDialogFocus(dialogRef, open, { initialFocus: "container" });
+
 	if (!open) return null;
 
 	const stage = failed ? "keys" : setupStage(body ? body.providers : null);
@@ -276,9 +282,12 @@ export function SetupDialog({
 			{...backdropDismiss}
 		>
 			<div
+				ref={dialogRef}
 				role="dialog"
 				aria-modal="true"
 				aria-label="Set up your models"
+				tabIndex={-1}
+				data-focus-container=""
 				data-testid="setup-dialog"
 				className="settings-dialog-pop flex max-h-[85vh] w-[640px] max-w-[90vw] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl"
 				onClick={(e) => e.stopPropagation()}

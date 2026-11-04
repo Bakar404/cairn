@@ -1,6 +1,6 @@
 import { chainsForSelection, formatChainLine } from "@/src/core";
-import { newGraphContextMessage, type GraphContextPick } from "@/src/core";
-import { compactionInFlight, createChat, isTurnRunning, listChats, readSettingsRecord, stores, titleFromPrompt } from "@/src/server";
+import { newGoalContextMessage, newGraphContextMessage, parseLearningGoal, type GraphContextPick, type LhMessage } from "@/src/core";
+import { compactionInFlight, createChat, graphEvidenceFor, isTurnRunning, listChats, readSettingsRecord, stores, titleFromPrompt } from "@/src/server";
 import type { ChatListItem } from "@/src/core";
 
 /** The session picker's list: record-derived summaries (phase, pending
@@ -20,7 +20,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown };
+	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown; goal?: unknown };
 	const title = typeof body.title === "string" ? body.title : "";
 	// Practice sessions (owner, 2026-10-04): kind "practice" marks the
 	// record — the practice agent + its tools from turn 1, no extraction.
@@ -45,7 +45,9 @@ export async function POST(req: Request) {
 	// marker (a separate custom message BEFORE the learner's first user
 	// message), carrying the picks plus the reasoning chains among them.
 	// The picks carry their own name/statement (what the learner saw at
-	// pick time); the chains derive from the CURRENT graph snapshot.
+	// pick time); the chains derive from the CURRENT graph snapshot, and
+	// so does the source evidence (M22): each pick's checked quote, with
+	// the diff hunk a code change put it in — teach and practice alike.
 	const rawPicks = (body.graphContext as { propositions?: unknown } | undefined)?.propositions;
 	const picks: GraphContextPick[] = Array.isArray(rawPicks)
 		? rawPicks
@@ -59,13 +61,21 @@ export async function POST(req: Request) {
 					)
 					.slice(0, 64)
 			: [];
+	// The session's learning goal (M21): a certification's skills measured
+	// or a repository's stack, read by the Goals picker and sent back
+	// here. It rides the creation too, as message[0] — ahead of the map
+	// context, both saved in one write. A malformed goal is dropped, and so
+	// is any goal on a practice session (goals are a teach-mode setting).
+	const goal = kind === "practice" ? null : parseLearningGoal(body.goal);
+	const context: LhMessage[] = goal ? [newGoalContextMessage(goal)] : [];
 	if (picks.length > 0) {
 		const byId = new Map(stores.graphStore.readNodes().map((n) => [n.id, n]));
 		const pickedNodes = picks.map((p) => byId.get(p.id)).filter((n) => n !== undefined);
 		const chainLines = chainsForSelection(pickedNodes, stores.graphStore.readChains()).map((c) =>
 			formatChainLine(c, Object.fromEntries(byId)),
 		);
-		stores.chatStore.saveMessages(chat.id, [newGraphContextMessage(picks, chainLines)]);
+		context.push(newGraphContextMessage(picks, chainLines, graphEvidenceFor(picks.map((p) => p.id))));
 	}
+	if (context.length > 0) stores.chatStore.saveMessages(chat.id, context);
 	return Response.json({ id: chat.id, title: chat.title });
 }

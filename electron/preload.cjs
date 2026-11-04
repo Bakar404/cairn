@@ -15,7 +15,14 @@
  *   round 7, 2026-10-05): every ⌘±/⌘0 change arrives as "lh:zoom" with
  *   the new factor; getZoom covers the first-paint race. The renderer
  *   publishes it as --lh-zoom so physical-constant lengths (the traffic-
- *   light gutter) can divide by it.
+ *   light gutter) can divide by it. setZoom(f) asks main for one rung of
+ *   the ⌘± ladder (the Low vision preset, M27); anything else is ignored.
+ *
+ *   window.lh.getSystemAccessibility() / window.lh.onSystemAccessibility(cb)
+ *   — follow the OS (M27): the nativeTheme accessibility flags as
+ *   {highContrast, forcedColors, invertedColors, reducedTransparency,
+ *   differentiateWithoutColor}, pulled once per load and pushed as
+ *   "lh:a11y" on every change.
  *
  *   window.lh.onUpdateStatus(cb) / window.lh.installUpdate() — the
  *   auto-update channel (Wave C, 2026-10-10): "lh:update-status" pushes
@@ -48,6 +55,13 @@ contextBridge.exposeInMainWorld("lh", {
 		return () => ipcRenderer.removeListener("lh:zoom", listener);
 	},
 	getZoom: () => ipcRenderer.invoke("lh:zoom:get"),
+	setZoom: (factor) => ipcRenderer.send("lh:zoom:set", factor),
+	getSystemAccessibility: () => ipcRenderer.invoke("lh:a11y:get"),
+	onSystemAccessibility: (cb) => {
+		const listener = (_event, flags) => cb(flags);
+		ipcRenderer.on("lh:a11y", listener);
+		return () => ipcRenderer.removeListener("lh:a11y", listener);
+	},
 	onUpdateStatus: (cb) => {
 		const listener = (_event, status) => cb(status);
 		ipcRenderer.on("lh:update-status", listener);

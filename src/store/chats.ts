@@ -12,7 +12,7 @@ import * as path from "node:path";
 import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
-import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
+import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, PracticeAssessment, TurnUsage } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
@@ -26,12 +26,12 @@ function chatFile(id: string): string {
 /** THE SILENCE LAW (push S6, 2026-10-02): chats-changed announces ONLY
  *  list-SHAPE mutations — createChat, renameChat, deleteChat (below,
  *  each emits post-write). The content writers (saveMessages,
- *  appendTurnUsage, appendExtractionUsage, saveSettings, saveTree) are
- *  DELIBERATELY SILENT: saveMessages fires per turn-persist and would
- *  spam the bus, and every list-visible change it causes (title, order,
- *  phase, busy, pendingQuestion) is already announced by turn-started /
- *  turn-settled, which the sidebar refetches on. Silence here is law,
- *  not oversight. */
+ *  appendTurnUsage, appendExtractionUsage, appendAssessment, saveSettings,
+ *  saveTree) are DELIBERATELY SILENT: saveMessages fires per turn-persist
+ *  and would spam the bus, and every list-visible change it causes (title,
+ *  order, phase, busy, pendingQuestion) is already announced by
+ *  turn-started / turn-settled, which the sidebar refetches on. Silence
+ *  here is law, not oversight. */
 function createChat(title: string, kind?: "practice"): ChatRecord {
 	const now = new Date().toISOString();
 	const record: ChatRecord = {
@@ -84,16 +84,16 @@ function listChats(): ChatSummary[] {
 			.filter((f) => f.endsWith(".json"))
 			.map((f) => getChat(f.slice(0, -5)))
 			.filter((r): r is ChatRecord => r !== null)
-			.map(({ messages, tree, turns, extractions, ...summary }) => {
+			.map(({ messages, tree, turns, extractions, assessments, ...summary }) => {
 				// Per-record isolation (Wave B): a record whose messages fail the
 				// projection (e.g. pre-Wave-B UIMessage-format scratch — the
 				// zero-back-compat wipe makes these "corrupt") must not blank the
 				// whole sidebar — same isolation getChat's per-file catch gives.
 				try {
 					return {
-						// turns and extractions stay out of the list payload (list =
-						// summaries; usage aggregates ride the full record, the picker
-						// never needs them).
+						// turns, extractions and assessments stay out of the list
+						// payload (list = summaries; usage aggregates and answer checks
+						// ride the full record, the picker never needs them).
 						...summary,
 						// Normalized kind: absent record field reads as teach.
 						kind: summary.kind ?? "teach",
@@ -153,6 +153,17 @@ function appendExtractionUsage(id: string, entry: ExtractionRunUsage): void {
 	record.extractions = record.extractions?.some((r) => r.startedAt === entry.startedAt)
 		? record.extractions
 		: [...(record.extractions ?? []), entry];
+	writeChat(record);
+}
+
+/** Append one answer check (M24) to the record's assessments log —
+ * idempotent per concludeCallId: the first check of a conclude call
+ * stands, so a racing or repeated trigger never stacks a second grade. */
+function appendAssessment(id: string, entry: PracticeAssessment): void {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	if (record.assessments?.some((a) => a.concludeCallId === entry.concludeCallId)) return;
+	record.assessments = [...(record.assessments ?? []), entry];
 	writeChat(record);
 }
 
@@ -216,4 +227,5 @@ export const chatStore: ChatStore = {
 	deleteChat,
 	appendTurnUsage,
 	appendExtractionUsage,
+	appendAssessment,
 };

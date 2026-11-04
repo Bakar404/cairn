@@ -42,6 +42,8 @@ import {
 	NEXT_PROBLEM_TEXT,
 	THINKING_LABEL,
 } from "./contracts/chat.ts";
+import type { SourceHunk } from "./contracts/graph.ts";
+import { goalOutline, type LearningGoal } from "./learning-goals.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 
@@ -67,6 +69,7 @@ export interface LhMarkerMessage {
 	role: "custom";
 	customType:
 		| "graph-context"
+		| "goal-context"
 		| "probe-handoff"
 		| "subagent-steer"
 		| "subagent-abort"
@@ -248,6 +251,25 @@ export interface GraphContextPick {
 	statement: string;
 }
 
+/** A checked quote behind one picked proposition (M22): an imported
+ *  source's own words for it, with the PDF page or the diff hunk the quote
+ *  sits in. The teacher shows the hunk beside the idea it explains. */
+export interface GraphContextEvidence {
+	/** The picked proposition's id. */
+	id: string;
+	/** The source's label: a file path, or a code change's label. */
+	source: string;
+	quote: string;
+	page?: number;
+	hunk?: SourceHunk;
+}
+
+/** A code fence longer than any backtick run inside `text`. */
+function fenceFor(text: string): string {
+	const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+	return "`".repeat(Math.max(3, longest + 1));
+}
+
 /** The session's map context (owner, 2026-10-04): a SEPARATE custom
  *  message BEFORE the learner's first user message — the picked
  *  propositions plus the reasoning chains among them (pre-formatted
@@ -255,7 +277,11 @@ export interface GraphContextPick {
  *  to a user message by toLlmMessages like every marker); `details`
  *  feeds the transcript's collapsible GraphContextCard. No more seed
  *  text glued into the first prompt. */
-export function newGraphContextMessage(picks: readonly GraphContextPick[], chains: readonly string[]): LhMarkerMessage {
+export function newGraphContextMessage(
+	picks: readonly GraphContextPick[],
+	chains: readonly string[],
+	evidence: readonly GraphContextEvidence[] = [],
+): LhMarkerMessage {
 	// IDS FIRST (owner round 9, 2026-10-05 — the mastery-trace contract):
 	// each proposition is introduced ONCE with its id, name, and statement;
 	// the problem tool's `target` field takes these ids (names normalize to
@@ -275,13 +301,42 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
 	if (chains.length > 0) {
 		lines.push("", "Reasoning chains among them (premises → conclusion):", ...chains.map((c) => `- ${c}`));
 	}
+	// Source evidence (M22): checked quotes from imported sources — what
+	// the source itself says, and for a code change the diff it says it in.
+	if (evidence.length > 0) {
+		lines.push("", "Source evidence (each imported source's own words for a proposition, checked against the source):");
+		for (const e of evidence) {
+			lines.push(`- [${e.id}] ${e.source}${e.page !== undefined ? `, p. ${e.page}` : ""}: "${e.quote}"`);
+			if (e.hunk) {
+				const body = `${e.hunk.header}\n${e.hunk.text}`;
+				const fence = fenceFor(body);
+				lines.push(`  The diff in ${e.hunk.file}:`, `${fence}diff`, body, fence);
+			}
+		}
+	}
 	return {
 		id: newMessageId(),
 		role: "custom",
 		customType: "graph-context",
 		content: lines.join("\n"),
 		display: true,
-		details: { propositions: picks, chains },
+		details: { propositions: picks, chains, ...(evidence.length > 0 ? { evidence } : {}) },
+		timestamp: Date.now(),
+	};
+}
+
+/** The session's learning goal (M21): a certification's skills measured,
+ *  or a repository's stack, chosen on Home before the session starts. It
+ *  rides as message[0], ahead of any map context; `details` is the goal
+ *  itself, for the transcript's GoalContextCard. */
+export function newGoalContextMessage(goal: LearningGoal): LhMarkerMessage {
+	return {
+		id: newMessageId(),
+		role: "custom",
+		customType: "goal-context",
+		content: `[Session context] — the learner's learning goal, chosen when starting this session:\n\n${goalOutline(goal)}`,
+		display: true,
+		details: goal,
 		timestamp: Date.now(),
 	};
 }
@@ -398,7 +453,7 @@ export function concludedByDismissalPair(
  *  subject is the call, not a dangling result). */
 /** The ids of tool calls whose results are CLEAN (not errored) — the only
  *  calls that ever happened, per the honest-activation ruling. */
-function cleanToolCallIds(messages: readonly LhMessage[]): Set<string> {
+export function cleanToolCallIds(messages: readonly LhMessage[]): Set<string> {
 	const ids = new Set<string>();
 	for (const m of messages) {
 		if ((m as { role?: string }).role !== "toolResult") continue;
@@ -432,26 +487,48 @@ export function problemInputForConclude(
 	messages: readonly LhMessage[],
 	concludeCallId: string,
 ): { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown } | undefined {
-	let mi = messages.findIndex(
-		(m) =>
-			(m as { role?: string }).role === "assistant" &&
-			(m as AssistantMessage).content.some(
-				(b) => b.type === "toolCall" && b.id === concludeCallId,
-			),
-	);
-	if (mi < 0) return undefined;
-	const clean = cleanToolCallIds(messages);
-	for (; mi >= 0; mi--) {
+	return problemCallForConclude(messages, concludeCallId)?.input;
+}
+
+/** The problem a conclude call closed: the newest cleanly-posed problem
+ *  call BEFORE it (in its own message, only the blocks ahead of it). The
+ *  same refusal law as the reveal: a pose the record never acked closed
+ *  nothing. The answer check (M24) needs the call's id as well as its
+ *  arguments — the learner's submissions are keyed by it. */
+export function problemCallForConclude(
+	messages: readonly LhMessage[],
+	concludeCallId: string,
+): {
+	toolCallId: string;
+	input: { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown } | undefined;
+} | undefined {
+	let concludeMessage = -1;
+	let concludeBlock = -1;
+	for (let mi = 0; mi < messages.length && concludeMessage < 0; mi++) {
 		const m = messages[mi]!;
 		if ((m as { role?: string }).role !== "assistant") continue;
-		const assistant = m as AssistantMessage;
-		for (let bi = assistant.content.length - 1; bi >= 0; bi--) {
-			const block = assistant.content[bi]!;
+		const bi = (m as AssistantMessage).content.findIndex((b) => b.type === "toolCall" && b.id === concludeCallId);
+		if (bi >= 0) {
+			concludeMessage = mi;
+			concludeBlock = bi;
+		}
+	}
+	if (concludeMessage < 0) return undefined;
+	const clean = cleanToolCallIds(messages);
+	for (let mi = concludeMessage; mi >= 0; mi--) {
+		const m = messages[mi]!;
+		if ((m as { role?: string }).role !== "assistant") continue;
+		const content = (m as AssistantMessage).content;
+		for (let bi = (mi === concludeMessage ? concludeBlock : content.length) - 1; bi >= 0; bi--) {
+			const block = content[bi]!;
 			if (block.type !== "toolCall" || block.name !== PRACTICE_PROBLEM_TOOL) continue;
 			if (!clean.has(block.id)) continue; // a refused pose revealed nothing
-			return (block.arguments ?? undefined) as
-				| { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown }
-				| undefined;
+			return {
+				toolCallId: block.id,
+				input: (block.arguments ?? undefined) as
+					| { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown }
+					| undefined,
+			};
 		}
 	}
 	return undefined;
@@ -733,7 +810,7 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 	if (message.role === "custom") {
 		if (["probe-handoff", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
 		if (["practice-thinking", "practice-next"].includes(message.customType)) return "learner";
-		return ["graph-context", "plan-block", "problem-dismissed", "compaction"].includes(message.customType) ? "neutral" : "unrecognizable";
+		return ["graph-context", "goal-context", "plan-block", "problem-dismissed", "compaction"].includes(message.customType) ? "neutral" : "unrecognizable";
 	}
 	if (message.role === "toolResult") {
 		if (!(QUESTION_TOOLS as readonly string[]).includes(message.toolName) || message.isError || message.details == null || (message.details as { dismissed?: boolean }).dismissed) return "neutral";

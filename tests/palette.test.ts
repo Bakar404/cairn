@@ -8,24 +8,59 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { PALETTE, PALETTE_VARS, VIZ_VARS, contrastRatio, mixHex, vividHex } from "../src/core/palette.ts";
+import {
+	PALETTE,
+	PALETTE_HC,
+	PALETTE_VARS,
+	SOFT_TINTS,
+	VIZ_VARS,
+	contrastRatio,
+	hexToOklab,
+	highContrast,
+	mixHex,
+	vividHex,
+} from "../src/core/palette.ts";
 import { CODE_THEME, codeSurface } from "../src/core/code-theme.ts";
 import { DEFAULT_REGION_TUNING } from "../src/core/render-settings.ts";
 import { houseColors, mermaidConfig } from "../components/mermaid-render.ts";
 
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
-/** The hex custom properties one top-level rule declares. */
-function declared(selector: string): Map<string, string> {
+/** The custom properties one top-level rule declares, with raw values. */
+function block(selector: string): Map<string, string> {
 	const start = css.indexOf(`\n${selector} {`);
 	assert.ok(start >= 0, `${selector} block present`);
 	const body = css.slice(start, css.indexOf("\n}", start));
-	return new Map([...body.matchAll(/(--[\w-]+):\s*(#[0-9a-f]{6});/gi)].map((m) => [m[1]!, m[2]!.toLowerCase()]));
+	return new Map([...body.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1]!, m[2]!.trim()]));
+}
+
+/** The hex custom properties one top-level rule declares. */
+function declared(selector: string): Map<string, string> {
+	return new Map(
+		[...block(selector)].flatMap(([name, value]) => {
+			const hex = /^(#[0-9a-f]{6})(?:\s*!important)?$/i.exec(value)?.[1];
+			return hex ? [[name, hex.toLowerCase()] as const] : [];
+		}),
+	);
 }
 
 const SCHEMES = [
 	["light", ":root"],
 	["dark", ".dark"],
+] as const;
+
+const HC_SCHEMES = [
+	["light", 'html[data-contrast="high"]', ":root"],
+	["dark", 'html.dark[data-contrast="high"]', ".dark"],
+] as const;
+
+/** Every palette a painter (Mermaid, the graph) may read: the standard
+ *  pair and, under high contrast, its twin. */
+const PAINTED = [
+	["light", "light", PALETTE.light],
+	["dark", "dark", PALETTE.dark],
+	["light, high contrast", "light", PALETTE_HC.light],
+	["dark, high contrast", "dark", PALETTE_HC.dark],
 ] as const;
 
 describe("palette — globals.css and palette.ts agree", () => {
@@ -56,6 +91,88 @@ describe("palette — contrast floors", () => {
 	}
 });
 
+/** The shadcn names that carry a palette key's value as a literal copy. */
+const COPIES = {
+	"--card-foreground": "foreground",
+	"--popover": "card",
+	"--popover-foreground": "foreground",
+	"--primary": "foreground",
+	"--primary-foreground": "background",
+	"--secondary": "muted",
+	"--secondary-foreground": "foreground",
+	"--accent-foreground": "foreground",
+} as const;
+
+describe("high contrast — globals.css carries PALETTE_HC", () => {
+	for (const [scheme, selector, standard] of HC_SCHEMES) {
+		it(`${scheme} (${selector})`, () => {
+			const tokens = declared(selector);
+			const p = PALETTE_HC[scheme];
+			for (const key of Object.keys(PALETTE_VARS) as (keyof typeof PALETTE_VARS)[]) {
+				assert.equal(tokens.get(PALETTE_VARS[key]), p[key], PALETTE_VARS[key]);
+			}
+			VIZ_VARS.forEach((cssVar, i) => assert.equal(tokens.get(cssVar), p.viz[i], cssVar));
+			for (const [cssVar, key] of Object.entries(COPIES)) assert.equal(tokens.get(cssVar), p[key], cssVar);
+			// Nothing the standard block paints is left to a custom background.
+			for (const cssVar of declared(standard).keys()) assert.ok(tokens.has(cssVar), `${cssVar} pinned`);
+		});
+	}
+
+	it("both blocks pin the same set, every value !important, emphasis back to the text ink", () => {
+		const [light, dark] = HC_SCHEMES.map(([, selector]) => block(selector)) as [Map<string, string>, Map<string, string>];
+		assert.deepEqual([...light.keys()].sort(), [...dark.keys()].sort());
+		for (const [cssVar, value] of [...light, ...dark]) assert.match(value, /\s!important$/, cssVar);
+		for (const tokens of [light, dark]) {
+			assert.equal(tokens.get("--lh-ink-strong"), "var(--foreground) !important");
+			assert.equal(tokens.get("--lh-ink-italic"), "var(--foreground) !important");
+		}
+	});
+});
+
+describe("high contrast — PALETTE_HC", () => {
+	it("is highContrast(PALETTE), written out", () => {
+		for (const [scheme] of SCHEMES) assert.deepEqual(highContrast(PALETTE[scheme]), PALETTE_HC[scheme], scheme);
+	});
+
+	for (const [scheme] of SCHEMES) {
+		it(`${scheme}: inks >= 7:1 on every surface and their own tints, edges and data >= 4.5:1`, () => {
+			const p = PALETTE_HC[scheme];
+			for (const surface of [p.background, p.card, p.muted, p.accent]) {
+				for (const ink of [p.foreground, p.mutedForeground, p.brand, p.success, p.warning, p.danger]) {
+					assert.ok(contrastRatio(ink, surface) >= 7, `${ink} on ${surface}`);
+				}
+				for (const edge of [p.border, p.input, p.ring]) assert.ok(contrastRatio(edge, surface) >= 4.5, `${edge} on ${surface}`);
+			}
+			for (const surface of [p.background, p.card]) {
+				for (const key of Object.keys(SOFT_TINTS) as (keyof typeof SOFT_TINTS)[]) {
+					const tint = mixHex(surface, p[key], SOFT_TINTS[key]);
+					assert.ok(contrastRatio(p[key], tint) >= 7, `${key} on its tint over ${surface}`);
+				}
+				for (const hue of [...p.viz, p.vizMuted]) assert.ok(contrastRatio(hue, surface) >= 4.5, `${hue} on ${surface}`);
+			}
+			assert.ok(contrastRatio(p.brandForeground, p.brand) >= 7, "text on the brand button");
+		});
+
+		it(`${scheme}: only lightness moves; surfaces, hues and chroma stay`, () => {
+			const [p, hc] = [PALETTE[scheme], PALETTE_HC[scheme]];
+			for (const key of ["background", "card", "muted", "accent"] as const) assert.equal(hc[key], p[key], key);
+			const pairs = [
+				...(Object.keys(PALETTE_VARS) as (keyof typeof PALETTE_VARS)[]).map((key) => [key, p[key], hc[key]] as const),
+				...p.viz.map((hue, i) => [`viz-${i + 1}`, hue, hc.viz[i]!] as const),
+			];
+			for (const [name, before, after] of pairs) {
+				const [, a0, b0] = hexToOklab(before);
+				const [, a1, b1] = hexToOklab(after);
+				const chroma = Math.hypot(a0, b0);
+				// Rounding to 8-bit channels nudges a and b by about 0.001.
+				assert.ok(Math.hypot(a1, b1) <= chroma + 0.002, `${name}: chroma never grows`);
+				assert.ok(Math.abs(a1 * b0 - b1 * a0) / chroma <= 0.002, `${name}: stays on its hue`);
+				assert.ok(a1 * a0 + b1 * b0 > 0, `${name}: never flips to the opposite hue`);
+			}
+		});
+	}
+});
+
 describe("graph regions — the vivid washes read as color but stay quiet", () => {
 	const channels = (h: string) => [0, 1, 2].map((i) => Number.parseInt(h.slice(1 + i * 2, 3 + i * 2), 16));
 	const spread = (h: string) => Math.max(...channels(h)) - Math.min(...channels(h));
@@ -63,9 +180,8 @@ describe("graph regions — the vivid washes read as color but stay quiet", () =
 		const c = channels(h);
 		return [c.indexOf(Math.max(...c)), c.indexOf(Math.min(...c))];
 	};
-	for (const [scheme] of SCHEMES) {
-		it(scheme, () => {
-			const p = PALETTE[scheme];
+	for (const [name, , p] of PAINTED) {
+		it(name, () => {
 			for (const hue of p.viz) {
 				const wash = vividHex(hue);
 				assert.deepEqual(hueOrder(wash), hueOrder(hue), `${hue} keeps its hue`);
@@ -79,9 +195,9 @@ describe("graph regions — the vivid washes read as color but stay quiet", () =
 });
 
 describe("mermaid theme — labels hold 4.5:1 on every derived fill", () => {
-	for (const [scheme] of SCHEMES) {
-		it(scheme, () => {
-			const v = mermaidConfig(PALETTE[scheme], scheme).themeVariables as Record<string, string>;
+	for (const [name, scheme, p] of PAINTED) {
+		it(name, () => {
+			const v = mermaidConfig(p, scheme).themeVariables as Record<string, string>;
 			for (let i = 0; i < 6; i++) {
 				assert.ok(contrastRatio(v.pieSectionTextColor!, v[`pie${i + 1}`]!) >= 4.5, `pie${i + 1}`);
 				assert.ok(contrastRatio(v.branchLabelColor!, v[`git${i}`]!) >= 4.5, `git${i}`);
@@ -100,12 +216,11 @@ describe("code themes — house hues that read on the code surface", () => {
 		assert.equal(codeSurface("light"), mixHex(PALETTE.light.background, PALETTE.light.foreground, 1 - Number(light[1]) / 100));
 		assert.equal(codeSurface("dark"), mixHex(PALETTE.dark.background, "#000000", 1 - Number(dark[1]) / 100));
 	});
-	for (const [scheme] of SCHEMES) {
-		it(`${scheme}: every token >= 4.5:1 on the code surface, page, and card`, () => {
-			const p = PALETTE[scheme];
+	for (const [name, scheme, p] of PAINTED) {
+		it(`${name}: every token >= 4.5:1 on the code surface, page, and card`, () => {
 			const t = CODE_THEME[scheme];
 			const inks = [t.fg, ...t.tokenColors.flatMap((r) => r.settings.foreground ?? [])];
-			for (const surface of [codeSurface(scheme), p.background, p.card]) {
+			for (const surface of [codeSurface(scheme, p), p.background, p.card]) {
 				for (const ink of inks) assert.ok(contrastRatio(ink, surface) >= 4.5, `${ink} on ${surface}`);
 			}
 		});
@@ -128,11 +243,10 @@ describe("mermaid — a chart's own colors snap to the house palette", () => {
 		"  class A solid",
 	].join("\n");
 
-	for (const [scheme] of SCHEMES) {
-		const p = PALETTE[scheme];
+	for (const [name, scheme, p] of PAINTED) {
 		const tint = (hex: string) => mixHex(scheme === "dark" ? p.accent : p.card, hex, scheme === "dark" ? 0.3 : 0.2);
 
-		it(`${scheme}: each class keeps its meaning in house hues`, () => {
+		it(`${name}: each class keeps its meaning in house hues`, () => {
 			const out = houseColors(KNOWLEDGE_MAP, p, scheme).split("\n");
 			const ink = `color:${p.foreground}`;
 			assert.equal(out[1], "  A[Tokens] --> B[style guide]");
@@ -147,7 +261,7 @@ describe("mermaid — a chart's own colors snap to the house palette", () => {
 			assert.equal(out[10], "  class A solid");
 		});
 
-		it(`${scheme}: any authored hue still holds ink labels at 4.5:1`, () => {
+		it(`${name}: any authored hue still holds ink labels at 4.5:1`, () => {
 			const wheel = Array.from({ length: 24 }, (_, i) => `  style N${i} fill:hsl,stroke:hsl`.replace(/hsl/g, hslHex(i * 15)));
 			const out = houseColors(wheel.join("\n"), p, scheme);
 			const pairs = [...out.matchAll(/fill:(#[0-9a-f]{6}),stroke:(#[0-9a-f]{6})/g)];

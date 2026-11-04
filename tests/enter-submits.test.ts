@@ -7,55 +7,81 @@
  * the toggle instead of submitting. The law now: Enter from a
  * POINTER-focused transcript button submits (the window listener also
  * preventDefaults, suppressing the default activation underneath);
- * keyboard-focused buttons and buttons inside open overlays (menus walk
- * focus with arrows, dialogs are their own layer) keep native Enter.
+ * keyboard-focused controls (buttons, links, <summary>) and anything inside
+ * an open overlay (menus walk focus with arrows, dialogs are their own
+ * layer and focus their own container on open) keep native Enter.
  */
 import assert from "node:assert/strict";
 import { parseHTML } from "linkedom";
 import { describe, it } from "node:test";
-import { buttonKeepsNativeEnter } from "../components/enter-submits.ts";
+import { keepsNativeEnter } from "../components/enter-submits.ts";
 import { blurAfterPointerClick } from "../components/focus-hygiene.ts";
 
 const { document } = parseHTML("<html><body></body></html>");
 
-function buttonIn(attrs: Record<string, string>): HTMLElement {
+function elementIn(attrs: Record<string, string>, tag = "button"): HTMLElement {
 	const host = document.createElement("div");
 	for (const [k, v] of Object.entries(attrs)) host.setAttribute(k, v);
-	const b = document.createElement("button");
-	b.type = "button";
-	host.appendChild(b);
+	const el = document.createElement(tag);
+	if (tag === "button") (el as HTMLButtonElement).type = "button";
+	if (tag === "a") el.setAttribute("href", "/chat/x");
+	host.appendChild(el);
 	document.body.appendChild(host);
-	return b;
+	return el;
 }
 
-describe("buttonKeepsNativeEnter (the pointer/keyboard Enter split)", () => {
+const buttonIn = (attrs: Record<string, string>) => elementIn(attrs);
+
+/** linkedom lacks :focus-visible — stub it on, keep every other selector real. */
+function keyboardFocused(el: HTMLElement): HTMLElement {
+	const real = el.matches.bind(el);
+	(el as unknown as { matches: (sel: string) => boolean }).matches = (sel: string) =>
+		sel === ":focus-visible" || real(sel);
+	return el;
+}
+
+describe("keepsNativeEnter (the pointer/keyboard Enter split)", () => {
 	it("a transcript button (pointer-focused) does NOT keep native Enter — Enter submits", () => {
 		const b = buttonIn({});
-		assert.equal(buttonKeepsNativeEnter(b), false);
+		assert.equal(keepsNativeEnter(b), false);
 	});
 
 	it("a keyboard-focused button keeps native Enter (:focus-visible)", () => {
-		const b = buttonIn({});
-		// linkedom lacks the pseudo — stub the one call the helper makes.
-		(b as unknown as { matches: (sel: string) => boolean }).matches = (sel: string) =>
-			sel === ":focus-visible";
-		assert.equal(buttonKeepsNativeEnter(b), true);
+		assert.equal(keepsNativeEnter(keyboardFocused(buttonIn({}))), true);
+	});
+
+	it("a link or <summary> reached with Tab keeps native Enter; a pointer-focused link does not", () => {
+		assert.equal(keepsNativeEnter(keyboardFocused(elementIn({}, "a"))), true);
+		assert.equal(keepsNativeEnter(keyboardFocused(elementIn({}, "summary"))), true);
+		assert.equal(keepsNativeEnter(elementIn({}, "a")), false);
+	});
+
+	it("a keyboard-focused element Enter does not activate (a plain div) leaves Enter to submit", () => {
+		assert.equal(keepsNativeEnter(keyboardFocused(elementIn({}, "div"))), false);
 	});
 
 	it("buttons inside overlays keep native Enter: hand-rolled menu, Radix popper, dialog, menu role", () => {
-		assert.equal(buttonKeepsNativeEnter(buttonIn({ "data-lh-menu": "" })), true);
+		assert.equal(keepsNativeEnter(buttonIn({ "data-lh-menu": "" })), true);
 		assert.equal(
-			buttonKeepsNativeEnter(buttonIn({ "data-radix-popper-content-wrapper": "" })),
+			keepsNativeEnter(buttonIn({ "data-radix-popper-content-wrapper": "" })),
 			true,
 		);
-		assert.equal(buttonKeepsNativeEnter(buttonIn({ role: "dialog" })), true);
-		assert.equal(buttonKeepsNativeEnter(buttonIn({ role: "menu" })), true);
+		assert.equal(keepsNativeEnter(buttonIn({ role: "dialog" })), true);
+		assert.equal(keepsNativeEnter(buttonIn({ role: "menu" })), true);
+	});
+
+	it("anything focused inside an open dialog keeps Enter — even the dialog's own container", () => {
+		assert.equal(keepsNativeEnter(elementIn({ role: "dialog" }, "div")), true);
+		const container = document.createElement("div");
+		container.setAttribute("role", "dialog");
+		document.body.appendChild(container);
+		assert.equal(keepsNativeEnter(container), true);
 	});
 
 	it("a selector engine without :focus-visible degrades to pointer-focus, never throws", () => {
 		const b = buttonIn({});
-		assert.doesNotThrow(() => buttonKeepsNativeEnter(b));
-		assert.equal(buttonKeepsNativeEnter(b), false);
+		assert.doesNotThrow(() => keepsNativeEnter(b));
+		assert.equal(keepsNativeEnter(b), false);
 	});
 });
 

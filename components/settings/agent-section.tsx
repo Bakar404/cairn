@@ -33,6 +33,10 @@
  * explicit boolean per tool (simpler to reason about, sanitize-equivalent).
  * Work IQ (M10) is a separate row with its own key (agent.workIq) and the
  * opposite default: absent = off, because it reads the learner's work.
+ * Microsoft Learn (M21) is another own-key row (agent.learnDocs), absent =
+ * on: it reads Microsoft's public documentation for the researcher.
+ * The answer check (M24) is one more (agent.assessor), absent = on: a
+ * second model grades each concluded practice problem.
  *
  * Prompts: GET /api/settings/prompts segments — THREE SECTIONS in the
  * owner's ruled order (2026-09-26 overhaul): Teacher first, Prober, then
@@ -142,6 +146,19 @@ export function composeGraphTools(agent: AgentSettings | undefined, on: boolean)
  *  exported for tests. */
 export function composeWorkIq(agent: AgentSettings | undefined, on: boolean): AgentSettings {
 	return { ...agent, workIq: { enabled: on } };
+}
+
+/** Compose the Microsoft Learn switch (M21): its own key, absent = ON (it
+ *  reads Microsoft's public documentation, not the learner's data). Pure —
+ *  exported for tests. */
+export function composeLearnDocs(agent: AgentSettings | undefined, on: boolean): AgentSettings {
+	return { ...agent, learnDocs: { enabled: on } };
+}
+
+/** Compose the answer-check switch (M24): its own key, absent = ON. Pure —
+ *  exported for tests. */
+export function composeAssessor(agent: AgentSettings | undefined, on: boolean): AgentSettings {
+	return { ...agent, assessor: { enabled: on } };
 }
 
 /** Compose: one slot's model/thinking override. Empty model = absent
@@ -695,6 +712,33 @@ export function AgentSection({
 						checked={agent?.workIq?.enabled === true}
 						label="work iq"
 						onChange={(on) => onSectionChange(composeWorkIq(agent, on))}
+					/>
+				</SettingsRow>
+				{/* Microsoft Learn (M21): a researcher capability with its own key,
+				    on unless switched off. No setup — the service is public. */}
+				<SettingsRow
+					label="Microsoft Learn"
+					hint="Lets research cite Microsoft's official documentation"
+					testid="learn-docs-row"
+				>
+					<Toggle
+						checked={agent?.learnDocs?.enabled ?? true}
+						label="microsoft learn"
+						onChange={(on) => onSectionChange(composeLearnDocs(agent, on))}
+					/>
+				</SettingsRow>
+				{/* The answer check (M24): a second model grades each practice
+				    answer without the hints and flags a disagreement with the
+				    tutor. Its own key, on unless switched off. */}
+				<SettingsRow
+					label="Answer check"
+					hint="A second model checks each practice answer and flags disagreements"
+					testid="assessor-row"
+				>
+					<Toggle
+						checked={agent?.assessor?.enabled ?? true}
+						label="answer check"
+						onChange={(on) => onSectionChange(composeAssessor(agent, on))}
 					/>
 				</SettingsRow>
 				{/* The quizzing mechanic (owner 2026-09-27): segmented — exactly one

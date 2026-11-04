@@ -4,9 +4,14 @@
  * Keyboard shortcuts (shortcut wave A, 2026-09-17) — the single document-level
  * keydown listener. Owns the pieces that belong to no surface in particular:
  *
- * - Tab is DEAD: browser tab-focus navigation is abandoned by owner decision
- *   (2026-09-17). Tab is suppressed everywhere (preventDefault, no-op) and
- *   Shift+Tab cycles the thinking level instead.
+ * - Tab and Shift+Tab move focus natively (accessibility mode, M27,
+ *   2026-10-30; the 2026-09-17 "Tab is dead" rule is retired). F6 /
+ *   Shift+F6 walk the active surface's text fields (the old plain-Tab
+ *   cycle), handled here before the typing guard so they work from inside
+ *   a field. The thinking cycle moved from Shift+Tab to ⌘⇧K / Ctrl+Shift+K.
+ * - Keyboard modality: Tab or F6 marks <html data-input-modality=
+ *   "keyboard">, any pointer press marks it "pointer". The focus outline
+ *   (globals.css) only draws in keyboard modality.
  * - Esc is a layered dismiss: topmost popover first (popovers stopPropagation
  *   on their own Esc — usePopoverDismiss + ModelControl), then abort of an
  *   in-flight turn.
@@ -35,6 +40,8 @@ import {
 	KEYBOARD_ACTIONS,
 } from "@/src/core";
 import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
+import { useDialogFocus } from "@/components/use-dialog-focus.ts";
+import { trackInputModality } from "@/components/input-modality.ts";
 
 // Re-exported for the contract pin (tests/keyboard-toggle-sidebar.test.ts):
 // the dispatcher composes event names through the ONE helper — a second
@@ -55,22 +62,20 @@ export function KeyboardShortcuts() {
 	}>({ router, setCheatOpen, openSettings });
 	handlersRef.current = { router, setCheatOpen, openSettings };
 
+	// Keyboard modality (see the header and input-modality.ts).
+	useEffect(() => trackInputModality(), []);
+
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
-			// ── Tab is dead (owner, 2026-09-17): preventDefault even when
-			// nothing is bound to it — browser tab-focus is abandoned, and
-			// the default action runs after dispatch, so suppressing it here
-			// works from any focus.
-			if (e.key === "Tab") {
+			// ── F6 / Shift+F6 walk the active surface's text fields (M27):
+			// wrapping both ways, each composer-bearing page answering with its
+			// own chain (field-cycle.ts). Before the typing guard on purpose.
+			// An open modal owns focus, so the walk (which would leave it)
+			// waits until it closes.
+			if (e.key === "F6" && !e.metaKey && !e.ctrlKey && !e.altKey) {
 				e.preventDefault();
-				if (e.shiftKey) window.dispatchEvent(new CustomEvent("lh:kbd-cycle-thinking"));
-				// Plain Tab cycles the active surface's text fields (owner,
-				// keyboard round 2026-10-06) — forward-only, wrapping; each
-				// composer-bearing page answers with its own chain. The quiz
-				// dock's rows↔thinking claim stops propagation at document
-				// level, so a claimed Tab never reaches this dispatch.
-				else if (!e.metaKey && !e.ctrlKey && !e.altKey)
-					window.dispatchEvent(new CustomEvent("lh:kbd-cycle-fields"));
+				if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+				window.dispatchEvent(new CustomEvent("lh:kbd-cycle-fields", { detail: { reverse: e.shiftKey } }));
 				return;
 			}
 
@@ -101,7 +106,7 @@ export function KeyboardShortcuts() {
 
 			// The input guard: inside a typing surface only mod/alt combos
 			// fire (they never type a character). Bare keys — "?" included —
-			// pass through so the field keeps them. Tab already returned above.
+			// pass through so the field keeps them. F6 already returned above.
 			if (isTypingSurface(e) && !(e.metaKey || e.ctrlKey || e.altKey)) return;
 
 			// Dispatch: global commands we own run here; surface commands
@@ -127,6 +132,11 @@ export function KeyboardShortcuts() {
 					e.preventDefault();
 					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
 					break;
+				case "cycle-thinking":
+					// Claim the chord so no browser default runs underneath.
+					e.preventDefault();
+					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
+					break;
 				default:
 					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
 			}
@@ -142,8 +152,16 @@ export function KeyboardShortcuts() {
  *  Until the settings milestone ships an editor, this is how shortcuts
  *  stay discoverable. */
 function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-	const backdropDismiss = useBackdropDismiss(onClose);
 	if (!open) return null;
+	return <CheatSheetBody onClose={onClose} />;
+}
+
+function CheatSheetBody({ onClose }: { onClose: () => void }) {
+	const backdropDismiss = useBackdropDismiss(onClose);
+	const dialogRef = useRef<HTMLDivElement>(null);
+	// Nothing in the sheet is interactive: focus rests on the dialog itself,
+	// so a screen reader announces its name, and returns to the opener.
+	useDialogFocus(dialogRef, true, { initialFocus: "container" });
 	const scopes = ["global", "chat", "graph"] as const;
 	const scopeLabels: Record<(typeof scopes)[number], string> = {
 		global: "Global",
@@ -157,6 +175,12 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 			{...backdropDismiss}
 		>
 			<div
+				ref={dialogRef}
+				role="dialog"
+				aria-modal="true"
+				aria-label="Keyboard shortcuts"
+				tabIndex={-1}
+				data-focus-container=""
 				className="max-h-[80vh] w-full max-w-[36rem] overflow-y-auto rounded-xl border bg-card p-5 shadow-2xl"
 				onClick={(e) => e.stopPropagation()}
 			>

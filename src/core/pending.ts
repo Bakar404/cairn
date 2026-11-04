@@ -162,15 +162,27 @@ export function toolActivityLabel(tool: string): string {
 	return ACTIVITY_LABELS[tool] ?? "Working…";
 }
 
-export function streamingToolActivity(messages: UIMessage[]): string | null {
+/** The running tool call as a step the reply announcer can voice
+ *  (accessibility mode, M27): the call id keeps two consecutive calls of
+ *  one tool (same label) two distinct steps. */
+export interface StreamingToolStep {
+	id: string;
+	label: string;
+}
+
+export function streamingToolStep(messages: UIMessage[]): StreamingToolStep | null {
 	const last = messages.at(-1);
 	if (!last || last.role !== "assistant") return null;
 	for (const part of last.parts) {
 		if (isToolUIPart(part) && part.state === "input-streaming") {
-			return toolActivityLabel(part.type.slice("tool-".length));
+			return { id: part.toolCallId as string, label: toolActivityLabel(part.type.slice("tool-".length)) };
 		}
 	}
 	return null;
+}
+
+export function streamingToolActivity(messages: UIMessage[]): string | null {
+	return streamingToolStep(messages)?.label ?? null;
 }
 
 

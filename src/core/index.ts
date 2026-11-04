@@ -60,6 +60,12 @@ export * from "./settings.ts";
 // theme-mode.ts (design wave): light/dark/system — the mode type, scheme
 // resolution, and the no-flash boot script the root layout inlines.
 export * from "./theme-mode.ts";
+// accessibility.ts (accessibility mode, M27): the preference types and
+// ranges, the attributes and variables on <html>, and the boot script.
+export * from "./accessibility.ts";
+// accessibility-presets.ts (accessibility mode, M27): the page's named
+// value sets, applied as explicit writes and matched against the record.
+export * from "./accessibility-presets.ts";
 // palette.ts (design wave): the globals.css palette as data, for the
 // generators and native chrome that cannot read CSS.
 export * from "./palette.ts";
@@ -103,3 +109,25 @@ export * from "./session-markdown.ts";
 // Settings › Storage types and the PUT /api/storage parser. Pure; the moves
 // live in src/store/library.ts.
 export * from "./storage.ts";
+// code-change.ts (M22): commit ranges and pull requests as sources — what
+// the learner typed, the filtered diff, and the text the extractor reads.
+// Pure; git and GitHub are read in src/server/code-change.ts.
+export * from "./code-change.ts";
+// learning-goals.ts + learn-docs.ts + repo-goals.ts (M21): a learning goal
+// (certification or repository) and its outline for the tutor; the
+// Microsoft Learn port, its answer parsers and the study-guide parser; the
+// technologies a repository's manifests show. Pure; the HTTP adapter and
+// the folder walk live in src/server/learn-docs.ts and learning-goals.ts.
+export * from "./learning-goals.ts";
+export * from "./learn-docs.ts";
+export * from "./repo-goals.ts";
+// practice-assessment.ts (M24): the answer check — what a fresh-context
+// assessor reads (blind to the tutor's verdict), the agreement test and the
+// deterministic unanswered flag. Pure; the model run is
+// src/agent/subagents/assessor.ts, the trigger src/server/practice-assessment.ts.
+export * from "./practice-assessment.ts";
+// review-queue.ts (M20): the due-for-practice queue's shape, its date
+// labels and the session starts. The FSRS replay, core/review-schedule.ts,
+// is deliberately NOT re-exported: ts-fsrs patches Date.prototype on load,
+// so only the server imports it (src/server/review-queue.ts).
+export * from "./review-queue.ts";

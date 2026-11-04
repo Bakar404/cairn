@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 import type { ChatDeleteMode, ChatListItem } from "@/src/core";
 
 /** The graph-traces checkbox copy (owner, 2026-09-24 flow rework — was
@@ -155,11 +156,18 @@ export function DeleteSessionBody({
 	onClose: () => void;
 	onRun: () => void;
 }) {
+	const dialogRef = useRef<HTMLDivElement>(null);
+	const cancelRef = useRef<HTMLButtonElement>(null);
+	// Focus starts on Cancel: deleting is permanent.
+	useDialogFocus(dialogRef, true, { initialFocus: cancelRef });
 	return (
 		<div
+			ref={dialogRef}
 			role="dialog"
 			aria-modal="true"
 			aria-label="Delete session"
+			tabIndex={-1}
+			data-focus-container=""
 			data-testid="delete-session-dialog"
 			onClick={(e) => e.stopPropagation()}
 			className="w-[32rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-5 shadow-xl"
@@ -219,6 +227,7 @@ export function DeleteSessionBody({
 			    established destructive pair). */}
 			<div className="mt-4 flex justify-end gap-2">
 				<button
+					ref={cancelRef}
 					type="button"
 					data-testid="delete-cancel"
 					onClick={onClose}

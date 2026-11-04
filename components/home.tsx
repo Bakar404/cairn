@@ -7,11 +7,13 @@ import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
+import { GoalsControl } from "@/components/goals-control";
+import { ReviewQueueControl } from "@/components/review-queue-control";
 import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-cta";
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
-import type { TurnUsage } from "@/src/core";
+import { goalOpening, type GraphContextPick, type LearningGoal, type TurnUsage } from "@/src/core";
 
 /**
  * Home — the knowledge graph is the main view, full-bleed edge to edge
@@ -52,8 +54,8 @@ export function Home({
 	const [setupOpen, setSetupOpen] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const topicInputRef = useRef<HTMLTextAreaElement>(null);
-	// Tab navigates INTO the topic composer (owner, keyboard round
-	// 2026-10-06): the only text field on this surface — and home's
+	// F6 navigates INTO the topic composer (the owner's 2026-10-06 Tab
+	// cycle, on F6 since M27): the only text field on this surface — and home's
 	// composer is its OWN textarea, not the shared Composer component,
 	// so the chain is the ref itself (the smoke caught a selector that
 	// matched nothing here).
@@ -73,12 +75,29 @@ export function Home({
 	const [chainSelectOpen, setChainSelectOpen] = useState(false);
 	// The chain table is CONTROLLED off this id set (the lifted pick).
 	const pickedIds = useMemo(() => new Set(practiceProps.map((p) => p.id)), [practiceProps]);
+	/* THE LEARNING GOAL (M21): teach mode only. A certification's skills
+	 *  or a repository's stack, set from the Goals pill; it rides the
+	 *  creation as the goal-context marker, and with the composer empty
+	 *  the goal alone starts the session. */
+	const [goal, setGoal] = useState<LearningGoal | null>(null);
 
-	/* begin() reads the REF mirror (not the state closure) and runs the
-	 * setup/key guards, so an intercepted draft is the complete one. */
-	const begin = async () => {
-		const t = topicRef.current.trim();
-		if (!t || busy) return;
+	/* One creation path for every start (M20): the composer's begin() and
+	 * the review queue's starts. The setup/key guards run first, so no
+	 * start can leave an orphan chat behind. */
+	const startSession = async ({
+		kind,
+		title,
+		prompt,
+		picks,
+		goal: sessionGoal,
+	}: {
+		kind: "teach" | "practice";
+		title: string;
+		prompt: string;
+		picks: readonly GraphContextPick[];
+		goal: LearningGoal | null;
+	}) => {
+		if (busy) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
@@ -103,23 +122,41 @@ export function Home({
 			// graph-context marker as message[0] (a separate custom message
 			// before the learner's first user message, propositions + the
 			// chains among them); the prompt stays the learner's own words.
+			// A goal rides it too, its marker first.
 			const res = await fetch("/api/chats", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					title: t,
-					...(mode === "practice" ? { kind: "practice" } : {}),
-					...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
+					title,
+					...(kind === "practice" ? { kind: "practice" } : {}),
+					...(picks.length > 0 ? { graphContext: { propositions: picks } } : {}),
+					...(sessionGoal ? { goal: sessionGoal } : {}),
 				}),
 			});
 			const { id } = (await res.json()) as { id: string };
 			// No settings PUT on create (per-session models, owner
 			// 2026-09-28): the SERVER stamps the newborn from the strong
 			// slot — the same default this surface's model control edits.
-			router.push(`/chat/${id}?prompt=${encodeURIComponent(t)}`);
+			router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}`);
 		} catch {
 			setBusy(false);
 		}
+	};
+
+	/* begin() reads the REF mirror (not the state closure), so an
+	 * intercepted draft is the complete one. A goal alone opens with
+	 * goalOpening's line. */
+	const begin = async () => {
+		const t = topicRef.current.trim();
+		const goalNow = mode === "teach" ? goal : null;
+		if (!t && !goalNow) return;
+		await startSession({
+			kind: mode,
+			title: t || (goalNow?.title ?? ""),
+			prompt: t || (goalNow ? goalOpening(goalNow) : ""),
+			picks: practiceProps,
+			goal: goalNow,
+		});
 	};
 
 	return (
@@ -182,16 +219,36 @@ export function Home({
 					    propositions show here as a count + Clear in EITHER
 					    mode (it survives mode switches; only a practice
 					    send consumes it). Practice mode with nothing picked
-					    shows the pick HINT so the affordance is discoverable;
-					    teaching mode with nothing picked renders nothing. */}
+					    shows the pick HINT so the affordance is discoverable.
+					    Teach mode leads with the Goals pill (M21). */}
 					<ComposerActions
-						picker={(practiceProps.length > 0 || mode === "practice") && (
-							<NodePickerControl
-								count={practiceProps.length}
-								onOpen={() => setChainSelectOpen(true)}
-								onClear={() => setPracticeProps([])}
-							/>
-						)}
+						picker={
+							<>
+								{mode === "teach" && (
+									<GoalsControl
+										goal={goal}
+										onGoal={(next) => {
+											setGoal(next);
+											if (next) topicInputRef.current?.focus();
+										}}
+									/>
+								)}
+								{(practiceProps.length > 0 || mode === "practice") && (
+									<NodePickerControl
+										count={practiceProps.length}
+										onOpen={() => setChainSelectOpen(true)}
+										onClear={() => setPracticeProps([])}
+									/>
+								)}
+								{/* The review queue (M20), in either mode: what FSRS
+								    says is due. Its starts carry their own picks and
+								    never the goal; the chain-table selection stays. */}
+								<ReviewQueueControl
+									busy={busy}
+									onStart={(start) => void startSession({ ...start, goal: null })}
+								/>
+							</>
+						}
 						setup={zeroKeys ? (
 							<ZeroKeysPill inline onOpen={() => setSetupOpen(true)} />
 						) : (
@@ -227,7 +284,13 @@ export function Home({
 								void begin();
 							}
 						}}
-						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+						placeholder={
+							mode === "practice"
+								? "What do you want to practice?"
+								: goal
+									? "Anything to focus on? Or press Enter to start."
+									: "What do you want to learn?"
+						}
 						autoFocus
 						rows={1}
 						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
@@ -237,7 +300,7 @@ export function Home({
 					<button
 						type="submit"
 						aria-label="Start session"
-						disabled={!topic.trim() || busy}
+						disabled={(!topic.trim() && !(mode === "teach" && goal)) || busy}
 						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-brand text-brand-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
 						<CornerDownLeftIcon className="size-5" />
@@ -256,6 +319,7 @@ export function Home({
 										key={m}
 										type="button"
 										data-testid={`home-mode-${m}`}
+										aria-pressed={mode === m}
 										onClick={() => setMode(m)}
 										className={
 											"flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] uppercase tracking-wider transition-colors " +

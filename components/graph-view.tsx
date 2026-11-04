@@ -65,9 +65,16 @@
 
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
+import {
+	CodeChangeImportControl,
+	useCodeChangeImport,
+	type CodeChangeImportResult,
+	type CodeChangeRequestBody,
+} from "@/components/code-change-import";
 import Link from "next/link";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, UploadIcon, WaypointsIcon } from "lucide-react";
 import {
+	FORCED_COLORS_QUERY,
 	incrementalLayout,
 	mixHex,
 	propositionSessionHref,
@@ -77,6 +84,7 @@ import {
 	type GraphNode,
 	type GraphSnapshot,
 } from "@/src/core";
+import { SourceEvidence } from "@/components/source-evidence";
 import { planCostLabel } from "@/components/usage-format";
 import { GraphCanvasRenderer, type CanvasColors, type GraphRenderSettings } from "./graph-canvas.ts";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
@@ -87,7 +95,7 @@ import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { Hint } from "@/components/ui/hint";
 import { currentScheme, usePaletteKey } from "@/components/color-scheme";
-import { livePalette, tokenHex } from "@/components/theme-tokens";
+import { livePalette, systemColorHex, tokenHex } from "@/components/theme-tokens";
 import {
 	ARROW_LENGTH_LADDER,
 	CHARGE_RANGE,
@@ -161,6 +169,13 @@ export function renameSessionsPatch(snapshot: Pick<GraphSnapshot, "sessions">, i
 	snapshot.sessions[id] = title;
 }
 
+/** The canvas's accessible name (M27): to assistive tech the graph is
+ *  one picture, so its name says what the picture holds. Pure. */
+export function graphImageLabel(propositions: number, chains: number): string {
+	const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+	return `Knowledge graph: ${count(propositions, "proposition")} in ${count(chains, "chain")}.`;
+}
+
 /** Seed positions for nodes the ledger doesn't know yet (hygiene,
  *  2026-09-23 fix wave): they used to fall through to a ?? 0 and dump
  *  at the origin. Place them on a deterministic ring around the known
@@ -213,6 +228,8 @@ export function seedMissingNodePositions(
  *  the palette ink as-is on dark; pulled toward the text ink on light so
  *  they stay readable. */
 function canvasColors(scheme: ColorScheme): CanvasColors {
+	const forced = forcedCanvasColors();
+	if (forced) return forced;
 	const p = livePalette(scheme);
 	return {
 		node: tokenHex(NODE_COLOR_TOKEN, p.foreground),
@@ -222,6 +239,20 @@ function canvasColors(scheme: ColorScheme): CanvasColors {
 		regions: p.viz.map((c) => vividHex(c)),
 		regionLabels: p.viz.map((c) => (scheme === "light" ? mixHex(c, p.foreground, 0.3) : c)),
 	};
+}
+
+/** Forced colors (accessibility mode, M27): the browser repaints the page in
+ *  the user's system palette but never a canvas's pixels, so the graph
+ *  draws in that palette itself, over the page's Canvas: ink in
+ *  CanvasText, edges in GrayText, and every cluster tinted Highlight under
+ *  a CanvasText label. Null when colors aren't forced. */
+function forcedCanvasColors(): CanvasColors | null {
+	if (typeof window === "undefined" || !window.matchMedia?.(FORCED_COLORS_QUERY).matches) return null;
+	const ink = systemColorHex("CanvasText");
+	const edge = systemColorHex("GrayText");
+	const highlight = systemColorHex("Highlight");
+	if (!ink || !edge || !highlight) return null;
+	return { node: ink, edge, label: ink, hoverText: ink, regions: [highlight], regionLabels: [ink] };
 }
 
 // ---- Component ------------------------------------------------------------
@@ -840,8 +871,9 @@ function GraphSettingsControl({
 
 /** The top-chrome actions row's body (empty-graph chrome wave, owner
  *  2026-09-25): Import Notes renders ALWAYS (graph enabled) — it's the
- *  one action that works on an empty graph, the entry point itself;
- *  search + settings render only when the snapshot has nodes (dead
+ *  one action that works on an empty graph, the entry point itself (the
+ *  code-change import, M22, is the second entry point and renders always
+ *  too); search + settings render only when the snapshot has nodes (dead
  *  controls are lies — the honesty principle). The two gated controls
  *  fade in on their mount (graph-chrome-fade-in, globals.css — the
  *  appear-once transition as the first nodes land). Exported pure for
@@ -855,6 +887,7 @@ export function GraphChromeRow({
 	searchInputRef,
 	fileInputRef,
 	onImportFiles,
+	codeChange,
 	settings,
 	changeSettings,
 	onOpenChains,
@@ -869,6 +902,13 @@ export function GraphChromeRow({
 	searchInputRef: React.RefObject<HTMLInputElement | null>;
 	fileInputRef: React.RefObject<HTMLInputElement | null>;
 	onImportFiles: (files: FileList | null) => void;
+	/** The code-change import (M22): like Import notes, it works on an
+	 *  empty graph, so it always renders. */
+	codeChange: {
+		importing: boolean;
+		result: CodeChangeImportResult | null;
+		submit: (body: CodeChangeRequestBody) => void;
+	};
 	settings: GraphRenderSettings;
 	changeSettings: (update: (cur: RenderSettings) => RenderSettings) => void;
 	/** Opens the chain table overlay (the chains-overlay plan,
@@ -927,7 +967,7 @@ export function GraphChromeRow({
 					ref={fileInputRef}
 					type="file"
 					multiple
-					accept=".md,.markdown,.txt"
+					accept=".md,.markdown,.txt,.pdf,application/pdf"
 					className="hidden"
 					onChange={(e) => {
 						onImportFiles(e.target.files);
@@ -953,6 +993,11 @@ export function GraphChromeRow({
 					</button>
 				</Hint>
 			</div>
+			<CodeChangeImportControl
+				importing={codeChange.importing}
+				result={codeChange.result}
+				onSubmit={codeChange.submit}
+			/>
 			{!isEmpty && (
 				// Rendering settings — own component; the gear toggles it. The
 				// gear sits at the far right (owner, round 3) so its panel drops
@@ -1123,6 +1168,14 @@ export function GraphView({
 		},
 	});
 	const { importing, onImportFiles } = notesImport;
+	// The code-change import (M22) rides the same pipeline: the same dock
+	// nudge at its start, and the same runs-empty refetch when it lands.
+	const codeChange = useCodeChangeImport({
+		onStart: () => {
+			refreshActivity();
+			setTimeout(() => refreshActivity(), 600);
+		},
+	});
 
 	// Background pipeline status: read /api/graph/status; whenever a run
 	// LEAVES the feed (finished / aborted / failed), refetch the graph.
@@ -1518,9 +1571,25 @@ export function GraphView({
 				</div>
 			) : (
 				<div ref={containerRef} className="relative h-full w-full">
+					{/* The graph as a list (M27): a skip link, shown only while it
+					    has focus, ahead of the canvas in tab order. It opens the
+					    Chains table, which holds the same propositions as text. */}
+					<button
+						type="button"
+						onClick={() => setChainsOpen(true)}
+						data-testid="graph-list-link"
+						className="lh-no-drag pointer-events-none absolute left-1/2 top-2 z-30 -translate-x-1/2 rounded-md border bg-card px-3 py-1.5 text-sm text-foreground opacity-0 shadow-lg focus:pointer-events-auto focus:opacity-100"
+					>
+						View the graph as a list
+					</button>
 					{/* THE single canvas: every layer (hulls, edges, nodes, both
 					    label systems, hover) draws into it, once per frame. */}
-					<canvas ref={canvasRef} className="block h-full w-full touch-none" />
+					<canvas
+						ref={canvasRef}
+						role="img"
+						aria-label={graphImageLabel(snapshot?.propositions.length ?? 0, snapshot?.chains.length ?? 0)}
+						className="block h-full w-full touch-none"
+					/>
 					{/* The context menu's anchor: a zero-size point at the
 					    right-click position (canvas-relative == container-relative,
 					    the canvas fills this div). */}
@@ -1622,6 +1691,7 @@ export function GraphView({
 					searchInputRef={searchInputRef}
 					fileInputRef={fileInputRef}
 					onImportFiles={onImportFiles}
+					codeChange={codeChange}
 					settings={settings}
 					changeSettings={changeSettings}
 					onOpenChains={() => setChainsOpen(true)}
@@ -1641,7 +1711,7 @@ export function GraphView({
 					key={run.id}
 					className="flex items-center gap-2 rounded-full border bg-card/85 px-3 py-1.5 text-xs text-muted-foreground shadow-lg backdrop-blur"
 				>
-					<Loader2Icon className="size-3.5 shrink-0 animate-spin" />
+					<Loader2Icon className="size-3.5 shrink-0 motion-safe:animate-spin" />
 					<span className="capitalize">{run.phase}</span>
 					<span className="max-w-48 truncate text-foreground">{run.title}</span>
 					<span className="tabular-nums">{Math.max(0, Math.round((Date.now() - run.startedAt) / 1000))}s</span>
@@ -1667,14 +1737,25 @@ export function GraphView({
 							<div className="text-xs text-muted-foreground">Sessions</div>
 							{selected.sourceIds.map((sourceId) => {
 								// An imported-notes file: a STATIC entry — the path,
-								// plain text, never a link (no session to open).
+								// plain text, never a link (no session to open). A
+								// checked quote (M25) shows under it, with its page
+								// (PDF) or its diff hunk (code change, M22).
 								if (snapshot?.fileSources?.[sourceId] !== undefined) {
+									const evidence = selected.node.provenance.find((pt) => pt.chatId === sourceId && pt.quote);
 									return (
-										<div key={sourceId} className="flex items-center gap-1.5">
-											<FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
-											<span className="min-w-0 flex-1 truncate px-2 py-1.5 text-sm text-muted-foreground">
-												{snapshot.fileSources[sourceId]}
-											</span>
+										<div key={sourceId} className="flex flex-col gap-1">
+											<div className="flex items-center gap-1.5">
+												<FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
+												<span className="min-w-0 flex-1 truncate px-2 py-1.5 text-sm text-muted-foreground">
+													{snapshot.fileSources[sourceId]}
+												</span>
+												{evidence?.page !== undefined && (
+													<span className="shrink-0 text-xs tabular-nums text-muted-foreground" data-testid="evidence-page">
+														p. {evidence.page}
+													</span>
+												)}
+											</div>
+											{evidence?.quote && <SourceEvidence className="ml-5" quote={evidence.quote} hunk={evidence.hunk} />}
 										</div>
 									);
 								}

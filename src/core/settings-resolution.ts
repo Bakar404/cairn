@@ -80,6 +80,12 @@ export interface EffectiveSettings {
 		/** Work IQ (M10): passthrough delta as stored — absent/undefined
 		 * enabled = OFF; consumers use workIqEnabled. */
 		workIq: { enabled?: boolean };
+		/** Microsoft Learn (M21): passthrough delta as stored —
+		 * absent/undefined enabled = ON; consumers use learnDocsEnabled. */
+		learnDocs: { enabled?: boolean };
+		/** The answer check (M24): passthrough delta as stored —
+		 * absent/undefined enabled = ON; consumers use assessorEnabled. */
+		assessor: { enabled?: boolean };
 	};
 	/** The resolved strong/cheap/vision slots: each tier's concrete model or
 	 *  NULL when the tier holds no model (no factory floor — BYOK all the
@@ -180,6 +186,8 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			prompts: agent.prompts ?? {},
 			graphTools: agent.graphTools ?? {},
 			workIq: agent.workIq ?? {},
+			learnDocs: agent.learnDocs ?? {},
+			assessor: agent.assessor ?? {},
 		},
 		models: {
 			strong: resolveSlot(modelsSection.strong),
@@ -255,6 +263,18 @@ export function graphToolsEnabled(effective: {
  *  the prober's work_context tool and the runner's client both read it. */
 export function workIqEnabled(effective: { agent: { workIq: { enabled?: boolean } } }): boolean {
 	return effective.agent.workIq.enabled === true;
+}
+
+/** The Microsoft Learn gate (M21): on unless switched off — the researcher's
+ *  learn_* tools and the Goals picker's study guides both read it. */
+export function learnDocsEnabled(effective: { agent: { learnDocs: { enabled?: boolean } } }): boolean {
+	return effective.agent.learnDocs.enabled ?? true;
+}
+
+/** The answer-check gate (M24): on unless switched off — read fresh when a
+ *  practice turn settles, so a switch flipped mid-session lands. */
+export function assessorEnabled(effective: { agent: { assessor: { enabled?: boolean } } }): boolean {
+	return effective.agent.assessor.enabled ?? true;
 }
 
 

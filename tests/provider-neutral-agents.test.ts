@@ -53,7 +53,10 @@ function callsFor(loop: Loop, round: number): Call[] {
 	if (round === 2) return [];
 	if (loop === "visual") return round === 0
 		? [{ name: "write_svg", args: { svg: SVG } }]
-		: [{ name: "render_svg", args: {} }];
+		: [
+			{ name: "render_svg", args: {} },
+			{ name: "describe_figure", args: { alt: "A white square.", description: "A plain white square fills the frame." } },
+		];
 	return round === 0
 		? [{ name: "pdf_info", args: {} }]
 		: [{ name: "pdf_extract", args: { pages: "1" } }, { name: "pdf_render", args: { pages: "1", dpi: 100 } }];

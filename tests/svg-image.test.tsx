@@ -181,17 +181,51 @@ describe("house figures follow the page scheme", () => {
 	});
 });
 
+describe("a figure's text alternative", () => {
+	const TEXT = {
+		alt: "A line rising to the right.",
+		description: "One straight line climbs from the lower left corner to the upper right corner.",
+	};
+
+	it("inline: the maker's alt names the image; its description sits in a closed Describe disclosure", () => {
+		const { document } = parseHTML(renderToStaticMarkup(<VisualOutputCard output={{ svg: FIGURE, ...TEXT }} />));
+		const holder = document.querySelector('[data-testid="visual-svg"]')!;
+		assert.equal(holder.children.length, 1, "the description stays outside the image holder");
+		assert.equal(holder.querySelector("img")!.getAttribute("alt"), TEXT.alt);
+		const disclosure = document.querySelector('[data-testid="figure-description"]')!;
+		assert.equal(disclosure.tagName, "DETAILS");
+		assert.equal(disclosure.hasAttribute("open"), false, "closed unless Expand descriptions is on");
+		assert.equal(disclosure.querySelector("summary")!.textContent, "Describe");
+		assert.equal(disclosure.querySelector("p")!.textContent, TEXT.description);
+	});
+
+	it("inline: a house figure carries the alt on both variants", () => {
+		const { document } = parseHTML(renderToStaticMarkup(<VisualOutputCard output={{ svg: HOUSE_FIGURE, ...TEXT }} />));
+		const images = [...document.querySelectorAll('[data-testid="visual-svg"] img')];
+		assert.equal(images.length, 2);
+		for (const image of images) assert.equal(image.getAttribute("alt"), TEXT.alt);
+		assert.ok(document.querySelector('[data-testid="figure-description"]'));
+	});
+
+	it("inline: an empty alt and description fall back to the bare figure", () => {
+		const { document } = parseHTML(renderToStaticMarkup(<VisualOutputCard output={{ svg: FIGURE, alt: "", description: "" }} />));
+		assertImageBoundary(document.querySelector('[data-testid="visual-svg"]')!, FIGURE);
+		assert.equal(document.querySelector('[data-testid="figure-description"]'), null);
+	});
+});
+
 it("the fullscreen button opens the same SVG image and inversion; download keeps original bytes", async () => {
 	const originalSvg = FIGURE.replace(' xmlns="http://www.w3.org/2000/svg"', '').replace("θ &amp; φ", "θ&nbsp;&amp; φ");
 	const displaySvg = FIGURE.replace("θ &amp; φ", "θ&#160;&amp; φ");
 	const dom = parseHTML("<html><body></body></html>");
-	const names = ["window", "document", "Element", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
+	const names = ["window", "document", "Element", "HTMLElement", "MutationObserver", "IS_REACT_ACT_ENVIRONMENT"] as const;
 	const originals = names.map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
 	Object.assign(globalThis, {
 		window: dom.window,
 		document: dom.document,
 		Element: dom.window.Element,
 		HTMLElement: dom.window.HTMLElement,
+		MutationObserver: dom.window.MutationObserver,
 		IS_REACT_ACT_ENVIRONMENT: true,
 	});
 	const host = dom.document.createElement("div");

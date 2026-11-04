@@ -11,7 +11,8 @@ import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-
 import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
-import type { ChatSettings, GraphSnapshot } from "@/src/core";
+import { GoalsControl } from "@/components/goals-control";
+import { goalOpening, type ChatSettings, type GraphSnapshot, type LearningGoal } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */
@@ -36,17 +37,22 @@ const DOCK = "mx-auto w-full max-w-[46rem] px-4";
  * the first message), persist the lifted pre-chat settings, return the push
  * target — /chat/<id>?prompt=<msg> — whose initialPrompt path delivers the
  * message as turn 1. Injected fetch/router so tests pin the contract.
- * Returns null on empty text; rethrows on transport failure (the caller's
- * busy flag resets).
+ * A teach draft may carry a learning goal (M21): it rides the create, and
+ * with the text empty the goal alone starts the session (titled after it,
+ * opening with goalOpening's line). Returns null when there is nothing to
+ * send; rethrows on transport failure (the caller's busy flag resets).
  */
 export async function startDraftSession(
 	text: string,
 	fetchLike: typeof fetch,
 	mode?: "practice",
 	picks?: readonly DraftPick[],
+	goal?: LearningGoal | null,
 ): Promise<string | null> {
 	const t = text.trim();
-	if (!t) return null;
+	const teachGoal = mode === "practice" ? null : (goal ?? null);
+	const prompt = t || (teachGoal ? goalOpening(teachGoal) : "");
+	if (!prompt) return null;
 	// THE PICKS RIDE THE CREATE (owner round 10): a practice draft seeded
 	// from the pick bar creates its session WITH the graph context — the
 	// same contract as the home screen's practice send (the marker with
@@ -57,13 +63,13 @@ export async function startDraftSession(
 		body: JSON.stringify(
 			mode === "practice"
 				? { title: t, kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
-				: { title: t },
+				: { title: t || teachGoal?.title, ...(teachGoal ? { goal: teachGoal } : {}) },
 		),
 	});
 	const { id } = (await res.json()) as { id: string };
 	// No settings PUT on create (per-session models, owner 2026-09-28):
 	// the SERVER stamps the newborn from the strong slot.
-	return `/chat/${id}?prompt=${encodeURIComponent(t)}`;
+	return `/chat/${id}?prompt=${encodeURIComponent(prompt)}`;
 }
 
 /** The pure shell (no router) — the render-test seam: the draft view's
@@ -80,6 +86,8 @@ export function DraftShell({
 	picks = [],
 	onOpenPicker,
 	onClearPicks,
+	goal = null,
+	onGoal,
 	overlay,
 }: {
 	busy: boolean;
@@ -102,19 +110,38 @@ export function DraftShell({
 	picks?: DraftPick[];
 	onOpenPicker?: () => void;
 	onClearPicks?: () => void;
+	/** THE LEARNING GOAL (M21): a teach draft's Goals pill — shown only
+	 *  when NewSession passes onGoal. */
+	goal?: LearningGoal | null;
+	onGoal?: (goal: LearningGoal | null) => void;
 	/** THE PICKER SLOT (owner round 10b): the chain-table overlay hosts
 	 *  INSIDE the content column's relative container — the same law as
 	 *  the graph view (the overlay fills its column, never the sidebar).
 	 *  Passed as a node so the pick state stays in NewSession. */
 	overlay?: ReactNode;
 }) {
-	// Tab navigates INTO the composer (owner, keyboard round 2026-10-06):
-	// the only text field on this surface — the cycle's whole chain.
+	// F6 navigates INTO the composer (the owner's 2026-10-06 Tab cycle, on
+	// F6 since M27): the only text field on this surface — the cycle's whole chain.
 	const cycleComposer = useCallback((): readonly HTMLElement[] =>
 		Array.from(document.querySelectorAll<HTMLElement>('[data-testid="composer"] textarea')),
 		[]);
 	useFieldCycle(cycleComposer);
-	const canSend = text.trim().length > 0;
+	const withGoal = mode === "teach" && goal !== null;
+	const canSend = text.trim().length > 0 || withGoal;
+	const goalControl =
+		mode === "teach" && onGoal ? (
+			<GoalsControl
+				goal={goal}
+				onGoal={(next) => {
+					onGoal(next);
+					if (next) document.querySelector<HTMLTextAreaElement>('[data-testid="composer"] textarea')?.focus();
+				}}
+			/>
+		) : null;
+	const nodePicker =
+		picks.length > 0 || mode === "practice" ? (
+			<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} />
+		) : null;
 	return (
 		/* CHROME-LESS CREATION SURFACE (owner round 11, 2026-10-05): the
 		 * drafts join home's register — no TopBar, no title (the serif title
@@ -150,9 +177,7 @@ export function DraftShell({
 						<div className="bg-background pb-4">
 							<div className={DOCK}>
 								<ComposerActions
-									picker={(picks.length > 0 || mode === "practice") && (
-										<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} />
-									)}
+									picker={goalControl || nodePicker ? <>{goalControl}{nodePicker}</> : null}
 									setup={setupCta}
 								/>
 								<div className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">
@@ -168,7 +193,13 @@ export function DraftShell({
 										// input (owner refinement round, 2026-09-24) — no lesson has
 										// started yet, so the composer must not read like one is in
 										// flight.
-										placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+										placeholder={
+											mode === "practice"
+												? "What do you want to practice?"
+												: withGoal
+													? "Anything to focus on? Or press Enter to start."
+													: "What do you want to learn?"
+										}
 									/>
 								</div>
 								<StatsBar turns={[]} />
@@ -213,6 +244,13 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	};
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
+	// THE LEARNING GOAL (M21): mirrored like the picks — the send reads the ref.
+	const [goal, setGoal] = useState<LearningGoal | null>(null);
+	const goalRef = useRef<LearningGoal | null>(null);
+	const applyGoal = (next: LearningGoal | null) => {
+		goalRef.current = next;
+		setGoal(next);
+	};
 	const openPicker = () => {
 		if (snapshot) {
 			setPickerOpen(true);
@@ -246,7 +284,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 
 	const send = useCallback(() => {
 		const draft = textRef.current.trim();
-		if (!draft || busy) return;
+		const goalNow = mode === "teach" ? goalRef.current : null;
+		if ((!draft && !goalNow) || busy) return;
 		if (!configured) {
 			setSetupOpen(true);
 			return;
@@ -261,13 +300,19 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 			return;
 		}
 		setBusy(true);
-		void startDraftSession(draft, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined)
+		void startDraftSession(
+			draft,
+			fetch,
+			mode === "practice" ? "practice" : undefined,
+			mode === "practice" ? picksRef.current : undefined,
+			goalNow,
+		)
 			.then((target) => {
 				if (target) router.push(target);
 				else setBusy(false);
 			})
 			.catch(() => setBusy(false));
-	}, [busy, router, configured, zeroKeys, strongKeyless]);
+	}, [busy, router, configured, zeroKeys, strongKeyless, mode]);
 
 	return (
 		<>
@@ -280,6 +325,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}
+				goal={goal}
+				onGoal={applyGoal}
 				overlay={
 					// THE PICKER (owner round 10b): hosted INSIDE the content
 					// column — absolute inset-0 resolves to the column's relative

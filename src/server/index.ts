@@ -9,6 +9,10 @@ export * from "./events-stream.ts";
 export * from "./chats.ts";
 export * from "./graph.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";
+// Checked quotes (M25): a PDF import's text, page markers included.
+export { pdfBytesToText } from "../agent/subagents/pdf-ops.ts";
+// Code changes as sources (M22): a commit range or pull request, read.
+export { CodeChangeError, readCodeChange, type CodeChangeRead } from "./code-change.ts";
 export * from "./commit-positions.ts";
 export * from "./jobs.ts";
 // Settings › Storage (OneDrive wave, 2026-10-27): where the library lives,
@@ -20,6 +24,15 @@ export * from "./manim.ts";
 // Work IQ (M10): the stdio MCP adapter the job runner asks through, and the
 // Settings connection test.
 export * from "./workiq.ts";
+// Microsoft Learn (M21): the HTTP MCP adapter the researcher and the Goals
+// picker read Microsoft's documentation through.
+export * from "./learn-docs.ts";
+// Learning goals (M21): the Goals picker's reads, and the guard its JSON
+// routes (and the code-change import) share.
+export * from "./learning-goals.ts";
+// The due-for-practice queue (M20): practice sessions replayed through FSRS.
+export * from "./review-queue.ts";
+export * from "./same-origin.ts";
 export * from "./stores.ts";
 export { readRenderSettings, writeRenderSettings } from "../store/render-settings.ts";
 // The settings record + prompt overrides (settings-storage wave, 2026-09-19).

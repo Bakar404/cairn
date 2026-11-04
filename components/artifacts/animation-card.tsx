@@ -8,7 +8,8 @@ import { Toggle } from "@/components/settings/controls";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
 import { slugFilename } from "@/components/artifacts/download";
 import { paperStyle } from "@/components/artifacts/figure-image";
-import { mediaUrl, type AnimationResult, type ArtifactPartProps } from "@/src/core";
+import { AnimationTranscript } from "@/components/artifacts/text-alternative";
+import { cleanBeats, mediaUrl, type AnimationResult, type ArtifactPartProps } from "@/src/core";
 
 /**
  * Animation artifact card (M13): the tool part's output is the dispatch
@@ -16,6 +17,10 @@ import { mediaUrl, type AnimationResult, type ArtifactPartProps } from "@/src/co
  * the steer message via AnimationOutputCard (or from the box while the
  * learner holds the delivery). The file is served by the chat's media
  * route, never inlined into the record.
+ *
+ * The maker's text alternative (M27): the alt names the video, the beats
+ * ride along as a WebVTT descriptions track, and a "Transcript" disclosure
+ * under the caption row gives the description and the beats in words.
  */
 export function AnimationCard({ part }: ArtifactPartProps) {
 	if (part.state !== "output-available") return null;
@@ -83,6 +88,10 @@ export function AnimationOutputCard({
 		typeof result.durationSec === "number" && Number.isFinite(result.durationSec)
 			? `${Math.max(1, Math.round(result.durationSec))} s`
 			: null;
+	const alt = typeof result.alt === "string" && result.alt ? result.alt : null;
+	const description = typeof result.description === "string" && result.description ? result.description : undefined;
+	const beats = Array.isArray(result.beats) ? cleanBeats(result.beats, result.durationSec) : [];
+	const track = result.descriptions?.file ? mediaUrl(actions.chatId, result.descriptions.file) : null;
 	return (
 		<div className="my-4 w-full" data-testid="animation-card">
 			{/* Light paper with the invert filter riding it, as on the figure
@@ -97,10 +106,12 @@ export function AnimationOutputCard({
 					poster={poster}
 					width={video.width}
 					height={video.height}
-					aria-label={result.title}
+					aria-label={alt ?? result.title}
 					className="block h-auto w-full"
 					data-testid="animation-video"
-				/>
+				>
+					{track && <track kind="descriptions" src={track} srcLang="en" label="Descriptions" />}
+				</video>
 			</div>
 			<div className="mt-2 flex items-center justify-between gap-2">
 				<div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
@@ -128,6 +139,7 @@ export function AnimationOutputCard({
 					</a>
 				</div>
 			</div>
+			{(description || beats.length > 0) && <AnimationTranscript description={description} beats={beats} />}
 		</div>
 	);
 }
