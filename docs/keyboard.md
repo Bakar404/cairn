@@ -15,8 +15,10 @@ second pillar of input).
   `lh:kbd-<action-id>` window CustomEvents. Surfaces listen for their
   own events (matching the pre-existing `lh:chat-renamed` seam style).
 - **Persistence**: overrides live under localStorage `lh:keymap` as
-  `{actionId: binding}` merged over defaults. No editor yet — the
-  settings milestone owns key map editing.
+  `{actionId: binding}` merged over defaults. Settings → Keyboard edits
+  them (rebind, reset). It refuses the reserved keys (Tab, Shift+Tab, F6,
+  Shift+F6) and says why, and `loadOverrides` drops a stored override on
+  one.
 - **displayOnly entries**: the registry also lists SURFACE-owned keys
   (the question dock's row machine) for the cheat sheet only —
   `effectiveKeymap` skips them so bare arrows can never leak to pages
@@ -24,10 +26,33 @@ second pillar of input).
 
 ## Rules
 
-- **Tab is dead everywhere** (owner decision: browser tab-focus
-  navigation abandoned). Shift+Tab cycles the thinking level — also
-  while typing in a field (modifier combos are the only keys that fire
-  from typing surfaces; bare keys never do).
+- **Tab moves focus** (accessibility mode, M27, 2026-10-30; this
+  retires the 2026-09-17 "Tab is dead" rule). Tab and Shift+Tab reach
+  every control in document order, and no shortcut may take them
+  (`RESERVED_BINDINGS` in `src/core/keyboard.ts`).
+- **F6 / Shift+F6** walk the active surface's text fields: the old
+  plain-Tab field cycle, now in both directions. They work from inside a
+  field and wrap; from outside the chain, F6 enters at the first field
+  and Shift+F6 at the last. Under an open dialog they do nothing.
+- **⌘⇧K / Ctrl+Shift+K** cycles the thinking level, also while typing
+  in a field (modifier combos are the only keys that fire from typing
+  surfaces; bare keys never do).
+- **Dialogs** (`components/use-dialog-focus.ts`): opening one moves
+  focus inside it (Cancel on the delete and abort confirmations,
+  otherwise the dialog itself, so a screen reader reads its name first).
+  Tab and Shift+Tab wrap inside the topmost dialog. Closing returns focus
+  to the control that opened it; when that control is gone (a menu
+  item), focus goes back to where it was when the dialog opened, the
+  menu's trigger. The connection dialog keeps its own trap.
+- **Menus** (`components/menu-shell.tsx`): ↑/↓ and Enter as before. Tab
+  and Shift+Tab do nothing inside a menu; Esc closes it. A menu that
+  closes with focus inside it in keyboard modality returns focus to its
+  trigger (after a click, focus is left alone, so Space can't reopen the
+  menu by surprise).
+- **Enter submits from anywhere** (`components/enter-submits.ts`) except
+  where Enter already means something: a keyboard-focused button, link
+  or `<summary>` keeps native Enter, and inside a dialog or menu Enter
+  always belongs to it.
 - **Esc priority chain**: topmost popover → cheat sheet → abort turn
   (local stream only — a server-side wake turn has no client request to
   abort). Every element/document-level Esc handler that acts calls
@@ -35,9 +60,15 @@ second pillar of input).
   session search claims Esc to blur back to normal, and a focused dock
   field claims Esc so the window chain never acts under the learner's
   typing.
-- **Focus ring**: browser Tab-focus is gone, so `:focus-visible` stays
-  unstyled (an earlier experimental outline was live-rejected — inputs
-  showed a red ring on plain click-focus).
+- **Focus outline**: keyboard users see a 2px outline in `--primary`
+  (4px under Settings → Accessibility → Focus indicator → Enhanced, the
+  system Highlight color under forced colors); pointer users see none. `components/input-modality.ts`
+  sets `<html data-input-modality>`: `keyboard` on Tab, Shift+Tab or F6,
+  `pointer` on any pointer press. No other key changes it, so the quiz's
+  ←/→ after a click never light an outline. That attribute is what the
+  2026-09 outline experiment lacked: inputs match `:focus-visible` even
+  on a click, so it showed a ring on plain click-focus and was rejected.
+  Tooltips open on focus only in keyboard modality.
 
 ## Key map (Wave A — global)
 
@@ -45,7 +76,8 @@ second pillar of input).
 |---|---|---|
 | ~~Toggle dictation~~ | ~~⌘D~~ | RETIRED (2026-10-27) — the Deepgram dictation was removed; voice input returns later on a different service |
 | Model selector | ⌘K | `lh:kbd-open-model-picker` (model-picker.tsx) |
-| Cycle thinking level | Shift+Tab | `lh:kbd-cycle-thinking` (model-picker.tsx) |
+| Cycle thinking level | ⌘⇧K / Ctrl+Shift+K | `lh:kbd-cycle-thinking` (model-picker.tsx) |
+| Next / previous text field | F6 / Shift+F6 | `lh:kbd-cycle-fields` with `detail.reverse` (field-cycle.ts) |
 | Toggle sidebar | ⌘B | `lh:toggle-sidebar` (sidebar.tsx) |
 | Sessions search | ⌘⇧F | `lh:kbd-sessions-search` (sidebar.tsx) |
 | Walk search results | ↑ / ↓ *in the search field* | sidebar.tsx (cycles the filtered rows, wraps) |
@@ -75,7 +107,8 @@ menu owns ↑/↓/Enter inside the input's own handler:
 
 ## Question dock row machine (Wave B, owner rounds 2026-09-17)
 
-While a question is expanded, the dock owns ↑/↓/Space/Enter/Tab:
+While a question is expanded, the dock owns ↑/↓/Space/Enter, and ←/→
+on a quiz:
 
 - **↑/↓** walk every answerable row in order — options first, then the
   quiz's "I don't know" / the ask's "Other…" (never both) — **clamped at
@@ -83,24 +116,32 @@ While a question is expanded, the dock owns ↑/↓/Space/Enter/Tab:
   The walked row gets a subtle ring (`bg-accent/40`) and scrollIntoView.
 - **Space** acts on the walked row exactly like a click: multi toggles,
   single displaces; Other also focuses its inline input for typing.
-- **Enter** submits once an answer exists (`canSubmit`).
-- **Tab (plain)** toggles focus between the thinking field and the
-  answer rows — nothing else (owner round 3). From the thinking side it
-  focuses the walked (or first) row; from the rows it returns to the
-  thinking field. Focus follows the walk while the user is in the rows,
-  so focused and walked never diverge. Shift+Tab is NOT the dock's —
-  the global thinking-level cycle owns it everywhere.
+- **Enter** submits once an answer exists (`canSubmit`). Before that,
+  Enter on a keyboard-focused row activates it like a click.
+- **←/→** step the quiz confidence from anywhere in the dock (owner, UI
+  round 2026-10-01). The slider is also a native range input in the Tab
+  order; the dock cancels its native step, so a key never moves it
+  twice.
+- **Tab** is native (M27). The rows are one Tab stop with a roving
+  tabindex (the walked row, or the first when none is walked), so Tab
+  goes rows → confidence slider → thinking field → Submit. Keyboard
+  focus landing on a row walks it, so ↑/↓ continue from there, and focus
+  follows the walk while the user is in the rows, so focused and walked
+  never diverge. A click doesn't walk.
 - Guards: keys from a typing surface keep their native meaning (arrows
   move the caret, space types — the thinking field is never hijacked),
-  and modifier combos are never the dock's — Alt+arrows cycle sessions
-  without ALSO walking the question rows (owner round 3). The listener
-  lives only while the dock is expanded — collapsed, the bar's native
-  Enter expands it.
+  modifier combos are never the dock's (owner round 3), and an open
+  dialog or menu owns its keys, so it never walks the rows behind it.
+  The listener lives only while the dock is expanded — collapsed, the
+  bar's native Enter expands it.
 
 ## Status
 
 - Wave A (global plumbing + shortcuts above) — landed, CDP-verified.
 - Wave B (question row machine) — landed, CDP-verified.
+- Accessibility mode (M27, 2026-10-30): native Tab, F6 field walk,
+  ⌘⇧K thinking cycle, dialog and menu focus, focus outline — covered by
+  `e2e/keyboard.spec.ts`.
 - Wave C remainder: ⌘F chat transcript search (new feature, needs its own
   design pass), ⌘I import notes on graph. ⌘F graph node search shipped
   early (owner live-tested the gap).

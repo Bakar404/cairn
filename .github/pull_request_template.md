@@ -9,6 +9,7 @@
 - [ ] `npm run lint`
 - [ ] Tried it by hand (describe how)
 - [ ] For UI changes: screenshots in light and dark mode
+- [ ] For UI changes: `npm run test:a11y`
 
 ## Checklist
 

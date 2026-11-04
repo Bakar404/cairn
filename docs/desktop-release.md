@@ -51,6 +51,7 @@ npx electron-builder --linux --x64 --publish never
 
 - Typecheck, full deterministic test suite, and lint on Ubuntu.
 - Native renderer tests plus standalone build/boot-smoke on macOS (`macos-15`), Windows, and Linux. This macOS job does not compile the Icon Composer asset; only release packaging needs the newer runner.
+- **Accessibility checks:** axe-core in Chromium against the Linux standalone build, compared with the committed baseline. See [Accessibility checks](development.md#accessibility-checks).
 - **Docs links:** [lychee](https://github.com/lycheeverse/lychee), offline, checks every relative link and heading anchor in the Markdown files. Web links aren't checked, so the job never fails because another site is down.
 - **Workflow lint:** [actionlint](https://github.com/rhysd/actionlint), with shellcheck, checks every workflow.
 
@@ -136,7 +137,7 @@ A pass proves the file was built by this repository's release workflow from the 
 1. Make sure `main` is green in CI.
 2. In `CHANGELOG.md`, turn `## [Unreleased]` into `## [x.y.z] - YYYY-MM-DD`, start a new empty `## [Unreleased]` above it, and update the comparison links at the bottom. Check the notes with `npx tsx scripts/release-notes.ts x.y.z`.
 3. Bump the version with `npm version x.y.z --no-git-tag-version`, which updates `package.json` and `package-lock.json`. Commit, push to `main` and wait for CI.
-4. Run the rehearsal on `main`. Look at the `window-*` screenshots, and install the `cairn-*` artifacts on the machines you have: open the app, sign in, start and resume a lesson, open an interactive demo, switch between light and dark, and try the window buttons, dragging and zoom.
+4. Run the rehearsal on `main`. Look at the `window-*` screenshots, and install the `cairn-*` artifacts on the machines you have: open the app, sign in, start and resume a lesson, open an interactive demo, switch between light and dark, and try the window buttons, dragging and zoom. On one of them, do the [manual accessibility pass](development.md#the-manual-accessibility-pass).
 5. Tag and push: `git tag vx.y.z` then `git push origin vx.y.z`.
 6. Wait for **all three** packaging jobs **and Verify draft release**. The gate checks the draft's 11 assets and the three update feeds: a single draft, the right names, version, sizes and upload state, and feeds that reference only what the release holds. If anything fails, fix the cause and re-run the failed jobs before publishing; electron-builder replaces same-named assets on re-upload, and the gate rejects leftovers.
 7. Read the draft on the Releases page, then publish it with `gh release edit vx.y.z --draft=false --latest`.

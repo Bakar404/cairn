@@ -30,11 +30,11 @@ Also:
 
 - Keep each pull request to one topic.
 - Add a line under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) for anything a user would notice.
-- For UI changes, follow [docs/design.md](docs/design.md) and attach screenshots in light and dark mode.
+- For UI changes, follow [docs/design.md](docs/design.md) and attach screenshots in light and dark mode. Run the [accessibility checks](docs/development.md#accessibility-checks) too: `npm run test:a11y`, after a production build.
 - Update the docs your change affects.
 - Never commit tokens, your `data/` folder or personal learning content.
 
-CI runs the checks above, a standalone build on macOS, Windows and Linux, CodeQL, an offline check of the links between docs and a lint of the workflows.
+CI runs the checks above, a standalone build on macOS, Windows and Linux, the accessibility checks, CodeQL, an offline check of the links between docs and a lint of the workflows.
 
 ## Releases
 
