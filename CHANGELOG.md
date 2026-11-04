@@ -32,6 +32,10 @@ This release adds the review queue, learning goals, the answer check, learning f
 
 - **New keys.** Tab moves focus, as in other apps, instead of jumping between text fields; F6 and Shift+F6 do that now, in both directions. The thinking level moved from Shift+Tab to ⌘⇧K (Ctrl+Shift+K on Windows and Linux). Settings → Keyboard won't give a shortcut Tab, Shift+Tab, F6 or Shift+F6, and drops a saved one that used them.
 
+### Fixed
+
+- A setting that's unavailable, such as Keep my library in OneDrive before you sign in to a work OneDrive, faded its name and its explanation along with its switch, too faint to read. Now only the switch fades, and the explanation of what to do stays readable.
+
 ### Security
 
 - The requests that read a folder on your computer, a study guide or a code change are refused when they come from another site or aren't JSON, so a web page you visit can't make Cairn read your files or repositories.

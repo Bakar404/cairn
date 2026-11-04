@@ -122,7 +122,9 @@ describe("AgentSection (thin SSR)", () => {
 			<AgentSection agent={undefined} models={undefined} graph={{ enabled: false }} onSectionChange={() => {}} onModelsChange={() => {}} />,
 		);
 		const row = html.split('data-testid="graph-tools-row"')[1]?.split('data-testid="tool-row-')[0] ?? "";
-		assert.ok(row.includes("opacity-40"), "row dims when the graph is off");
+		assert.match(row, /opacity-40"><button[^>]*role="switch"/, "the toggle dims when the graph is off");
+		assert.ok(!row.slice(0, row.indexOf(">")).includes("opacity"), "the row's text never fades (axe contrast)");
+		assert.match(row, /text-\(length:--lh-prose-size\) text-muted-foreground">Graph tools</, "the label mutes instead, at its size");
 		assert.ok(row.includes("Graph is disabled"), "the reason hint replaces the description");
 		assert.ok(row.includes("disabled"), "toggle untouchable while the graph is off");
 	});
@@ -235,7 +237,8 @@ describe("AppearanceSection (thin SSR)", () => {
 		assert.ok(!select.includes("disabled"), "mode select is enabled");
 		for (const v of ["dark", "light", "system"]) assert.ok(html.includes(`<option value="${v}"`), v);
 		assert.ok(!html.includes("Coming soon"));
-		assert.ok(!tagOf(html, "row-mode").includes("opacity-40"), "the row no longer dims");
+		const modeRow = html.split('data-testid="row-mode"')[1]?.split('data-testid="row-')[0] ?? "";
+		assert.ok(modeRow && !modeRow.includes("opacity-40"), "the row no longer dims");
 	});
 
 	it("hex inputs carry the factory placeholders; prose size resolves against the factory", () => {

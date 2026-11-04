@@ -48,7 +48,7 @@ it("the Research toggle is interactive and writes its stored boolean (web search
 		assert.ok(toggle);
 		assert.equal(toggle.hasAttribute("disabled"), false);
 		assert.equal(toggle.getAttribute("aria-checked"), "true");
-		assert.ok(!row.className.includes("opacity-40"));
+		assert.equal(row.querySelector(".opacity-40"), null, "nothing in the row dims");
 		act(() => { toggle.click(); });
 		assert.equal(written?.tools?.research, false, "the toggle emits the stored boolean");
 	} finally {
