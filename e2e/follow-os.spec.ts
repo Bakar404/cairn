@@ -20,6 +20,7 @@
  * top of the baseline app.ts pins (no OS preference, transparency too).
  */
 import type { Locator, Page } from "@playwright/test";
+import type { ModelCatalogEntry, ModelCatalogResponse } from "../src/core/contracts/models.ts";
 import {
 	chatReady,
 	computedColor,
@@ -111,6 +112,13 @@ test("under forced colors the switch shows its state in system colors, and the a
 });
 
 test("under forced colors a pressed or current option fills with Highlight, and the model menu's walk cursor is outlined", async ({ page }) => {
+	// The menu's rows are fixed: CI is signed out of GitHub Copilot (an
+	// empty catalog) and a developer's machine may not be.
+	await page.route("**/api/models", async (route) => {
+		const response = await route.fetch();
+		const catalog = (await response.json()) as ModelCatalogResponse;
+		await route.fulfill({ response, json: { ...catalog, models: MENU_MODELS } });
+	});
 	await openHome(page);
 	await page.emulateMedia({ forcedColors: "active" });
 	const [highlight, highlightText] = await Promise.all(
@@ -125,14 +133,15 @@ test("under forced colors a pressed or current option fills with Highlight, and 
 
 	// The cursor walks while focus stays in the search field. A current row
 	// pairs the fill with a HighlightText outline (the lesson test covers
-	// that), so the walk steps past one.
+	// that), so neither fixed row is the current model.
 	await page.getByTestId("stats-model").click();
 	const menu = page.getByTestId("model-menu");
 	const search = page.getByTestId("model-search");
 	const walked = menu.locator("[data-highlighted]");
+	await expect(menu.locator('[data-testid^="model-option-"]')).toHaveCount(MENU_MODELS.length);
 	await search.press("ArrowDown");
 	await expect(walked).toHaveCount(1);
-	if ((await walked.getAttribute("aria-current")) === "true") await search.press("ArrowDown");
+	await expect(walked).not.toHaveAttribute("aria-current", "true");
 	await expect.poll(() => paint(walked), { message: "the walked row" }).toMatchObject({ outline: `dashed ${highlight}` });
 	await page.keyboard.press("Escape");
 	await expect(menu).toHaveCount(0);
@@ -219,6 +228,24 @@ async function openHome(page: Page) {
 	await page.goto("/");
 	await hydrated(page, "dark");
 	await homeReady(page);
+}
+
+/** Two model-menu rows for the walk, neither of them the fixtures' strong
+ *  slot. */
+const MENU_MODELS: ModelCatalogEntry[] = [menuModel("fixture-model-a", "Fixture model A"), menuModel("fixture-model-b", "Fixture model B")];
+
+function menuModel(id: string, name: string): ModelCatalogEntry {
+	return {
+		id,
+		name,
+		provider: "copilot",
+		reasoning: false,
+		input: ["text"],
+		supportedLevels: [],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 128_000,
+		maxTokens: 16_000,
+	};
 }
 
 async function openAccessibility(page: Page): Promise<Locator> {

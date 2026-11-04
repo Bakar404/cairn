@@ -19,6 +19,9 @@ export function probeEnv(env, home) {
 	const clean = Object.fromEntries(Object.entries(env).filter(([key]) =>
 		!/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i.test(key) &&
 		!/^(AWS_|GOOGLE_|GCLOUD_|CLOUDSDK_|AZURE_|ANTHROPIC_|OPENAI_|OPENROUTER_|GEMINI_)/.test(key) &&
+		// Windows' OneDrive folders (OneDriveCommercial is the work one the
+		// Storage settings detect) belong to this machine, and CI has none.
+		!/^OneDrive/i.test(key) &&
 		!["NODE_OPTIONS", "NODE_PATH", "LH_DEV_URL", "ELECTRON_RUN_AS_NODE"].includes(key)));
 	return {
 		...clean,

@@ -104,4 +104,10 @@ describe("demo standalone dependency gate", () => {
 		assert.equal(env.HOME, "/scratch");
 		assert.equal(original.API_KEY, "fake");
 	});
+
+	it("drops this machine's OneDrive folders, which CI never has", () => {
+		const env = probeEnv({ PATH: "/bin", OneDrive: "C:\\fixture\\OneDrive", OneDriveCommercial: "C:\\fixture\\OneDrive - Contoso", OneDriveConsumer: "C:\\fixture\\OneDrive" }, "/scratch");
+		for (const key of ["OneDrive", "OneDriveCommercial", "OneDriveConsumer"]) assert.equal(key in env, false, key);
+		assert.equal(env.PATH, "/bin");
+	});
 });
