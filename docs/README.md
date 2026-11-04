@@ -8,9 +8,9 @@ Many of these documents come from [LearnHarness](https://github.com/amosblomqvis
 
 | Document | What it covers |
 | --- | --- |
-| [development.md](development.md) | Setup, commands, environment variables, the project layout and the desktop shell |
+| [development.md](development.md) | Setup, commands, environment variables, the project layout, the desktop shell, and the tests, accessibility checks and doctrine evals |
 | [desktop-release.md](desktop-release.md) | The macOS, Windows and Linux installers, signing, CI and how to cut a release |
-| [design.md](design.md) | The design system: palette, light and dark modes, and how demos, diagrams and figures follow it |
+| [design.md](design.md) | The design system: palette, light and dark modes, accessibility mode, and how demos, diagrams and figures follow it |
 | [keyboard.md](keyboard.md) | Keyboard shortcuts |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | How to propose a change |
 | [../CHANGELOG.md](../CHANGELOG.md) | What changed in each release |
@@ -19,7 +19,7 @@ Many of these documents come from [LearnHarness](https://github.com/amosblomqvis
 
 | Document | What it covers |
 | --- | --- |
-| [architecture.md](architecture.md) | The canonical architecture spec: layers, the import law, the five systems and their invariants |
+| [architecture.md](architecture.md) | The canonical architecture spec: layers, the import law, the six systems and their invariants |
 | [teaching-methodology.md](teaching-methodology.md) | The theory of learning and teaching that the system prompts compress |
 | [probe-teach-split.md](probe-teach-split.md) | The split between the probing and teaching agents, and how a lesson moves through its plan |
 | [compaction-accounting.md](compaction-accounting.md) | How long conversations are compacted and how token usage is counted |
