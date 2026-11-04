@@ -40,7 +40,7 @@ Aim a lesson at a Microsoft certification or at your own code, learn from a pull
 ## What makes Cairn different
 
 > [!NOTE]
-> Everything in this section except [Runs on your GitHub Copilot](#runs-on-your-github-copilot) is new since version 0.4.0. It reaches the desktop app with the next release, and you can use it now by [running Cairn from source](#run-from-source). The [changelog](CHANGELOG.md) lists every change.
+> Everything in this section except [Runs on your GitHub Copilot](#runs-on-your-github-copilot) is new in Cairn 0.5.0. The [changelog](CHANGELOG.md) lists every change.
 
 Cairn began as a fork of LearnHarness, which gave it the teaching loop and the knowledge graph (see [Built on LearnHarness](#built-on-learnharness)). This is what Cairn builds around them.
 
@@ -113,7 +113,7 @@ The review pill on the home screen counts the ideas due for practice, such as **
 
 ## Why you can trust it
 
-A tutor has to grade you fairly and get its facts right. Cairn checks both, and says where the checks stop. The answer check, the doctrine evals and checked quotes are new since 0.4.0 and reach the desktop app with the next release.
+A tutor has to grade you fairly and get its facts right. Cairn checks both, and says where the checks stop. The answer check, the doctrine evals and checked quotes are new in 0.5.0.
 
 - **A second opinion on every practice verdict.** After a practice problem ends, a second model grades your final answer against the worked solution, without seeing the tutor's verdict. When the two disagree, the problem's card says **Answer check disagrees.** and gives the reason, and the disagreement can only make your review schedule stricter, never looser. Switch it in **Settings → Agent → Answer check**.
 - **Teaching rules that are tested.** The practice tutor follows written laws, such as one problem at a time, a worked solution committed before the problem is posed and hidden until the end, and one hint per request. `npm run evals` grades recorded practice sessions against eight of them, with no model and no network, and CI runs it on every change:
@@ -262,8 +262,6 @@ npm run dev                          # then open http://localhost:3000
 4. After you've practiced, the review pill above the lesson box shows what's due. Choose it, then **Practice these**.
 
 You can change models later in **Settings → Agent**, manage your Copilot sign-in in **Settings → Providers**, and find the accessibility options in **Settings → Accessibility**.
-
-**Set a goal**, the review queue and the accessibility settings reach the desktop app with the next release. To use them now, [run Cairn from source](#run-from-source).
 
 ### Accounts
 
