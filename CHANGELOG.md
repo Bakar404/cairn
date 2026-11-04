@@ -4,6 +4,10 @@ All notable changes to Cairn are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-04
+
+This release adds the review queue, learning goals, the answer check, learning from code changes and PDFs, doctrine evals and accessibility settings. The installers pass automated checks on macOS, Windows and Linux but still haven't had a full hands-on pass on each system. Please [report problems](https://github.com/Bakar404/cairn/issues).
+
 ### Added
 
 - **Accessibility settings.** Settings → Accessibility brings together the options below. Preset switches set several at once: Low vision, Reading comfort, Reduce motion and Screen reader, plus WCAG text spacing under Advanced. Each value a preset writes stays editable on its own, and turning the preset off returns those values to their defaults. Reset accessibility settings, at the bottom of the page, turns every preset off, the text size, graph view and zoom they set included, and returns the page to its defaults.
@@ -68,5 +72,6 @@ This is an early release. The installers pass automated checks on macOS, Windows
 - A Copilot session can no longer spend tokens on its own. A session left waiting on Cairn's tools is closed after 10 minutes, and one that starts a turn by itself is stopped at once.
 - Next.js is updated to 16.4.2 for published advisories, including unauthenticated remote code execution. DOMPurify, sharp, undici, zod and source-map-js are on patched versions too.
 
-[Unreleased]: https://github.com/Bakar404/cairn/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Bakar404/cairn/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Bakar404/cairn/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Bakar404/cairn/releases/tag/v0.4.0
