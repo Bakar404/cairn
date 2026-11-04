@@ -1,0 +1,114 @@
+{
+  "home|default|dark": {
+    "button-name": 1,
+    "color-contrast": 2
+  },
+  "home|default|light": {
+    "button-name": 1,
+    "color-contrast": 2
+  },
+  "home|forced-colors|dark": {
+    "button-name": 1
+  },
+  "home|reduced-motion|dark": {
+    "button-name": 1,
+    "color-contrast": 2
+  },
+  "lesson|default|dark": {
+    "button-name": 1,
+    "color-contrast": 5,
+    "label-content-name-mismatch": 2,
+    "scrollable-region-focusable": 2
+  },
+  "lesson|default|light": {
+    "button-name": 1,
+    "color-contrast": 10,
+    "label-content-name-mismatch": 2,
+    "scrollable-region-focusable": 2
+  },
+  "lesson|forced-colors|dark": {
+    "button-name": 1,
+    "label-content-name-mismatch": 2,
+    "scrollable-region-focusable": 2
+  },
+  "lesson|reduced-motion|dark": {
+    "button-name": 1,
+    "color-contrast": 5,
+    "label-content-name-mismatch": 2,
+    "scrollable-region-focusable": 2
+  },
+  "new-session|default|dark": {
+    "color-contrast": 2
+  },
+  "new-session|default|light": {
+    "color-contrast": 2
+  },
+  "new-session|forced-colors|dark": {},
+  "new-session|reduced-motion|dark": {
+    "color-contrast": 2
+  },
+  "practice|default|dark": {
+    "color-contrast": 6
+  },
+  "practice|default|light": {
+    "color-contrast": 8
+  },
+  "practice|forced-colors|dark": {},
+  "practice|reduced-motion|dark": {
+    "color-contrast": 6
+  },
+  "settings-accessibility|default|dark": {},
+  "settings-accessibility|default|light": {},
+  "settings-accessibility|forced-colors|dark": {},
+  "settings-accessibility|reduced-motion|dark": {},
+  "settings-agent|default|dark": {
+    "label-content-name-mismatch": 6
+  },
+  "settings-agent|default|light": {
+    "label-content-name-mismatch": 6
+  },
+  "settings-agent|forced-colors|dark": {
+    "label-content-name-mismatch": 6
+  },
+  "settings-agent|reduced-motion|dark": {
+    "label-content-name-mismatch": 6
+  },
+  "settings-appearance|default|dark": {
+    "label-content-name-mismatch": 1
+  },
+  "settings-appearance|default|light": {
+    "label-content-name-mismatch": 1
+  },
+  "settings-appearance|forced-colors|dark": {
+    "label-content-name-mismatch": 1
+  },
+  "settings-appearance|reduced-motion|dark": {
+    "label-content-name-mismatch": 1
+  },
+  "settings-general|default|dark": {},
+  "settings-general|default|light": {},
+  "settings-general|forced-colors|dark": {},
+  "settings-general|reduced-motion|dark": {},
+  "settings-graph|default|dark": {},
+  "settings-graph|default|light": {},
+  "settings-graph|forced-colors|dark": {},
+  "settings-graph|reduced-motion|dark": {},
+  "settings-keyboard|default|dark": {
+    "color-contrast": 1
+  },
+  "settings-keyboard|default|light": {
+    "color-contrast": 1
+  },
+  "settings-keyboard|forced-colors|dark": {},
+  "settings-keyboard|reduced-motion|dark": {
+    "color-contrast": 1
+  },
+  "settings-keys|default|dark": {},
+  "settings-keys|default|light": {},
+  "settings-keys|forced-colors|dark": {},
+  "settings-keys|reduced-motion|dark": {},
+  "settings-storage|default|dark": {},
+  "settings-storage|default|light": {},
+  "settings-storage|forced-colors|dark": {},
+  "settings-storage|reduced-motion|dark": {}
+}

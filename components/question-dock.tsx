@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownIcon, ArrowLeftIcon, ChevronRightIcon, MessageCircleIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useEnterSubmits } from "@/components/enter-submits";
+import { OVERLAY_ROOTS, useEnterSubmits } from "@/components/enter-submits";
+import { keyboardModality } from "@/components/input-modality";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import {
@@ -432,18 +433,20 @@ function QuestionDockForm({
 	   walk stops at the last row). Space acts on the walked row exactly
 	   like a click (multi toggles, single displaces; Other also focuses
 	   its input for typing), Enter submits once an answer exists.
-	   Tab toggles FOCUS between the thinking field and the answer rows
-	   (owner round 3) — nothing else; Shift+Tab is NOT ours (the global
-	   thinking-level cycle owns it). Two guards keep native behavior
-	   intact: keys from a TYPING SURFACE keep their meaning (arrows move
-	   the caret, space types), and modifier combos are never ours
-	   (Alt+arrows cycle sessions — they must not ALSO walk the rows).
-	   The listener is document-level and lives only while the dock is
-	   expanded — collapsed, the bar's native Enter expands it. */
+	   Tab is native (M27): the rows are ONE Tab stop with a roving
+	   tabindex — the walked row, or the first when none is — so Tab moves
+	   rows → confidence slider → thinking field → Submit, and keyboard
+	   focus on a row makes it the walked row. Three guards keep native
+	   behavior intact: keys from a TYPING SURFACE keep their meaning
+	   (arrows move the caret, space types), modifier combos are never ours
+	   (Alt+arrows cycle sessions — they must not ALSO walk the rows), and
+	   an open overlay owns its keys (a dialog or menu over the dock never
+	   walks the rows behind it). The listener is document-level and lives
+	   only while the dock is expanded — collapsed, the bar's native Enter
+	   expands it. */
 	const [kbdIdx, setKbdIdx] = useState<number | null>(null);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const otherInputRef = useRef<HTMLInputElement>(null);
-	const thinkingRef = useRef<HTMLTextAreaElement>(null);
 	// One row past the options is the trailing row: quiz → don't-know,
 	// ask → Other (a question never has both). Text mode (ask/explain)
 	// has no rows — the composer IS the answer surface.
@@ -480,10 +483,25 @@ function QuestionDockForm({
 		el.focus();
 	};
 
+	// Roving tabindex (M27): the walked row is the rows' one Tab stop — the
+	// first row when none is walked — and keyboard focus landing on a row
+	// walks it, so ↑/↓ continue from wherever Tab entered. A click leaves
+	// the walk alone (pointer modality), exactly as before.
+	const tabStop = kbdIdx !== null && kbdIdx < rowCount ? kbdIdx : 0;
+	const rowFocus = (idx: number) => ({
+		tabIndex: tabStop === idx ? 0 : -1,
+		onFocus: () => {
+			if (keyboardModality()) setKbdIdx(idx);
+		},
+	});
+
 	useEffect(() => {
 		if (!active || rowCount === 0) return;
 		const onKeyDown = (e: KeyboardEvent) => {
 			const t = e.target as HTMLElement | null;
+			// An open dialog or menu owns its keys (M27: dialogs now take
+			// focus when they open, and Tab reaches menus).
+			if (t?.closest?.(OVERLAY_ROOTS)) return;
 			// A TYPING field is where keys mean text (owner round 4): the
 			// thinking/answer fields, search boxes, renames — never a range
 			// input, whose focus after a click or drag must not kill the
@@ -496,22 +514,6 @@ function QuestionDockForm({
 			// Alt/Cmd/Ctrl combos are never ours (Alt+arrows cycle sessions
 			// globally — they must not ALSO walk the question rows).
 			const modded = e.altKey || e.metaKey || e.ctrlKey;
-			// Plain Tab toggles focus: rows → thinking. The confidence
-			// slider takes NO focus at all (owner, UI round 2026-10-01) —
-			// global ←/→ own its keyboard, so it never joins the chain.
-			// Shift+Tab falls through (the global thinking-level cycle owns
-			// it), so the shift check matters.
-			if (e.key === "Tab" && !e.shiftKey && !modded) {
-				e.preventDefault();
-				e.stopPropagation();
-				if (t?.closest?.("[data-kbdrow]")) thinkingRef.current?.focus();
-				else {
-					const idx = kbdIdx ?? 0;
-					setKbdIdx(idx);
-					focusRow(idx);
-				}
-				return;
-			}
 			// Keys from a typing surface keep their meaning (arrows move
 			// the caret, space types).
 			if (typing || modded) return;
@@ -520,7 +522,8 @@ function QuestionDockForm({
 				const next = Math.min((kbdIdx ?? -1) + 1, rowCount - 1);
 				setKbdIdx(next);
 				// Focus follows the walk while the user is IN the rows (Tab
-				// put them there) so focused and walked never diverge.
+				// or a click put them there) so focused and walked never
+				// diverge.
 				if (t?.closest?.("[data-kbdrow]")) focusRow(next);
 			} else if (e.key === "ArrowUp") {
 				e.preventDefault();
@@ -614,6 +617,8 @@ function QuestionDockForm({
 									role={qd.mode === "multi-select" ? "checkbox" : "radio"}
 									aria-checked={isSel}
 									data-kbdrow={i}
+									data-highlighted={i === kbdIdx ? "" : undefined}
+									{...rowFocus(i)}
 									onClick={() => toggle(i)}
 									className={cn(
 										"flex items-start gap-3 rounded-lg border px-3 py-2 text-left text-sm outline-none transition-colors",
@@ -660,6 +665,8 @@ function QuestionDockForm({
 									setSel((prev) => ({ ...prev, selected: new Set(), otherSelected: false, dontKnow: !prev.dontKnow }))
 								}
 								data-kbdrow={optionCount}
+								data-highlighted={kbdIdx === optionCount ? "" : undefined}
+								{...rowFocus(optionCount)}
 								aria-pressed={sel.dontKnow}
 								className={cn(
 									// Option-row layout + radio circle (owner); the dashed
@@ -689,6 +696,7 @@ function QuestionDockForm({
 								aria-checked={sel.otherSelected}
 								data-testid="other-option"
 								data-kbdrow={optionCount}
+								data-highlighted={kbdIdx === optionCount ? "" : undefined}
 								onClick={selectOther}
 								className={cn(
 									"flex items-start gap-3 rounded-lg border px-3 py-2 text-left text-sm outline-none transition-colors",
@@ -713,6 +721,7 @@ function QuestionDockForm({
 								</span>
 								<input
 									ref={otherInputRef}
+									{...rowFocus(optionCount)}
 									value={other}
 									onChange={(e) => {
 										setOther(e.target.value);
@@ -763,8 +772,10 @@ function QuestionDockForm({
 				ends. Fill + handle wear the stop's ramp color; SOLID stop
 				ticks are background layers behind the fill (empty side only,
 				never over the color; 0/100 need no tick — the flush ends say
-				them). Keyboard: GLOBAL ←/→ (the ↑/↓ pattern; the ring is gone
-				app-wide). Clicking and dragging are native. "I don't know"
+				them). Keyboard: GLOBAL ←/→ (the ↑/↓ pattern) work wherever focus
+				sits, so the learner never has to reach for it; Tab also stops
+				on it (M27), and the same handler cancels its native arrow
+				step. Clicking and dragging are native. "I don't know"
 				GRAYS it out — the layout holds, no value is sent, the IDK
 				signal stands alone. */}
 			{kind === "quiz" && (
@@ -893,7 +904,6 @@ function QuestionDockForm({
 						/>
 					) : (
 						<textarea
-							ref={thinkingRef}
 							value={thinking}
 							onChange={(e) => {
 								thinkingTextRef.current = e.target.value;

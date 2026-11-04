@@ -373,6 +373,16 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 		assert.match(teacher, /nothing to rush/, "the goal reiteration composes");
 	});
 
+	it("code changes (M22): practice asks the why behind a diff; teaching and probing read source evidence", () => {
+		const practice = composeInstructions("practice");
+		assert.match(practice, /## Code changes as material/);
+		assert.doesNotMatch(practice, /## Source evidence/);
+		for (const kind of ["teacher", "prober"] as const) {
+			assert.match(composeInstructions(kind), /## Source evidence/, kind);
+			assert.doesNotMatch(composeInstructions(kind), /## Code changes as material/, kind);
+		}
+	});
+
 	it("the prober doctrine steers difficulty by evidence (owner round, 2026-10-07)", () => {
 		const prober = composeInstructions("prober");
 		assert.match(prober, /Enter near the top, not the bottom/);

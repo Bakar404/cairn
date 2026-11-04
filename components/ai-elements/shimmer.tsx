@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import type { MotionProps } from "motion/react";
-import { motion } from "motion/react";
+import { motion, useReducedMotionConfig } from "motion/react";
 import type { CSSProperties, ElementType, JSX } from "react";
 import { memo, useMemo } from "react";
 
@@ -46,6 +46,16 @@ const ShimmerComponent = ({
     () => (children?.length ?? 0) * spread,
     [children, spread]
   );
+  const reduced = useReducedMotionConfig();
+
+  // The sweep repeats forever, so reduced motion gets the plain muted text.
+  if (reduced) {
+    return (
+      <Component className={cn("relative inline-block text-muted-foreground", className)}>
+        {children}
+      </Component>
+    );
+  }
 
   return (
     <MotionComponent

@@ -8,7 +8,17 @@ import type { MediaRef, VisualResult } from "../../core/contracts.ts";
 import type { ManimRenderer } from "../../core/manim.ts";
 import { FIGURE } from "../../core/figure-theme.ts";
 import { getHeadless, providerSafePng, type HeadlessApi } from "./headless.ts";
-import { applyExactEdit, layoutReport, lookMessage, nudgeMessage, streamOnce, textOf, toolCallsOf, toolText } from "./maker-kit.ts";
+import {
+	applyExactEdit,
+	layoutReport,
+	lookMessage,
+	nudgeMessage,
+	readTextAlternative,
+	streamOnce,
+	textOf,
+	toolCallsOf,
+	toolText,
+} from "./maker-kit.ts";
 
 /**
  * The visual-maker sub-agent (vision §2.5): authors ONE precise SVG from a
@@ -38,6 +48,11 @@ import { applyExactEdit, layoutReport, lookMessage, nudgeMessage, streamOnce, te
  * final frame is rendered in Docker, saved to the chat's media, and looked
  * at like an SVG render; the result is then { svg: "", png }. Whichever
  * medium the maker wrote last is the one delivered.
+ *
+ * TEXT ALTERNATIVE (M27): describe_figure records an alt and a description
+ * of the figure as it stands. A finish whose figure isn't described gets one
+ * nudge; after that it ships without, and the card's alt falls back to
+ * "Figure". A description ships only with the figure it was written for.
  */
 
 export interface VisualMakerInput {
@@ -117,6 +132,11 @@ SVG requirements:
 - Draw only what the brief specifies; never invent data, values, or shapes to fill space.
 - Plain, clean styling. An explanatory diagram, not art.
 
+Before you finish, call describe_figure({ alt, description }) for learners who can't see the picture:
+- alt: ONE sentence saying what the figure shows and its point, under 150 characters. Don't start with "Image of" or "Figure showing".
+- description: the figure in words, 2-6 short sentences: the layout, every labeled element and value, and what the accent marks. Describe only what is drawn.
+If you change the figure after describing it, call describe_figure again.
+
 Your FINAL message: 1-2 sentences of notes for the teacher (what the figure shows, any caveats) —
 NEVER the SVG source itself. If you genuinely cannot make a correct picture of the brief, say exactly
 that in your final message and why.`;
@@ -176,6 +196,17 @@ export function createVisualTools(withManim = false): Record<string, Tool> {
 			description: "Render the current SVG to a PNG and show it to you for inspection. No arguments.",
 			parameters: Type.Object({}),
 		},
+		describe_figure: {
+			name: "describe_figure",
+			description:
+				"Give the figure's text alternative for learners who can't see it: a one-sentence alt and a full description.",
+			parameters: Type.Object({
+				alt: Type.String({ description: "One sentence: what the figure shows and its point (under 150 characters)." }),
+				description: Type.String({
+					description: "2-6 short sentences: the layout, every labeled element and value, and what the accent marks.",
+				}),
+			}),
+		},
 	};
 	if (!withManim) return tools;
 	return {
@@ -213,6 +244,7 @@ const MANIM_LOOK_MESSAGE =
 	"Here is the final frame of your scene — inspect it critically (geometry, labels, clipping, readability):";
 const MANIM_UNLOOKED_FINISH_MESSAGE =
 	"You finished without looking at a render of your final scene. Here is its final frame. If it is correct and clean, reply with just your notes; otherwise fix the scene and render again.";
+const DESCRIBE_NUDGE = "Before you finish, call describe_figure with the alt text and description of your final figure.";
 
 export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerOptions = {}): Promise<VisualResult> {
 	const headless = opts.headless ?? getHeadless();
@@ -254,6 +286,22 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 	/** The medium written or edited last — the one delivered. */
 	let medium: "svg" | "manim" = "svg";
 	let finalText = "";
+	/** describe_figure's text alternative and the figure it was written for
+	 *  ("svg\n<source>" or "manim\n<scene>"): it ships only with that one. */
+	let figureText: { alt: string; description: string } | null = null;
+	let describedFor: string | null = null;
+	/** The describe gate nudges once. The notes of the finish it held back
+	 *  outlive a bare "Done" after the nudge. */
+	let describeNudged = false;
+	let heldNotes: { key: string; notes: string } | null = null;
+
+	/** The figure as it stands: the medium written last, keyed by its source. */
+	const currentKey = (): string | null =>
+		medium === "manim" ? (currentScene ? `manim\n${currentScene}` : null) : currentSvg ? `svg\n${currentSvg}` : null;
+	const notesFor = (key: string): string => (heldNotes?.key === key && heldNotes.notes ? heldNotes.notes : finalText);
+	/** The result with the text alternative, when it describes this figure. */
+	const described = (result: VisualResult, key: string): VisualResult =>
+		figureText && describedFor === key ? { ...result, ...figureText } : result;
 
 	/** Render the scene's final frame: the PNG to look at, the saved still
 	 *  and the layout check's findings, or the error (the caller records
@@ -315,11 +363,11 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 					messages = [...messages, lookMessage(MANIM_UNLOOKED_FINISH_MESSAGE + layoutReport(shot.issues), shot.png)];
 					continue;
 				}
-				if (medium === "manim" && still) return { svg: "", png: still, notes: finalText || undefined };
+				const stillShot = medium === "manim" ? still : null;
 				// Doctrine gate: never deliver an unlooked SVG. If the current SVG
 				// changed since its last render (or was never rendered), show it now
 				// and make the model look before accepting the finish.
-				if (currentSvg && renderedSvg !== currentSvg) {
+				if (!stillShot && currentSvg && renderedSvg !== currentSvg) {
 					let png: Buffer;
 					try {
 						png = await headless.renderSvg(currentSvg);
@@ -332,7 +380,19 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 					messages = [...messages, lookMessage(UNLOOKED_FINISH_MESSAGE, png)];
 					continue;
 				}
-				return finish(currentSvg, finalText);
+				const key = stillShot ? `manim\n${currentScene}` : currentSvg ? `svg\n${currentSvg}` : null;
+				if (key === null) return finish(null, finalText);
+				// Text-alternative gate (M27): one nudge to describe the figure being
+				// delivered (a description of an earlier version doesn't count). After
+				// that, or on the last iteration, it ships without one.
+				if (describedFor !== key && !describeNudged && iteration < maxIterations - 1) {
+					describeNudged = true;
+					heldNotes = { key, notes: finalText };
+					messages = [...messages, nudgeMessage(DESCRIBE_NUDGE)];
+					continue;
+				}
+				if (stillShot) return described({ svg: "", png: stillShot, notes: notesFor(key) || undefined }, key);
+				return described(finish(currentSvg, notesFor(key)), key);
 			}
 
 			const toolResults: ToolResultMessage[] = [];
@@ -416,10 +476,26 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 							`Rendered — the final frame follows in the next message. Look at it.${layoutReport(shot.issues)}`,
 						),
 					);
+				} else if (call.name === "describe_figure") {
+					const text = readTextAlternative(call.arguments);
+					if ("error" in text) {
+						toolResults.push(toolText(call.id, call.name, text.error));
+						continue;
+					}
+					const key = currentKey();
+					if (key === null) {
+						const write = manim ? "write_svg or write_manim" : "write_svg";
+						toolResults.push(toolText(call.id, call.name, `ERROR: nothing to describe — call ${write} first.`));
+						continue;
+					}
+					figureText = text;
+					describedFor = key;
+					opts.onActivity?.("describe_figure: saved");
+					toolResults.push(toolText(call.id, call.name, "Saved the alt text and description."));
 				} else {
 					const known = manim
-						? "write_svg, edit_svg, render_svg, write_manim, edit_manim, or render_manim"
-						: "write_svg, edit_svg, or render_svg";
+						? "write_svg, edit_svg, render_svg, write_manim, edit_manim, render_manim, or describe_figure"
+						: "write_svg, edit_svg, render_svg, or describe_figure";
 					toolResults.push(toolText(call.id, call.name, `ERROR: unknown tool "${call.name}". Use ${known}.`));
 				}
 			}
@@ -439,12 +515,17 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 	if (medium === "manim") {
 		// A still rendered on the last turn was never looked at.
 		if (still && currentScene && lookedScene === currentScene) {
-			return { svg: "", png: still, notes: finalText || "Iteration limit reached — delivering the last verified still." };
+			const key = `manim\n${currentScene}`;
+			return described(
+				{ svg: "", png: still, notes: notesFor(key) || "Iteration limit reached — delivering the last verified still." },
+				key,
+			);
 		}
 		return { svg: "", notes: `FAILED: iteration limit (${maxIterations}) reached without a verified figure.` };
 	}
 	if (currentSvg && renderedSvg === currentSvg) {
-		return { svg: currentSvg, notes: finalText || "Iteration limit reached — delivering the last verified SVG." };
+		const key = `svg\n${currentSvg}`;
+		return described({ svg: currentSvg, notes: notesFor(key) || "Iteration limit reached — delivering the last verified SVG." }, key);
 	}
 	return { svg: "", notes: `FAILED: iteration limit (${maxIterations}) reached without a verified SVG.` };
 }

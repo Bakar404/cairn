@@ -27,6 +27,8 @@ process.env.LH_DATA_DIR = TMP_DATA;
 const { newGraphContextMessage } = await import("../src/core/native-messages.ts");
 const { toLlmMessages } = await import("../src/core/native-messages.ts");
 import type { LhMessage } from "../src/core/native-messages.ts";
+import type { GraphNode, NotesSource, ProvenancePoint } from "../src/core/contracts.ts";
+const { graphContextEvidence, MAX_CONTEXT_EVIDENCE, MAX_CONTEXT_HUNK_CHARS } = await import("../src/core/graph.ts");
 const { projectView } = await import("../src/core/view.ts");
 const { POST } = await import("../app/api/chats/route.ts");
 const { initialPromptOwed } = await import("../components/chat.tsx");
@@ -150,5 +152,84 @@ describe("POST /api/chats — graphContext becomes message[0]", () => {
 			const { id } = (await res.json()) as { id: string };
 			assert.equal(chatStore.getChat(id)!.messages.length, 0);
 		}
+	});
+});
+
+// ── source evidence (M22): a pick's checked quote, and its diff ─────────────
+
+describe("source evidence (M22)", () => {
+	const AT = "2026-10-01T00:00:00.000Z";
+	const hunk = (text: string) => ({ file: "src/fetch.ts", header: "@@ -1,2 +1,3 @@", text });
+	const node = (id: string, provenance: ProvenancePoint[]): GraphNode => ({
+		id, name: id, statement: `${id}.`, aliases: [], createdAt: AT, provenance,
+	});
+	const SOURCES: NotesSource[] = [
+		{ id: "src_pdf", filePath: "notes/logic.pdf", importedAt: AT, kind: "pdf" },
+		{ id: "src_pr", filePath: "github.com/o/r/pull/12", importedAt: AT, kind: "change" },
+	];
+
+	it("one quote per pick, the one beside a diff first; none for chat-born or orphaned points", () => {
+		const nodes = [
+			node("n1", [
+				{ chatId: "chat_1", messageId: "m1" },
+				{ chatId: "src_pdf", messageId: "", quote: "Q follows from P.", page: 4 },
+				{ chatId: "src_pr", messageId: "", quote: "retry on 5xx", hunk: hunk("+retry()") },
+			]),
+			node("n2", [{ chatId: "src_gone", messageId: "", quote: "orphaned" }]),
+			node("n3", [{ chatId: "chat_1", messageId: "m2" }]),
+			node("n4", [{ chatId: "src_pdf", messageId: "", quote: "Validity is form.", page: 2 }]),
+		];
+		assert.deepEqual(graphContextEvidence(nodes, SOURCES, ["n1", "n2", "n3", "n4", "n1", "n_missing"]), [
+			{ id: "n1", source: "github.com/o/r/pull/12", quote: "retry on 5xx", hunk: hunk("+retry()") },
+			{ id: "n4", source: "notes/logic.pdf", quote: "Validity is form.", page: 2 },
+		]);
+	});
+
+	it("caps the picks with evidence; past the diff budget a pick keeps its quote, not its hunk", () => {
+		const half = "+".repeat(MAX_CONTEXT_HUNK_CHARS / 2 - 20);
+		const nodes = Array.from({ length: MAX_CONTEXT_EVIDENCE + 2 }, (_, i) =>
+			node(`n${i}`, [{ chatId: "src_pr", messageId: "", quote: `q${i}`, hunk: hunk(half) }]),
+		);
+		const evidence = graphContextEvidence(nodes, SOURCES, nodes.map((n) => n.id));
+		assert.equal(evidence.length, MAX_CONTEXT_EVIDENCE);
+		assert.deepEqual(evidence.map((e) => e.hunk !== undefined), evidence.map((_, i) => i < 2));
+		assert.equal(evidence[2]!.quote, "q2");
+	});
+
+	it("the marker quotes each source and fences each hunk past the backticks inside it", () => {
+		const evidence = [
+			{ id: "n_a", source: "notes/logic.pdf", quote: "Q follows from P.", page: 4 },
+			{ id: "n_b", source: "github.com/o/r/pull/12", quote: "retry on 5xx", hunk: hunk("+const s = ```x```;") },
+		];
+		const m = newGraphContextMessage(PICKS, [], evidence);
+		assert.ok(m.content.endsWith(
+			"Source evidence (each imported source's own words for a proposition, checked against the source):\n" +
+				'- [n_a] notes/logic.pdf, p. 4: "Q follows from P."\n' +
+				'- [n_b] github.com/o/r/pull/12: "retry on 5xx"\n' +
+				"  The diff in src/fetch.ts:\n````diff\n@@ -1,2 +1,3 @@\n+const s = ```x```;\n````",
+		));
+		assert.deepEqual(m.details, { propositions: PICKS, chains: [], evidence });
+		assert.ok(!newGraphContextMessage(PICKS, []).content.includes("Source evidence"));
+	});
+
+	it("POST /api/chats: a pick imported from a code change brings its quote and diff", async () => {
+		graphStore.upsertSource(SOURCES[1]!);
+		graphStore.appendNode(node("n_retry", [
+			{ chatId: "src_pr", messageId: "", quote: "retry on 5xx", hunk: hunk("+  if (res.status >= 500) return retry(url);") },
+		]));
+		const res = await POST(new Request("http://test/api/chats", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "why retry",
+				graphContext: { propositions: [{ id: "n_retry", name: "Retry", statement: "Retry server errors." }] },
+			}),
+		}));
+		const { id } = (await res.json()) as { id: string };
+		const m = chatStore.getChat(id)!.messages[0] as { content: string; details: { evidence?: unknown[] } };
+		assert.ok(m.content.includes(
+			'- [n_retry] github.com/o/r/pull/12: "retry on 5xx"\n  The diff in src/fetch.ts:\n```diff\n@@ -1,2 +1,3 @@\n+  if (res.status',
+		));
+		assert.equal(m.details.evidence?.length, 1);
 	});
 });

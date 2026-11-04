@@ -31,14 +31,18 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 import {
 	CURRENT_SETTINGS_VERSION,
+	type AccessibilitySettings,
 	type AgentSettings,
 	type AppearanceSettings,
 	type CompactionSettings,
 	type GraphSettings,
 	type UserSettings,
 } from "@/src/core";
+import { useAccessibility } from "./accessibility.tsx";
+import { AccessibilitySection } from "./accessibility-section.tsx";
 import { useAppearance } from "./appearance.tsx";
 import { SettingsSection } from "./controls.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
@@ -59,6 +63,7 @@ const SECTIONS = [
 	{ id: "keys", label: "Providers" },
 	{ id: "agent", label: "Agent" },
 	{ id: "appearance", label: "Appearance" },
+	{ id: "accessibility", label: "Accessibility" },
 	{ id: "graph", label: "Graph" },
 	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
 	{ id: "storage", label: "Storage" },
@@ -154,6 +159,7 @@ export function SettingsDialogBody({
 	initialRow?: string | null;
 }) {
 	const { onAppearanceChange } = useAppearance();
+	const { onAccessibilityChange } = useAccessibility();
 	const [record, setRecord] = useState<UserSettings | null | undefined>(
 		undefined,
 	);
@@ -161,6 +167,10 @@ export function SettingsDialogBody({
 	// MenuShell open-count — drives the content column's scroll lock.
 	const [openMenus, setOpenMenus] = useState(0);
 	const contentRef = useRef<HTMLDivElement | null>(null);
+	// Focus rests on the dialog itself on open (unless a section's
+	// autoFocus already landed inside) and returns to the opener on close.
+	const dialogRef = useRef<HTMLDivElement>(null);
+	useDialogFocus(dialogRef, true, { initialFocus: "container" });
 	// Scroll-lock (fix wave, owner ruling: the scrollbar MAY stay,
 	// scrolling must NOT happen, nothing may move): the content column
 	// keeps overflow-y-auto — the scrollbar and every width stay exactly
@@ -237,7 +247,7 @@ export function SettingsDialogBody({
 	 *  schema mistake caught by the validation surface). */
 	const write = useCallback(
 		async (
-			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction",
+			section: "general" | "agent" | "models" | "appearance" | "accessibility" | "graph" | "compaction",
 			body: object,
 		) => {
 			setError(null);
@@ -268,15 +278,20 @@ export function SettingsDialogBody({
 			notifySettingsSaved(section);
 			if (section === "appearance")
 				onAppearanceChange(body as AppearanceSettings);
+			if (section === "accessibility")
+				onAccessibilityChange((stored?.accessibility ?? body) as AccessibilitySettings);
 		},
-		[onAppearanceChange],
+		[onAppearanceChange, onAccessibilityChange],
 	);
 
 	return (
 		<div
+			ref={dialogRef}
 			role="dialog"
 			aria-modal="true"
 			aria-label="Settings"
+			tabIndex={-1}
+			data-focus-container=""
 			data-testid="settings-dialog"
 			className="settings-dialog-pop flex h-[620px] max-h-[85vh] w-[920px] max-w-[90vw] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl"
 			onClick={(e) => e.stopPropagation()}
@@ -415,6 +430,30 @@ export function SettingsDialogBody({
 										appearance={record.appearance}
 										onSectionChange={(next: AppearanceSettings) =>
 											void write("appearance", next)
+										}
+									/>
+								</SettingsSection>
+							)}
+							{active === "accessibility" && (
+								<SettingsSection
+									title="Accessibility"
+									testid="section-accessibility"
+								>
+									{/* The handlers return the write, so a slider shows its
+									    draft until the stored value is back and a preset's
+									    writes run one after another. */}
+									<AccessibilitySection
+										accessibility={record.accessibility}
+										appearance={record.appearance}
+										graph={record.graph}
+										onSectionChange={(next: AccessibilitySettings) =>
+											write("accessibility", next)
+										}
+										onAppearanceChange={(next: AppearanceSettings) =>
+											write("appearance", next)
+										}
+										onGraphChange={(next: GraphSettings) =>
+											write("graph", next)
 										}
 									/>
 								</SettingsSection>

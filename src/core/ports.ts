@@ -21,6 +21,7 @@ import type {
 	ExtractionRunUsage,
 	PlanTree,
 	Position,
+	PracticeAssessment,
 	CoverageEntry,
 	SessionCheckpoint,
 	TurnUsage,
@@ -51,6 +52,9 @@ export interface ChatStore {
 	appendTurnUsage(id: string, entry: TurnUsage): void;
 	/** Append one extraction-run usage entry — idempotent per startedAt. */
 	appendExtractionUsage(id: string, entry: ExtractionRunUsage): void;
+	/** Append one answer check (M24) — idempotent per concludeCallId: the
+	 *  first check of a conclude call stands. */
+	appendAssessment(id: string, entry: PracticeAssessment): void;
 	/** Persist the per-chat model/thinking settings (the model control).
 	 *  Replace-whole: the picker sends the complete settings object. */
 	saveSettings(id: string, settings: ChatSettings): void;

@@ -5,9 +5,11 @@
  * pdf-reader loop tests via the headlessOverride fake.
  */
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { parsePageSpec, pdfExtract, pdfInfo, pdfProbe, pdfSearch } from "../src/agent/subagents/pdf-ops.ts";
+import { parsePageSpec, pdfBytesToText, pdfExtract, pdfInfo, pdfProbe, pdfSearch } from "../src/agent/subagents/pdf-ops.ts";
+import { sourceLocator } from "../src/core/quote-check.ts";
 
 const FIXTURE = path.join(import.meta.dirname, "fixtures", "sample-3page.pdf");
 
@@ -55,6 +57,16 @@ describe("pdf-ops — the pdfjs text layer", () => {
 		await pdfProbe(FIXTURE); // resolves
 		const garbage = path.join(import.meta.dirname, "fixtures", "not-a-pdf.txt");
 		await assert.rejects(() => pdfProbe(garbage));
+	});
+
+	it("pdfBytesToText marks every page, so an import can place a quote on its page (M25)", async () => {
+		const text = await pdfBytesToText(new Uint8Array(fs.readFileSync(FIXTURE)));
+		assert.match(text, /^--- Page 1 ---\n/);
+		assert.match(text, /\n--- Page 3 ---\n/);
+		const locate = sourceLocator(text);
+		assert.equal(locate.pageAt(text.indexOf("Calculus")), 1);
+		assert.equal(locate.pageAt(text.indexOf("force")), 2);
+		await assert.rejects(() => pdfBytesToText(new TextEncoder().encode("not a pdf")));
 	});
 
 	it("parsePageSpec: all / ranges / lists / clamping", () => {

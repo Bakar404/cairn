@@ -120,6 +120,23 @@ describe("SessionRow", () => {
 		assert.ok(html.includes("bg-accent"), "active background");
 		assert.ok(!html.includes("font-medium"), "weight is not a second channel doing the same job");
 	});
+
+	it("the active row and the search walk's row say so in markup, which forced colors still show", () => {
+		const row = (active: boolean, kbdSelected: boolean) => {
+			const html = renderToStaticMarkup(
+				<SessionRow chat={item({})} active={active} kbdSelected={kbdSelected} onOpen={() => {}} />,
+			);
+			return html.slice(0, html.indexOf(">") + 1);
+		};
+		assert.doesNotMatch(row(false, false), /aria-current|data-highlighted/);
+		assert.match(row(true, false), /aria-current="page"/);
+		assert.doesNotMatch(row(true, false), /data-highlighted/);
+		assert.match(row(false, true), /data-highlighted=""/);
+		assert.doesNotMatch(row(false, true), /aria-current/);
+		// The ring skips the active row, already filled; under forced colors
+		// the fill is Highlight either way, so the walk keeps its outline there.
+		assert.match(row(true, true), /aria-current="page" data-highlighted=""/);
+	});
 });
 
 describe("timeAgo", () => {

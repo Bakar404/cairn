@@ -52,7 +52,7 @@ export function LiveToolCard({ part }: ArtifactPartProps) {
 					{toolActivityLabel(tool)}
 				</Shimmer>
 				{arg && <span className="truncate">{arg}</span>}
-				<ChevronRight className="size-3 shrink-0 opacity-50 transition-transform group-open:rotate-90" />
+				<ChevronRight className="size-3 shrink-0 opacity-50 motion-safe:transition-transform group-open:rotate-90" />
 			</summary>
 			<div className="mt-2 rounded-xl border bg-card p-3 text-xs">
 				<div className="mb-1 font-medium uppercase tracking-wide text-muted-foreground">Input (streaming)</div>

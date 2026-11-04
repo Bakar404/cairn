@@ -85,6 +85,11 @@ describe("GET /api/chats/:id/media/:file", () => {
 		const still = await getMedia("chat_a", "job_2.png");
 		assert.equal(still.headers.get("content-type"), "image/png");
 		assert.deepEqual(await bytesOf(still), [...TEN]);
+
+		writeMedia("chat_a", "job_3.vtt", "WEBVTT\n");
+		const track = await getMedia("chat_a", "job_3.vtt");
+		assert.equal(track.headers.get("content-type"), "text/vtt; charset=utf-8");
+		assert.equal(await track.text(), "WEBVTT\n");
 	});
 
 	it("answers one byte range with 206 and 416s a range past the end", async () => {
@@ -117,7 +122,7 @@ describe("GET /api/chats/:id/media/:file", () => {
 		assert.deepEqual(await bytesOf(res), []);
 	});
 
-	it("404s anything but a <name>.png|mp4 file in the chat's own folder", async () => {
+	it("404s anything but a <name>.png|mp4|vtt file in the chat's own folder", async () => {
 		// Each refused path would otherwise reach a real file.
 		writeMedia("chat_a", "job_1.svg", "<svg/>");
 		fs.mkdirSync(path.join(chatMediaDir("chat_a"), "dir.mp4"), { recursive: true });
@@ -175,5 +180,15 @@ describe("the Manim renderer under tests", () => {
 			await manimRenderer.render({ chatId: "chat_a", jobId: "job_1", code: "class Lesson(Scene): pass", mode: "final" }),
 			{ ok: false, error: "Animations are off under tests." },
 		);
+	});
+
+	it("saves an animation's descriptions track into its chat's media, and nowhere else", async () => {
+		const vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nA dot appears.\n";
+		const ref = manimRenderer.saveDescriptions("chat_a", "job_5", vtt);
+		assert.deepEqual(ref, { file: "job_5.vtt", mime: "text/vtt", bytes: Buffer.byteLength(vtt) });
+		assert.equal(fs.readFileSync(path.join(chatMediaDir("chat_a"), "job_5.vtt"), "utf8"), vtt);
+		assert.equal(await (await getMedia("chat_a", "job_5.vtt")).text(), vtt);
+		assert.throws(() => manimRenderer.saveDescriptions("..", "job_5", vtt), /invalid/);
+		assert.throws(() => manimRenderer.saveDescriptions("chat_a", "../job_5", vtt), /invalid/);
 	});
 });

@@ -1,5 +1,6 @@
 import type { AssistantMessage, Message, Tool, ToolResultMessage } from "@earendil-works/pi-ai";
 import { normalizeContext } from "@earendil-works/pi-ai";
+import type { AnimationBeat } from "../../core/contracts.ts";
 import type { PiEngine, ThinkingLevel } from "../models.ts";
 import type { ProviderEventObserver } from "../provider-events.ts";
 
@@ -167,4 +168,37 @@ export function applyExactEdit(
 		next: parts.join(edit.new_text),
 		reply: `OK — replaced 1 occurrence. Call ${names.render} to look at the edited ${names.noun}.`,
 	};
+}
+
+// ─── Text alternatives (M27: describe_figure, describe_animation) ──────────
+
+function collapse(value: unknown): string {
+	return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+/** A describe tool's alt and description, whitespace collapsed; or the
+ *  error to send back when either is missing or empty. */
+export function readTextAlternative(args: unknown): { alt: string; description: string } | { error: string } {
+	const a = (args ?? {}) as { alt?: unknown; description?: unknown };
+	const alt = collapse(a.alt);
+	const description = collapse(a.description);
+	if (!alt || !description) return { error: "ERROR: expected non-empty alt and description strings." };
+	return { alt, description };
+}
+
+/** describe_animation's beats ({ at, text } in the tool's words) as
+ *  AnimationBeats, text collapsed; or the error naming the first bad one.
+ *  Sorting, clamping and dropping empty text happen at delivery
+ *  (cleanBeats), once the video's length is known. */
+export function readBeats(value: unknown): AnimationBeat[] | { error: string } {
+	if (!Array.isArray(value)) return { error: "ERROR: expected `beats` to be an array of { at, text }." };
+	const beats: AnimationBeat[] = [];
+	for (const [i, item] of value.entries()) {
+		const beat = (item ?? {}) as { at?: unknown; text?: unknown };
+		if (typeof item !== "object" || typeof beat.at !== "number" || !Number.isFinite(beat.at) || typeof beat.text !== "string") {
+			return { error: `ERROR: beats[${i}] needs a number \`at\` (seconds) and a \`text\` string.` };
+		}
+		beats.push({ atSec: beat.at, text: collapse(beat.text) });
+	}
+	return beats;
 }

@@ -553,7 +553,7 @@ function Expander({ open, onClick, testid, label }: { open: boolean; onClick: ()
 			aria-expanded={open}
 			className="flex h-5 w-3.5 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
 		>
-			<ChevronRightIcon className={`size-3.5 transition-transform ${open ? "rotate-90" : ""}`} />
+			<ChevronRightIcon className={`size-3.5 motion-safe:transition-transform ${open ? "rotate-90" : ""}`} />
 		</button>
 	);
 }

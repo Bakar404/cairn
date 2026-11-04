@@ -1,5 +1,6 @@
 import type { PiEngine } from "../models.ts";
 import type { SearchProvider } from "../../core/search.ts";
+import type { LearnDocsClient } from "../../core/learn-docs.ts";
 import {
 	accumulateJobUsage,
 	buildSubagentSteer,
@@ -23,7 +24,7 @@ import {
 	type VisualToolInput,
 	type WorkContextToolInput,
 } from "../../core/contracts.ts";
-import type { ManimRenderer } from "../../core/manim.ts";
+import { cleanBeats, descriptionsVtt, type ManimRenderer } from "../../core/manim.ts";
 import {
 	cleanWorkTopic,
 	parseWorkContextTopics,
@@ -122,6 +123,9 @@ export interface JobRunnerDeps {
 	/** Work IQ (M10), read fresh per job: null while it's switched off in
 	 *  Settings — work_context jobs then fail honestly. */
 	workIq?: () => WorkIqClient | null;
+	/** Microsoft Learn (M21), read fresh per research job: null while it's
+	 *  switched off in Settings — the researcher then runs on the web alone. */
+	learnDocs?: () => LearnDocsClient | null;
 }
 
 export interface JobRunner {
@@ -417,6 +421,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			const brief = await runResearcherAgent(prompt, {
 				engine: model,
 				search: deps.searchProvider,
+				learnDocs: deps.learnDocs,
 				pdfDir,
 				abortSignal: loop.abortSignal,
 				chatId: loop.chatId,
@@ -425,7 +430,10 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 				onUsage: (usage) => loop.onUsage(piUsageToStep(usage)),
 					onToolStart: (toolName, args) => {
 					const input = args as { query?: string; url?: string } | undefined;
-					if (typeof input?.url === "string" && (toolName === "web_fetch" || toolName === "web_fetch_pdf")) {
+					if (
+						typeof input?.url === "string" &&
+						(toolName === "web_fetch" || toolName === "web_fetch_pdf" || toolName === "learn_fetch")
+					) {
 						fetchedUrls.push(input.url);
 					}
 					jobStore.updateJob(jobId, { activity: activityLine(toolName, input) });
@@ -573,7 +581,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		try {
 			if (!deps.manim) throw new Error("animations aren't set up on this server");
 			jobStore.updateJob(jobId, { activity: "making animation" });
-			const result = await runAnimationMaker(
+			const made = await runAnimationMaker(
 				{ title, brief },
 				{
 					manim: deps.manim,
@@ -585,8 +593,9 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 					onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
 				},
 			);
-			if (isAnimationFailure(result) && stillRunning(jobId))
-				jobStore.updateJob(jobId, { error: result.notes ?? "animation failed" });
+			const failure = isAnimationFailure(made);
+			const result = failure ? made : withDescriptionsTrack(made, deps.manim, chatId, jobId);
+			if (failure && stillRunning(jobId)) jobStore.updateJob(jobId, { error: result.notes ?? "animation failed" });
 			await finishJob(jobId, result);
 		} catch (err) {
 			if (loop.abortSignal.aborted) return;
@@ -656,6 +665,23 @@ function isAnimationFailure(result: AnimationResult): boolean {
 	return !result.video?.file;
 }
 
+/** A delivered animation with its beats cleaned against its length and
+ *  its WebVTT descriptions track saved beside the video (M27). The track
+ *  is best effort: if saving it fails, the video ships without it. */
+function withDescriptionsTrack(result: AnimationResult, manim: ManimRenderer, chatId: string, jobId: string): AnimationResult {
+	const { beats: raw, ...rest } = result;
+	const beats = cleanBeats(raw ?? [], result.durationSec);
+	const out: AnimationResult = beats.length ? { ...rest, beats } : rest;
+	const vtt = descriptionsVtt(beats, result.durationSec ?? 0);
+	if (!vtt) return out;
+	try {
+		return { ...out, descriptions: manim.saveDescriptions(chatId, jobId, vtt) };
+	} catch (err) {
+		console.error(`[job ${jobId}] saving the descriptions track failed:`, err);
+		return out;
+	}
+}
+
 /** The pdf-reader's failure brief (mirrors the research failure shape). */
 function isPdfFailure(result: PdfResult): boolean {
 	return /^PDF failed:/i.test(result.brief);
@@ -663,8 +689,10 @@ function isPdfFailure(result: PdfResult): boolean {
 
 /** The activity line shown in the UI: `web_search: "query"` / `web_fetch: host`. */
 function activityLine(toolName: string, input: { query?: string; url?: string } | undefined): string {
-	if (toolName === "web_search") return `web_search: "${input?.query ?? ""}"`;
-	if (toolName === "web_fetch") return `web_fetch: ${hostOf(input?.url)}`;
+	if (toolName === "web_search" || toolName === "learn_search" || toolName === "learn_code_samples") {
+		return `${toolName}: "${input?.query ?? ""}"`;
+	}
+	if (toolName === "web_fetch" || toolName === "learn_fetch") return `${toolName}: ${hostOf(input?.url)}`;
 	return toolName;
 }
 

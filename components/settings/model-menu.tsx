@@ -112,30 +112,38 @@ export function ModelMenuList({
 				<div className="px-2 py-3 text-center text-muted-foreground">No models match.</div>
 			)}
 			<ul ref={listRef} data-testid="model-list" className="flex max-h-72 flex-col overflow-y-auto px-1">
-				{results.map((m, i) => (
-					<li key={`${m.provider}/${m.id}`}>
-						<button
-							type="button"
-							data-testid={`model-option-${m.id.replace(/[^a-z0-9-]/gi, "_")}`}
-							data-idx={i}
-							onClick={() => onPick(m)}
-							className={`flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted ${
-								i === menuIdx ? "bg-accent/40 ring-1 ring-inset ring-border" : ""
-							}${m.id === effectiveId && m.provider === (effectiveProvider ?? m.provider) && i !== menuIdx ? " bg-muted/60" : ""}`}
-						>
-							<span className="flex items-center justify-between gap-2">
-								<span className="truncate text-card-foreground">{m.name}</span>
-								<span className="shrink-0 tabular-nums text-muted-foreground" title={subscriptionLabel(`${m.provider}:${m.id}`) ? "Subscription connection" : "USD per 1M tokens in/out"}>
-									{subscriptionLabel(`${m.provider}:${m.id}`) ?? priceLabel(m.cost)}
+				{results.map((m, i) => {
+					const current = m.id === effectiveId && m.provider === (effectiveProvider ?? m.provider);
+					return (
+						<li key={`${m.provider}/${m.id}`}>
+							{/* aria-current / data-highlighted carry the current model
+							    and the arrow-walk cursor into forced colors, where the
+							    tinted fills below are flattened to Canvas. */}
+							<button
+								type="button"
+								data-testid={`model-option-${m.id.replace(/[^a-z0-9-]/gi, "_")}`}
+								data-idx={i}
+								aria-current={current ? "true" : undefined}
+								data-highlighted={i === menuIdx ? "" : undefined}
+								onClick={() => onPick(m)}
+								className={`flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted ${
+									i === menuIdx ? "bg-accent/40 ring-1 ring-inset ring-border" : ""
+								}${current && i !== menuIdx ? " bg-muted/60" : ""}`}
+							>
+								<span className="flex items-center justify-between gap-2">
+									<span className="truncate text-card-foreground">{m.name}</span>
+									<span className="shrink-0 tabular-nums text-muted-foreground" title={subscriptionLabel(`${m.provider}:${m.id}`) ? "Subscription connection" : "USD per 1M tokens in/out"}>
+										{subscriptionLabel(`${m.provider}:${m.id}`) ?? priceLabel(m.cost)}
+									</span>
 								</span>
-							</span>
-							<span className="flex items-center justify-between gap-2 text-muted-foreground">
-								<span className="truncate">{subscriptionLabel(`${m.provider}:${m.id}`) ? `${subscriptionLabel(`${m.provider}:${m.id}`)} (subscription)` : m.provider} · {m.id}</span>
-								<span className="shrink-0 tabular-nums">{formatTokens(m.contextWindow)}</span>
-							</span>
-						</button>
-					</li>
-				))}
+								<span className="flex items-center justify-between gap-2 text-muted-foreground">
+									<span className="truncate">{subscriptionLabel(`${m.provider}:${m.id}`) ? `${subscriptionLabel(`${m.provider}:${m.id}`)} (subscription)` : m.provider} · {m.id}</span>
+									<span className="shrink-0 tabular-nums">{formatTokens(m.contextWindow)}</span>
+								</span>
+							</button>
+						</li>
+					);
+				})}
 			</ul>
 			{footer && (
 				<div className="mt-1 border-t px-2 pt-1.5 text-xs text-muted-foreground">{footer}</div>
@@ -170,6 +178,7 @@ export function ThinkingMenuList({
 						key={level}
 						type="button"
 						data-testid={`thinking-option-${level}`}
+						aria-current={level === effectiveLevel ? "true" : undefined}
 						onClick={() => onPick(level)}
 						className={`flex items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted ${
 							level === effectiveLevel ? "bg-muted/60 text-card-foreground" : "text-card-foreground"
@@ -304,6 +313,8 @@ export function FontMenuList({
 									type="button"
 									data-testid={isDefault ? "font-option-default" : `font-option-${family.replace(/[^a-z0-9-]/gi, "_")}`}
 									data-idx={i}
+									aria-current={effective ? "true" : undefined}
+									data-highlighted={i === menuIdx ? "" : undefined}
 									onClick={() => onPick(family)}
 									className={`flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted ${
 										i === menuIdx ? "bg-accent/40 ring-1 ring-inset ring-border" : ""
@@ -321,6 +332,7 @@ export function FontMenuList({
 							type="button"
 							data-testid="font-option-custom"
 							data-idx={0}
+							data-highlighted={menuIdx === 0 ? "" : undefined}
 							onClick={() => onPick(customFamily)}
 							className={`flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted ${
 								menuIdx === 0 ? "bg-accent/40 ring-1 ring-inset ring-border" : ""

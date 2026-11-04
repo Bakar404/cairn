@@ -24,7 +24,7 @@
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, nativeTheme, session, shell } = require("electron");
 const { desktopAPIHeaders, trustedSender } = require("./desktop-api.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
@@ -584,6 +584,19 @@ function applyZoom(win, factor) {
 	win.webContents.send("lh:zoom", factor);
 }
 
+/** Follow the OS (M27): the desktop's half of the renderer's data-os-*
+ *  attributes. The renderer sanitizes it again (systemAccessibility in
+ *  src/core/accessibility.ts). */
+function systemAccessibility() {
+	return {
+		highContrast: nativeTheme.shouldUseHighContrastColors === true,
+		forcedColors: nativeTheme.inForcedColorsMode === true,
+		invertedColors: nativeTheme.shouldUseInvertedColorScheme === true,
+		reducedTransparency: nativeTheme.prefersReducedTransparency === true,
+		differentiateWithoutColor: nativeTheme.shouldDifferentiateWithoutColor === true,
+	};
+}
+
 /** macOS needs an application menu with the Edit roles — without one,
  *  Cmd+C/V/A do nothing in the renderer. Everything else stays minimal. */
 function installMenu() {
@@ -677,13 +690,16 @@ async function main() {
 	// interval fire after it below. setupAutoUpdater's contract: failures
 	// are log lines — this can never block boot.
 	setupAutoUpdater();
+	// A request from one of our app windows' main frames, on our own origin.
+	const trusted = (event) =>
+		trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) && trustedSender(event, new URL(url).origin, BrowserWindow);
 	ipcMain.on("lh:update-install", () => installUpdateNow());
 	ipcMain.handle("lh:update:get", (event) => {
-		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
+		if (!trusted(event)) throw new Error("Untrusted desktop request.");
 		return updateState;
 	});
 	ipcMain.handle("lh:update:check", (event) => {
-		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
+		if (!trusted(event)) throw new Error("Untrusted desktop request.");
 		checkForUpdates({ manual: true });
 	});
 
@@ -695,6 +711,12 @@ async function main() {
 	// The renderer's first paint can race did-finish-load — it asks for
 	// the current factor itself (mirrors "lh:zoom" pushes).
 	ipcMain.handle("lh:zoom:get", (event) => BrowserWindow.fromWebContents(event.sender)?.webContents.getZoomFactor() ?? 1);
+	// The Low vision preset (M27) sets one rung of the ⌘± ladder; like ⌘±,
+	// it isn't persisted across restarts.
+	ipcMain.on("lh:zoom:set", (event, factor) => {
+		if (!trusted(event) || !ZOOM_LADDER.includes(factor)) return;
+		applyZoom(BrowserWindow.fromWebContents(event.sender), factor);
+	});
 	ipcMain.on("lh:expand-window", (event) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win) return;
@@ -713,6 +735,23 @@ async function main() {
 			: { color: "#0c121d", symbolColor: "#efe7d8" };
 		win.setBackgroundColor(surface.color);
 		if (process.platform !== "darwin") win.setTitleBarOverlay(surface);
+	});
+	// Follow the OS (M27): each load pulls the nativeTheme flags once, and
+	// every change is pushed to the app windows (contrast themes, Invert
+	// colors and the like can flip while the app runs).
+	ipcMain.handle("lh:a11y:get", (event) => {
+		if (!trusted(event)) throw new Error("Untrusted desktop request.");
+		return systemAccessibility();
+	});
+	nativeTheme.on("updated", () => {
+		const snapshot = systemAccessibility();
+		for (const win of trustedAppWindows) {
+			try {
+				win.webContents.send("lh:a11y", snapshot);
+			} catch {
+				/* window mid-teardown — its next load pulls lh:a11y:get */
+			}
+		}
 	});
 	reopenWindow = () => createWindow(url);
 	app.on("activate", () => {

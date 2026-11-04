@@ -702,15 +702,16 @@ export interface ChatMediaFile {
 	mime: MediaRef["mime"];
 }
 
-/** A servable media file, or null: only `<id>.png|mp4` names inside the
- *  chat's own folder, and only regular files. */
+/** A servable media file, or null: only `<id>.png|mp4|vtt` names inside
+ *  the chat's own folder, and only regular files. */
 export function openChatMedia(chatId: string, file: string): ChatMediaFile | null {
 	if (!ID_RE.test(chatId) || !MEDIA_FILE_RE.test(file)) return null;
 	const full = path.join(PATHS.media, chatId, file);
 	try {
 		const stat = fs.statSync(full);
 		if (!stat.isFile()) return null;
-		return { path: full, size: stat.size, mime: file.endsWith(".mp4") ? "video/mp4" : "image/png" };
+		const mime = file.endsWith(".mp4") ? "video/mp4" : file.endsWith(".vtt") ? "text/vtt" : "image/png";
+		return { path: full, size: stat.size, mime };
 	} catch {
 		return null;
 	}
@@ -742,7 +743,7 @@ export function chatMediaResponse(chatId: string, file: string, rangeHeader: str
 	const media = openChatMedia(chatId, file);
 	if (!media) return null;
 	const headers: Record<string, string> = {
-		"Content-Type": media.mime,
+		"Content-Type": media.mime === "text/vtt" ? "text/vtt; charset=utf-8" : media.mime,
 		"Accept-Ranges": "bytes",
 		"Cache-Control": "private, max-age=31536000, immutable",
 		"X-Content-Type-Options": "nosniff",
@@ -806,6 +807,10 @@ export function createDockerManimRenderer(): ManimRenderer {
 			}
 			if (req.abortSignal?.aborted) throw abortError();
 			return withRenderSlot(req.abortSignal, () => renderInDocker(req));
+		},
+		saveDescriptions(chatId, jobId, vtt) {
+			if (!ID_RE.test(chatId) || !ID_RE.test(jobId)) throw new Error("the chat or job id is invalid");
+			return saveMedia(chatId, `${jobId}.vtt`, Buffer.from(vtt, "utf8"), "text/vtt");
 		},
 	};
 }

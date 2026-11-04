@@ -360,6 +360,36 @@ describe("render smoke tests", () => {
 		assert.match(html, /Somewhat/);
 	});
 
+	it("AnsweredCard puts each row's verdict in words and marks the learner's rows selected", () => {
+		// The tints and the ✓/✗ marks are color and aria-hidden glyphs, and
+		// forced colors flatten the tints: the words and data-selected remain.
+		const said = (html: string) => [...html.matchAll(/<span class="sr-only">([^<]*)<\/span>/g)].map((m) => m[1]);
+		const selected = (html: string) => (html.match(/data-selected=""/g) ?? []).length;
+
+		const wrong = renderToStaticMarkup(<AnsweredCard answer={buildAnswer(quizQD(), { values: ["Venus"] })} />);
+		assert.deepEqual(said(wrong), ["Your answer, incorrect: ", "Correct answer: "], "Mars, neither, says nothing");
+		const at = (text: string) => wrong.indexOf(text);
+		assert.ok(
+			at("Your answer, incorrect") < at("Venus") && at("Venus") < at("Correct answer") && at("Correct answer") < at("Mercury"),
+			"each verdict leads its own row",
+		);
+		assert.equal(selected(wrong), 1);
+		assert.ok(at('data-selected=""') < at("Venus"), "on the chosen row");
+
+		const right = renderToStaticMarkup(<AnsweredCard answer={buildAnswer(quizQD(), { values: ["Mercury"] })} />);
+		assert.deepEqual(said(right), ["Your answer, correct: "]);
+
+		const ask = renderToStaticMarkup(<AnsweredCard answer={buildAnswer(askQD(), { values: ["Somewhat"] })} />);
+		assert.deepEqual(said(ask), ["Your answer: "], "an ask is recorded, not graded");
+		assert.equal(selected(ask), 1);
+		assert.ok(ask.indexOf("Very") < ask.indexOf('data-selected=""'), "on the chosen row, not the first");
+
+		const other = renderToStaticMarkup(<AnsweredCard answer={buildAnswer(askQD(), { other: "Shaky" })} />);
+		assert.match(other, /data-testid="answered-other" data-selected=""/);
+		assert.deepEqual(said(other), ["Your answer: "]);
+		assert.ok(other.includes("Your answer: </span>“Shaky”"), "the learner's own words follow");
+	});
+
 	it("AnsweredCard renders dismissal as skipped", () => {
 		const answer = { ...buildAnswer(quizQD(), { dontKnow: true }), dismissed: true };
 		const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);

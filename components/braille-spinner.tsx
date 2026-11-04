@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
  * .braille-frame) holds each frame visible for its 10% slice; frames
  * stagger via positive animation-delay, so frame 0 leads from first paint.
  *
- * Static fallback (SSR pre-hydrate, prefers-reduced-motion, print): frame
+ * Static fallback (SSR pre-hydrate, reduced motion, print): frame
  * 0 (⠋) shows — a legible glyph, not a blank. Motion is honest here: it
  * exists only while a turn is in flight and vanishes the moment it ends.
  */
@@ -40,14 +40,15 @@ export function BrailleSpinner({
 }: {
 	/** Sizing/position classes; height drives the scale (width is the cell's 1:2 aspect). */
 	className?: string;
-	/** The accessible name of the state this spinner announces. */
+	/** The accessible name of the state this spinner shows. It's an image, not
+	 *  a live region: the reply announcer says when a reply starts and ends. */
 	label?: string;
 }) {
 	return (
 		<svg
 			viewBox="0 0 4 8"
 			data-testid="braille-spinner"
-			role="status"
+			role="img"
 			aria-label={label}
 			className={cn("h-3 w-auto shrink-0 text-foreground", className)}
 		>

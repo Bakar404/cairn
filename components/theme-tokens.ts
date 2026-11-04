@@ -36,6 +36,23 @@ export function tokenHex(cssVar: string, fallback: string): string {
 	return cssColorToHex(value) ?? fallback;
 }
 
+/** A CSS system color (CanvasText, Highlight, …) as `#rrggbb`: under forced
+ *  colors, the user's palette. A probe element resolves it, opted out of
+ *  forced colors, which would otherwise repaint its color as CanvasText.
+ *  Null where there is no DOM. */
+export function systemColorHex(name: string): string | null {
+	if (typeof document === "undefined" || !document.body) return null;
+	const probe = document.createElement("span");
+	probe.style.setProperty("forced-color-adjust", "none");
+	probe.style.color = name;
+	document.body.append(probe);
+	try {
+		return cssColorToHex(getComputedStyle(probe).color);
+	} finally {
+		probe.remove();
+	}
+}
+
 /** The whole palette as the page shows it right now. */
 export function livePalette(scheme: ColorScheme): SchemePalette {
 	const base = PALETTE[scheme];

@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Tooltip as TooltipPrimitive } from "radix-ui"
 
+import { keyboardModality } from "@/components/input-modality"
 import { cn } from "@/lib/utils"
 
 /**
@@ -15,7 +16,7 @@ import { cn } from "@/lib/utils"
  * chip's own pixels.
  */
 
-/** The rest delay (ms): shared by hover and focus opens. */
+/** The hover rest delay (ms). Keyboard focus opens at once (Radix). */
 export const TOOLTIP_DELAY_MS = 500
 
 function TooltipProvider({
@@ -45,9 +46,25 @@ function Tooltip({
 }
 
 function TooltipTrigger({
+  onFocus,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      // Focus opens the tooltip only when it came from the keyboard (M27):
+      // focus a pointer user didn't ask for (the window coming back to the
+      // front, a script) must not pop a tooltip. A dialog or menu handing
+      // focus back never gets here: it focuses from a layout cleanup, and
+      // React ignores DOM events during a commit. Radix skips its open when
+      // the event is default-prevented.
+      onFocus={(e) => {
+        onFocus?.(e)
+        if (!keyboardModality()) e.preventDefault()
+      }}
+      {...props}
+    />
+  )
 }
 
 function TooltipContent({

@@ -2,21 +2,24 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Usage } from "@earendil-works/pi-ai";
 import { createWebTools } from "../tools/web.ts";
 import { createPdfReadTools } from "../tools/pdf-read.ts";
+import { createLearnTools } from "../tools/learn.ts";
 import type { SearchProvider } from "../../core/search.ts";
+import type { LearnDocsClient } from "../../core/learn-docs.ts";
 import type { PiEngine } from "../models.ts";
 import { runSubagent } from "./pi-run.ts";
 
 /**
  * The researcher sub-agent (vision §2.5): a SEPARATE ToolLoopAgent instance
  * from the teacher — an isolated loop with only web_search + web_fetch, so
- * raw search/fetch churn never touches the teacher's context window.
+ * raw search/fetch churn never touches the teacher's context window. With
+ * Microsoft Learn on (M21) it also reads Microsoft's official docs.
  *
  * System prompt adapted from the pi researcher agent
  * (~/.pi/agent/extensions/interactive-subagents/agents/researcher.md).
  * The engine is injectable so tests run the loop with a scripted faux engine.
  */
 
-const INSTRUCTIONS = `You are a research specialist. You work for a teacher agent inside a learning
+const PROCESS = `You are a research specialist. You work for a teacher agent inside a learning
 application: given a research question, conduct thorough web research and produce a focused,
 well-sourced brief that the teacher can teach from.
 
@@ -49,9 +52,12 @@ Tool outputs may be error strings (e.g. search unconfigured, a page that failed 
 Adapt: try another URL or another search angle; if research is genuinely impossible, say so
 in the brief instead of inventing facts.
 
-If web_search reports that search is unavailable, do not retry it with different queries. Use web_fetch when you have source URLs, and continue with any other available sources. If the missing search capability materially limits your work, say so in your brief and note that web search needs GitHub Copilot to be signed in. Never invent search results or sources.
+If web_search reports that search is unavailable, do not retry it with different queries. Use web_fetch when you have source URLs, and continue with any other available sources. If the missing search capability materially limits your work, say so in your brief and note that web search needs GitHub Copilot to be signed in. Never invent search results or sources.`;
 
-Your FINAL assistant message is your entire deliverable — it must stand alone, using this format:
+/** Added when Microsoft Learn is on (M21): official docs first for Microsoft products. */
+const LEARN = `Microsoft documentation: learn_search, learn_fetch and learn_code_samples read Microsoft Learn (learn.microsoft.com), Microsoft's official documentation. When the question involves a Microsoft product or technology (Azure, Microsoft 365, .NET and C#, PowerShell, Power Platform, Windows, SQL Server, Microsoft Fabric, Dynamics 365, Visual Studio), call learn_search first, then learn_fetch the one or two most relevant pages, and cite those learn.microsoft.com pages in your findings. Use learn_code_samples when the brief needs working code. Use web_search for everything else, and for what Microsoft Learn doesn't cover.`;
+
+const DELIVERABLE = `Your FINAL assistant message is your entire deliverable — it must stand alone, using this format:
 
 ## Summary
 2-3 sentence direct answer.
@@ -67,6 +73,11 @@ Numbered findings with inline source citations:
 ## Gaps
 What couldn't be answered. Suggested next steps.`;
 
+/** The system prompt: the Learn paragraph joins only when its tools do. */
+export function researcherInstructions(learn: boolean): string {
+	return [PROCESS, ...(learn ? [LEARN] : []), DELIVERABLE].join("\n\n");
+}
+
 export interface ResearcherRunOptions {
 	engine?: PiEngine;
 	/** The search seam (search port wave, 2026-09-20): resolves the LIVE
@@ -79,6 +90,10 @@ export interface ResearcherRunOptions {
 	 *  to this per-job temp dir — PDFs from the web, read page-level. The
 	 *  runner owns its lifecycle (mkdtemp before, rm after). */
 	pdfDir?: string;
+	/** Microsoft Learn (M21), resolved once per run: a client adds the
+	 *  learn_* tools and the official-docs-first paragraph; null or absent
+	 *  leaves the researcher exactly as before. */
+	learnDocs?: () => LearnDocsClient | null;
 	abortSignal?: AbortSignal;
 	onUsage?: (usage: Usage) => void;
 	onToolStart?: (toolName: string, args: unknown) => void;
@@ -94,11 +109,13 @@ export interface ResearcherRunOptions {
 export async function runResearcherAgent(prompt: string, opts: ResearcherRunOptions = {}): Promise<string> {
 	const tools = Object.values(createWebTools(opts.search ?? (() => null)));
 	if (opts.pdfDir) tools.push(...Object.values(createPdfReadTools(opts.pdfDir)));
+	const learn = opts.learnDocs?.() ?? null;
+	if (learn) tools.push(...Object.values(createLearnTools(() => learn)));
 	const { text } = await runSubagent(tools, {
 		role: "researcher",
 		prompt,
 		engine: opts.engine,
-		systemPrompt: INSTRUCTIONS,
+		systemPrompt: researcherInstructions(learn !== null),
 		maxTurns: 12,
 		abortSignal: opts.abortSignal,
 		onUsage: opts.onUsage,

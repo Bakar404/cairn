@@ -123,8 +123,12 @@ after(() => {
 
 /** A scripted pi engine (faux provider): the response queue replaces the old
  *  doGenerate turn counter — one queued response per model call (tool-call
- *  turn or final text), consumed in order. */
-function scriptedModel(turns: Array<{ toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }>; text?: string }>): PiEngine {
+ *  turn or final text), consumed in order. Pass `contexts` to record every
+ *  context the maker sent, as JSON. */
+function scriptedModel(
+	turns: Array<{ toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }>; text?: string }>,
+	contexts?: string[],
+): PiEngine {
 	const steps: FauxResponseStep[] = turns.map((step) => {
 		if (step.toolCalls) {
 			return fauxAssistantMessage(
@@ -136,7 +140,14 @@ function scriptedModel(turns: Array<{ toolCalls?: Array<{ toolCallId: string; to
 	});
 	const faux = createFauxCore({ tokenSize: { min: 64, max: 64 } });
 	faux.setResponses(steps);
-	return { model: faux.getModel(), streamFn: faux.streamSimple };
+	if (!contexts) return { model: faux.getModel(), streamFn: faux.streamSimple };
+	return {
+		model: faux.getModel(),
+		streamFn: (model, context, options) => {
+			contexts.push(JSON.stringify(context));
+			return faux.streamSimple(model, context, options);
+		},
+	};
 }
 
 // ─── fake headless ───────────────────────────────────────────────────────────
@@ -808,12 +819,27 @@ describe("demo builder (fake model + fake headless)", () => {
 
 const SVG_1 = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="100"><line x1="10" y1="50" x2="290" y2="50"/></svg>';
 
+/** describe_figure's arguments (M27): the alt text and description the
+ *  figure ships with. */
+const FIGURE_TEXT = {
+	alt: "A number line with its root marked at 0.",
+	description: "A horizontal line runs from -3 to 3; an accent dot marks the root at 0.",
+};
+const describeFigure = (toolCallId: string, input: { alt: string; description: string } = FIGURE_TEXT) => ({
+	toolCallId,
+	toolName: "describe_figure",
+	input,
+});
+const VISUAL_NUDGE = "Before you finish, call describe_figure with the alt text and description of your final figure.";
+const writeSvg = (toolCallId: string, svg = SVG_1) => ({ toolCallId, toolName: "write_svg", input: { svg } });
+const renderSvg = (toolCallId: string) => ({ toolCallId, toolName: "render_svg", input: {} });
+
 describe("visual maker (fake model + fake headless)", () => {
-	it("write → render → look → finish delivers the svg with notes", async () => {
+	it("write → render → look → finish delivers the svg with notes and its text alternative", async () => {
 		const headless = fakeHeadless();
 		const model = scriptedModel([
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_svg", input: { svg: SVG_1 } }] },
-			{ toolCalls: [{ toolCallId: "r1", toolName: "render_svg", input: {} }] },
+			{ toolCalls: [{ toolCallId: "r1", toolName: "render_svg", input: {} }, describeFigure("d1")] },
 			{ text: "A number line from -3 to 3 with the root marked at 0." },
 		]);
 		const activities: string[] = [];
@@ -821,14 +847,17 @@ describe("visual maker (fake model + fake headless)", () => {
 
 		assert.equal(result.svg, SVG_1);
 		assert.equal(result.notes, "A number line from -3 to 3 with the root marked at 0.");
+		assert.equal(result.alt, FIGURE_TEXT.alt);
+		assert.equal(result.description, FIGURE_TEXT.description);
 		assert.equal(headless.svgRenders.length, 1);
 		assert.ok(activities.some((a) => a.startsWith("render_svg")), "render activity recorded");
+		assert.ok(activities.includes("describe_figure: saved"));
 	});
 
 	it("forces a look when the model finishes without rendering the final svg", async () => {
 		const headless = fakeHeadless();
 		const model = scriptedModel([
-			{ toolCalls: [{ toolCallId: "w1", toolName: "write_svg", input: { svg: SVG_1 } }] },
+			{ toolCalls: [{ toolCallId: "w1", toolName: "write_svg", input: { svg: SVG_1 } }, describeFigure("d1")] },
 			{ text: "Done." }, // premature finish — no render yet
 			{ text: "Looked at it — correct." }, // after the forced look
 		]);
@@ -847,7 +876,7 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "e1", toolName: "edit_svg", input: { old_text: "NOT-PRESENT", new_text: "x" } }] },
 			// A hit: exactly one occurrence — applied
 			{ toolCalls: [{ toolCallId: "e2", toolName: "edit_svg", input: { old_text: '<line x1="10"', new_text: '<line x1="20"' } }] },
-			{ toolCalls: [{ toolCallId: "r2", toolName: "render_svg", input: {} }] },
+			{ toolCalls: [{ toolCallId: "r2", toolName: "render_svg", input: {} }, describeFigure("d1")] },
 			{ text: "Moved the start of the line." },
 		]);
 		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless });
@@ -875,12 +904,70 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_svg", input: { svg: "<svg>broken" } }] },
 			{ toolCalls: [{ toolCallId: "r1", toolName: "render_svg", input: {} }] },
 			{ toolCalls: [{ toolCallId: "w2", toolName: "write_svg", input: { svg: SVG_1 } }] },
-			{ toolCalls: [{ toolCallId: "r2", toolName: "render_svg", input: {} }] },
+			{ toolCalls: [{ toolCallId: "r2", toolName: "render_svg", input: {} }, describeFigure("d1")] },
 			{ text: "Fixed and verified." },
 		]);
 		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless });
 		assert.equal(result.svg, SVG_1);
 		assert.equal(result.notes, "Fixed and verified.");
+	});
+
+	it("a finish without a description is nudged once, then ships without one and keeps the notes it held back", async () => {
+		const contexts: string[] = [];
+		const model = scriptedModel(
+			[{ toolCalls: [writeSvg("w1"), renderSvg("r1")] }, { text: "A number line, root at 0." }, { text: "Done." }],
+			contexts,
+		);
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless: fakeHeadless() });
+		assert.equal(contexts.length, 3, "one nudge, then the finish ships");
+		assert.ok(contexts[2]!.includes(VISUAL_NUDGE));
+		assert.deepEqual(result, { svg: SVG_1, notes: "A number line, root at 0." });
+
+		// A finish on the last iteration is not nudged: it ships as it is.
+		const last: string[] = [];
+		const lastModel = scriptedModel([{ toolCalls: [writeSvg("w1"), renderSvg("r1")] }, { text: "A number line, root at 0." }], last);
+		const bare = await runVisualMaker({ brief: "b" }, { engine: lastModel, headless: fakeHeadless(), maxIterations: 2 });
+		assert.equal(last.length, 2);
+		assert.deepEqual(bare, { svg: SVG_1, notes: "A number line, root at 0." });
+	});
+
+	it("a description is of one figure: an edit after it earns the nudge, and a bare finish drops the stale text", async () => {
+		const moved = SVG_1.replace('<line x1="10"', '<line x1="20"');
+		const NEW = { alt: "A number line, its start moved right.", description: "The line now starts further right; the root stays at 0." };
+		const turns = (after: Array<Parameters<typeof scriptedModel>[0][number]>) => [
+			{ toolCalls: [writeSvg("w1"), renderSvg("r1"), describeFigure("d1")] },
+			{
+				toolCalls: [
+					{ toolCallId: "e1", toolName: "edit_svg", input: { old_text: '<line x1="10"', new_text: '<line x1="20"' } },
+					renderSvg("r2"),
+				],
+			},
+			{ text: "Moved the line." },
+			...after,
+		];
+		const again = await runVisualMaker(
+			{ brief: "b" },
+			{ engine: scriptedModel(turns([{ toolCalls: [describeFigure("d2", NEW)] }, { text: "Described again." }])), headless: fakeHeadless() },
+		);
+		assert.deepEqual(again, { svg: moved, notes: "Moved the line.", ...NEW });
+		const bare = await runVisualMaker({ brief: "b" }, { engine: scriptedModel(turns([{ text: "Done." }])), headless: fakeHeadless() });
+		assert.deepEqual(bare, { svg: moved, notes: "Moved the line." }, "the description of the old line is dropped");
+	});
+
+	it("answers a bad describe_figure call with an error the model can act on", async () => {
+		const contexts: string[] = [];
+		const model = scriptedModel(
+			[
+				{ toolCalls: [describeFigure("d0"), describeFigure("d1", { alt: " ", description: "x" })] },
+				{ toolCalls: [writeSvg("w1"), renderSvg("r1"), describeFigure("d2")] },
+				{ text: "Done." },
+			],
+			contexts,
+		);
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless: fakeHeadless() });
+		assert.ok(contexts[1]!.includes("ERROR: nothing to describe — call write_svg first."));
+		assert.ok(contexts[1]!.includes("ERROR: expected non-empty alt and description strings."));
+		assert.equal(result.alt, FIGURE_TEXT.alt);
 	});
 
 	it("fails when the model never writes an svg", async () => {

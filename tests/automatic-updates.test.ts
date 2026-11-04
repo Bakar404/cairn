@@ -19,6 +19,14 @@ function fixture({ packaged = true, updaterMissing = false, appMetadata = { name
 	const order: string[] = [];
 	const intervals: { callback: () => void; delay: number }[] = [];
 	const handles = new Map<string, (event: unknown) => unknown>();
+	const listeners = new Map<string, (event: unknown, value?: unknown) => void>();
+	const nativeTheme = Object.assign(new EventEmitter(), {
+		shouldUseHighContrastColors: false,
+		inForcedColorsMode: false,
+		shouldUseInvertedColorScheme: false,
+		prefersReducedTransparency: false,
+		shouldDifferentiateWithoutColor: false,
+	});
 	const windows: FakeWindow[] = [];
 	let enumerationFails = false;
 	let userData = "/fixture/custom-user-data";
@@ -50,7 +58,9 @@ function fixture({ packaged = true, updaterMissing = false, appMetadata = { name
 		}
 		isLoadingMainFrame() { return this.loading; }
 		setWindowOpenHandler() {}
-		getZoomFactor() { return 1; }
+		zoom = 1;
+		getZoomFactor() { return this.zoom; }
+		setZoomFactor(factor: number) { this.zoom = factor; }
 	}
 	class FakeWindow extends EventEmitter {
 		webContents = new FakeWebContents();
@@ -82,7 +92,11 @@ function fixture({ packaged = true, updaterMissing = false, appMetadata = { name
 	const electron = {
 		app, BrowserWindow: FakeWindow,
 		Menu: { buildFromTemplate: (value: typeof menu) => value, setApplicationMenu: (value: typeof menu) => { menu = value; } },
-		ipcMain: { on() {}, handle: (channel: string, fn: (event: unknown) => unknown) => handles.set(channel, fn) },
+		ipcMain: {
+			on: (channel: string, fn: (event: unknown, value?: unknown) => void) => listeners.set(channel, fn),
+			handle: (channel: string, fn: (event: unknown) => unknown) => handles.set(channel, fn),
+		},
+		nativeTheme,
 		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
 	};
 	const context = createContext({
@@ -111,7 +125,7 @@ function fixture({ packaged = true, updaterMissing = false, appMetadata = { name
 	runInContext(mainSource, context, { filename: mainFile });
 	const run = (code: string) => runInContext(code, context);
 	return {
-		run, updater, windows, intervals, handles, settingsReads, order, app,
+		run, updater, windows, intervals, handles, listeners, nativeTheme, settingsReads, order, app,
 		setSettings: (value: unknown) => { settings = JSON.stringify(value); },
 		setSettingsFailure: (value: string | Error) => { settings = value; },
 		setEnumerationFailure: (value: boolean) => { enumerationFails = value; },
@@ -300,5 +314,52 @@ describe("startup, timer, trusted IPC and menu wiring", () => {
 		const f = fixture(); f.setSettings({ general: { autoUpdate: false } }); await f.run("main()");
 		f.windows[0]!.webContents.fails = true; f.windows[0]!.webContents.loading = false;
 		f.menuCheck(); assert.equal(f.updater.checks, 1);
+	});
+});
+
+// main()'s other trusted IPC rides this fixture too: it's the one that runs main().
+describe("follow the OS (M27): accessibility flags and zoom IPC", () => {
+	const NONE = { highContrast: false, forcedColors: false, invertedColors: false, reducedTransparency: false, differentiateWithoutColor: false };
+
+	it("hands the nativeTheme flags to an owned main frame only", async () => {
+		const f = fixture(); f.setSettings({ general: { autoUpdate: false } }); await f.run("main()");
+		const sender = f.windows[0]!.webContents;
+		const get = f.handles.get("lh:a11y:get")!;
+		Object.assign(f.nativeTheme, { shouldUseHighContrastColors: true, shouldDifferentiateWithoutColor: true });
+		assert.deepEqual(JSON.parse(JSON.stringify(get({ sender, senderFrame: sender.mainFrame }))), {
+			...NONE, highContrast: true, differentiateWithoutColor: true,
+		});
+		for (const bad of [
+			{ sender: {}, senderFrame: sender.mainFrame },
+			{ sender, senderFrame: { url: sender.mainFrame.url } },
+		]) assert.throws(() => get(bad), /Untrusted/);
+		sender.mainFrame.url = "https://untrusted.invalid/";
+		assert.throws(() => get({ sender, senderFrame: sender.mainFrame }), /Untrusted/);
+	});
+
+	it("pushes each change to every app window, and one failing window doesn't stop the rest", async () => {
+		const f = fixture(); f.setSettings({ general: { autoUpdate: false } }); await f.run("main()");
+		f.run("reopenWindow()");
+		const stranger = f.window();
+		const pushes = (win: { webContents: { messages: { channel: string; value: unknown }[] } }) =>
+			win.webContents.messages.filter(message => message.channel === "lh:a11y").map(message => message.value);
+		f.windows[0]!.webContents.fails = true;
+		f.nativeTheme.inForcedColorsMode = true;
+		f.nativeTheme.emit("updated");
+		assert.deepEqual(pushes(f.windows[1]!), [{ ...NONE, forcedColors: true }]);
+		assert.deepEqual(pushes(stranger), [], "a window that isn't an app window hears nothing");
+	});
+
+	it("sets a ladder zoom for an owned main frame and ignores every other request", async () => {
+		const f = fixture(); f.setSettings({ general: { autoUpdate: false } }); await f.run("main()");
+		const sender = f.windows[0]!.webContents;
+		const set = f.listeners.get("lh:zoom:set")!;
+		set({ sender, senderFrame: sender.mainFrame }, 1.25);
+		assert.equal(sender.zoom, 1.25);
+		assert.deepEqual(sender.messages.filter(message => message.channel === "lh:zoom").map(message => message.value), [1.25]);
+		for (const factor of [1.3, 3, 0.5, "1.5", null, Number.NaN]) set({ sender, senderFrame: sender.mainFrame }, factor);
+		set({ sender, senderFrame: { url: sender.mainFrame.url } }, 1.5);
+		set({ sender: {}, senderFrame: sender.mainFrame }, 1.5);
+		assert.equal(sender.zoom, 1.25);
 	});
 });

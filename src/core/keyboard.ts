@@ -6,8 +6,10 @@
  * user-editable key map without touching any component.
  *
  * Design (owner-approved plan):
- * - Tab is DEAD: browser tab-focus navigation is abandoned entirely. Tab
- *   does nothing; Shift+Tab alone cycles the thinking level.
+ * - Tab and Shift+Tab move focus natively (accessibility mode, M27,
+ *   2026-10-30 — the old "Tab is dead" rule is retired). F6 / Shift+F6
+ *   walk the active surface's text fields, and ⌘⇧K / Ctrl+Shift+K cycles
+ *   the thinking level. No action may take those keys (RESERVED_BINDINGS).
  * - Esc is a layered dismiss: topmost popover (each popover stopPropagation's
  *   its own Esc) → abort in-flight turn.
  * - The key map persists overrides in localStorage (`lh:keymap`, overrides
@@ -15,7 +17,7 @@
  *
  * Binding strings are normalized, cross-platform:
  *   "mod+d"    — mod = ⌘ on macOS, Ctrl elsewhere (both are accepted live)
- *   "shift+tab", "alt+arrowdown", "mod+shift+f", "?", "f2", "escape"
+ *   "mod+shift+k", "alt+arrowdown", "mod+shift+f", "?", "f2", "f6", "escape"
  * Order is fixed: mod, alt, shift, then the key.
  */
 
@@ -29,7 +31,8 @@ export type KeyAction =
 	| "rename-session"
 	| "cheat-sheet"
 	| "find"
-	| "question-focus"
+	| "next-field"
+	| "prev-field"
 	| "question-next-row"
 	| "question-prev-row"
 	| "question-pick-row"
@@ -56,7 +59,7 @@ export interface KeyActionDef {
 export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "open-settings", label: "Open settings", scope: "global", binding: "mod+," },
 	{ id: "open-model-picker", label: "Model selector", scope: "global", binding: "mod+k" },
-	{ id: "cycle-thinking", label: "Cycle thinking level", scope: "global", binding: "shift+tab" },
+	{ id: "cycle-thinking", label: "Cycle thinking level", scope: "global", binding: "mod+shift+k" },
 	{ id: "toggle-sidebar", label: "Toggle sessions sidebar", scope: "global", binding: "mod+b" },
 	{ id: "sessions-search", label: "Search sessions", scope: "global", binding: "mod+shift+f" },
 	// (The Alt+↑/↓/↵ session cycle was RETIRED, owner 2026-10-10: barely
@@ -71,10 +74,14 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	// one action/binding. Only the currently mounted surface listens.
 	{ id: "find", label: "Find", scope: "global", binding: "mod+f" },
 	{ id: "cheat-sheet", label: "Shortcut cheat sheet", scope: "global", binding: "?" },
+	// F6 / Shift+F6 walk the text fields (M27, replacing the old Tab cycle).
+	// displayOnly: the dispatcher handles F6 itself — from typing surfaces
+	// too — so the registry never dispatches them.
+	{ id: "next-field", label: "Next text field", scope: "global", binding: "f6", displayOnly: true },
+	{ id: "prev-field", label: "Previous text field", scope: "global", binding: "shift+f6", displayOnly: true },
 	// The question dock's row machine (wave B) — displayOnly: the dock owns
 	// the keys while a question is expanded; the registry never dispatches
 	// them, so bare arrows stay free everywhere else.
-	{ id: "question-focus", label: "Question · focus thinking ↔ rows", scope: "chat", binding: "tab", displayOnly: true },
 	// (The model-menu entries — "walk results" ↑/↓, "pick result" ↵ — were
 	// REMOVED, owner 2026-10-10: obvious in-field menu navigation, never
 	// dispatched, never rebindable — not settings material. The menu's own
@@ -87,16 +94,39 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 
 const STORAGE_KEY = "lh:keymap";
 
+/** Keys no action may take (M27): Tab and Shift+Tab move focus, and F6 /
+ *  Shift+F6 walk the text fields. Each maps to the reason the shortcut
+ *  editor shows when it refuses one. */
+const RESERVED_BINDINGS: ReadonlyMap<string, string> = new Map([
+	["tab", "Tab moves focus, so it can't be a shortcut."],
+	["shift+tab", "Tab moves focus, so it can't be a shortcut."],
+	["f6", "F6 moves between text fields, so it can't be a shortcut."],
+	["shift+f6", "F6 moves between text fields, so it can't be a shortcut."],
+]);
+
+/** Why a binding can't be a shortcut, or undefined when it can. */
+export function reservedBindingReason(binding: string): string | undefined {
+	return RESERVED_BINDINGS.get(binding);
+}
+
 /** localStorage overrides ({actionId: binding}) — read once per module
  *  instance; the settings editor will write this key. Guarded: SSR and a
- *  corrupt/absent store both fall back to defaults. */
+ *  corrupt/absent store both fall back to defaults. An override on a
+ *  reserved key is dropped: one saved while Tab was dead never fired, and
+ *  it must not start stealing focus movement now. */
 export function loadOverrides(): Partial<Record<KeyAction, string>> {
 	if (typeof window === "undefined") return {};
 	try {
 		const raw = window.localStorage.getItem(STORAGE_KEY);
 		if (!raw) return {};
 		const parsed = JSON.parse(raw) as Partial<Record<KeyAction, string>>;
-		if (parsed && typeof parsed === "object") return parsed;
+		if (parsed && typeof parsed === "object") {
+			const kept: Partial<Record<KeyAction, string>> = {};
+			for (const [id, binding] of Object.entries(parsed)) {
+				if (typeof binding === "string" && !reservedBindingReason(binding)) kept[id as KeyAction] = binding;
+			}
+			return kept;
+		}
 	} catch {
 		/* corrupt store = defaults */
 	}
@@ -150,8 +180,8 @@ export function eventBinding(e: KeyboardEvent): string {
 	const mod = e.metaKey || e.ctrlKey;
 	// A bare printable key bakes its shift into the character ("?" not
 	// "shift+/"), so it returns alone. With a real modifier riding along,
-	// shift is explicit (⌘⇧F = "mod+shift+f"); non-printable keys (Tab,
-	// arrows) always keep their shift (Shift+Tab = "shift+tab").
+	// shift is explicit (⌘⇧F = "mod+shift+f"); non-printable keys (F6,
+	// arrows) always keep their shift (Shift+F6 = "shift+f6").
 	if (e.key.length === 1 && !mod && !e.altKey) return e.key.toLowerCase();
 	const mods: string[] = [];
 	if (mod) mods.push("mod");
@@ -173,8 +203,9 @@ export function kbdEventForAction(action: KeyAction): string {
 }
 
 /** True when the event lands in a typing surface (input, textarea, or a
- *  contentEditable). In one, only mod/alt combos (and Tab, which types
- *  nothing) may fire — bare keys belong to the field (typing, caret). */
+ *  contentEditable). In one, only mod/alt combos may fire — bare keys
+ *  belong to the field (typing, caret). F6 never reaches this guard: the
+ *  dispatcher handles it first, so it works from inside a field. */
 export function isTypingSurface(e: KeyboardEvent): boolean {
 	const target = e.target as HTMLElement | null;
 	if (!target) return false;
@@ -183,7 +214,7 @@ export function isTypingSurface(e: KeyboardEvent): boolean {
 	return target.isContentEditable;
 }
 
-/** macOS styling for binding display ("⌘D", "⇧⇥", "⌥↑"). */
+/** macOS styling for binding display ("⌘D", "⌘⇧K", "⌥↑"). */
 export const IS_MAC =
 	typeof navigator !== "undefined" && /mac/i.test(navigator.platform || navigator.userAgent);
 

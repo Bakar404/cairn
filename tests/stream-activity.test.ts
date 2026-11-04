@@ -8,14 +8,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { LhViewMessage } from "../src/core/view.ts";
-import { streamingToolActivity } from "../src/core/pending.ts";
+import { streamingToolActivity, streamingToolStep } from "../src/core/pending.ts";
 
 function msg(role: string, parts: unknown[]): LhViewMessage {
 	return { id: "m1", role, parts } as unknown as LhViewMessage;
 }
 
-function toolPart(tool: string, state: string) {
-	return { type: `tool-${tool}`, toolCallId: "c1", state, input: {} };
+function toolPart(tool: string, state: string, toolCallId = "c1") {
+	return { type: `tool-${tool}`, toolCallId, state, input: {} };
 }
 
 describe("streamingToolActivity (the turn-activity label)", () => {
@@ -55,5 +55,17 @@ describe("streamingToolActivity (the turn-activity label)", () => {
 		// A settled call followed by a live one: the live one is the activity.
 		const parts = [toolPart("read", "output-available"), toolPart("grep", "input-streaming")];
 		assert.equal(streamingToolActivity([msg("assistant", parts)]), "Searching file contents…");
+	});
+});
+
+describe("streamingToolStep (the reply announcer's step identity, M27)", () => {
+	it("two consecutive calls of one tool share a label but stay two steps", () => {
+		const first = streamingToolStep([msg("assistant", [toolPart("grep", "input-streaming", "c1")])]);
+		const second = streamingToolStep([
+			msg("assistant", [toolPart("grep", "output-available", "c1"), toolPart("grep", "input-streaming", "c2")]),
+		]);
+		assert.deepEqual(first, { id: "c1", label: "Searching file contents…" });
+		assert.deepEqual(second, { id: "c2", label: "Searching file contents…" });
+		assert.equal(streamingToolStep([msg("assistant", [toolPart("grep", "output-available", "c2")])]), null);
 	});
 });

@@ -14,9 +14,10 @@ import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TOGGLE_TOOLS, AgentSection } from "../components/settings/agent-section.tsx";
 import { AppearanceSection, GraphSection } from "../components/settings/appearance-section.tsx";
+import { AccessibilitySection } from "../components/settings/accessibility-section.tsx";
 import { KeysSection } from "../components/settings/keys-section.tsx";
 import { KeyboardSection } from "../components/settings/keyboard-section.tsx";
-import type { GraphSettings } from "../src/core/index.ts";
+import type { AccessibilitySettings, AppearanceSettings, GraphSettings } from "../src/core/index.ts";
 import { SettingsDialogBody, SettingsDialogProvider } from "../components/settings/settings-dialog.tsx";
 import { KEYBOARD_ACTIONS } from "../src/core/index.ts";
 
@@ -27,6 +28,19 @@ function tagOf(html: string, testid: string): string {
 	const i = html.indexOf(`data-testid="${testid}"`);
 	assert.ok(i >= 0, `missing ${testid}`);
 	return html.slice(html.lastIndexOf("<", i), html.indexOf(">", i) + 1);
+}
+
+/** The markup of the <div> that opens at `start`, through its matching
+ *  close. */
+function divAt(html: string, start: number): string {
+	const tag = /<div[\s>]|<\/div>/g;
+	tag.lastIndex = start;
+	let depth = 0;
+	for (let m = tag.exec(html); m; m = tag.exec(html)) {
+		depth += m[0] === "</div>" ? -1 : 1;
+		if (depth === 0) return html.slice(start, m.index + m[0].length);
+	}
+	assert.fail(`no </div> closes the div at ${start}`);
 }
 
 describe("SettingsDialog (the designed surface, SSR)", () => {
@@ -41,12 +55,12 @@ describe("SettingsDialog (the designed surface, SSR)", () => {
 		assert.ok(!html.includes("settings-dialog"));
 	});
 
-	it("the dialog frame: role=dialog + the ✕ + the seven-section nav, Providers first and General last", () => {
+	it("the dialog frame: role=dialog + the ✕ + the eight-section nav, Providers first and General last", () => {
 		const html = renderToStaticMarkup(<SettingsDialogBody onClose={() => {}} />);
 		assert.ok(html.includes('role="dialog"'));
 		assert.ok(html.includes('aria-modal="true"'));
 		assert.ok(html.includes('aria-label="Close settings"'));
-		for (const id of ["general", "keys", "agent", "appearance", "graph", "keyboard", "storage"]) {
+		for (const id of ["general", "keys", "agent", "appearance", "accessibility", "graph", "keyboard", "storage"]) {
 			assert.ok(html.includes(`data-testid="settings-nav-${id}"`), id);
 		}
 		// Providers is the first landing section; internal keys deep links survive.
@@ -241,6 +255,126 @@ describe("AppearanceSection (thin SSR)", () => {
 			<AppearanceSection appearance={{ background: "#1a1a2e" }} onSectionChange={() => {}} />,
 		);
 		assert.ok(html.includes(`value="#1a1a2e"`));
+	});
+});
+
+describe("AccessibilitySection (thin SSR)", () => {
+	const render = (
+		accessibility: AccessibilitySettings | undefined,
+		{ appearance, graph }: { appearance?: AppearanceSettings; graph?: GraphSettings } = {},
+	) =>
+		renderToStaticMarkup(
+			<AccessibilitySection
+				accessibility={accessibility}
+				appearance={appearance}
+				graph={graph}
+				onSectionChange={() => {}}
+				onAppearanceChange={() => {}}
+				onGraphChange={() => {}}
+			/>,
+		);
+
+	/** The selected option of one select, found by its testid. */
+	const selected = (accessibility: AccessibilitySettings | undefined, testid: string) => {
+		const html = render(accessibility);
+		const start = html.indexOf(`data-testid="${testid}"`);
+		assert.ok(start >= 0, `missing ${testid}`);
+		return html.slice(start, html.indexOf("</select>", start)).match(/<option value="(\w+)" selected="">/)?.[1];
+	};
+
+	it("contrast shows the stored choice, and Standard when none is stored", () => {
+		assert.equal(selected(undefined, "select-contrast"), "standard");
+		assert.equal(selected({ contrast: "high" }, "select-contrast"), "high");
+	});
+
+	it("the focus indicator shows the stored choice, and Standard when none is stored", () => {
+		assert.equal(selected(undefined, "select-focus"), "standard");
+		assert.equal(selected({ focus: "enhanced" }, "select-focus"), "enhanced");
+	});
+
+	it("motion shows the stored choice, and System when none is stored", () => {
+		assert.equal(selected(undefined, "select-motion"), "system");
+		assert.equal(selected({ motion: "reduced" }, "select-motion"), "reduced");
+		assert.equal(selected({ motion: "full" }, "select-motion"), "full");
+	});
+
+	it("Follow system is on unless turned off", () => {
+		const checked = (accessibility: AccessibilitySettings | undefined) =>
+			render(accessibility)
+				.match(/<button[^>]*data-testid="toggle-follow-system-accessibility-settings"[^>]*>/)?.[0]
+				.match(/aria-checked="(\w+)"/)?.[1];
+		assert.equal(checked(undefined), "true");
+		assert.equal(checked({ followSystem: false }), "false");
+	});
+
+	it("the groups run Presets, System, Display, Screen reader, Advanced, then Reset", () => {
+		const html = render(undefined);
+		const at = ["presets", "system", "display", "screen-reader", "advanced", "reset"].map((group) =>
+			html.indexOf(`data-testid="group-a11y-${group}"`),
+		);
+		assert.ok(at.every((i) => i >= 0), "every group renders");
+		assert.deepEqual([...at].sort((a, b) => a - b), at);
+	});
+
+	it("a preset is a switch, on while its values are current", () => {
+		const checked = (html: string, id: string) => tagOf(html, `preset-${id}`).match(/aria-checked="(\w+)"/)?.[1];
+		const tag = tagOf(render(undefined), "preset-reduce-motion");
+		assert.ok(tag.includes('role="switch"'));
+		assert.ok(tag.includes('aria-label="Reduce motion"'));
+		assert.equal(checked(render(undefined), "reduce-motion"), "false");
+		const html = render({ motion: "reduced" });
+		assert.equal(checked(html, "reduce-motion"), "true");
+		assert.equal(checked(html, "low-vision"), "false");
+		// Screen reader also turns the graph view off.
+		const reader = { expandDescriptions: true, announceToolSteps: true };
+		assert.equal(checked(render(reader), "screen-reader"), "false");
+		assert.equal(checked(render(reader, { graph: { rendering: false } }), "screen-reader"), "true");
+	});
+
+	it("the Screen reader toggles show the stored state", () => {
+		const html = render({ expandDescriptions: true });
+		assert.ok(tagOf(html, "toggle-expand-figure-descriptions").includes('aria-checked="true"'));
+		assert.ok(tagOf(html, "toggle-announce-tool-steps").includes('aria-checked="false"'));
+	});
+
+	it("Advanced starts collapsed over the sliders and the WCAG check, and Reset stays outside it", () => {
+		const html = render(undefined);
+		const toggle = tagOf(html, "a11y-advanced-toggle");
+		assert.ok(toggle.includes('aria-expanded="false"'));
+		assert.ok(toggle.includes('aria-controls="a11y-advanced-panel"'));
+		const at = html.indexOf('id="a11y-advanced-panel"');
+		assert.ok(at >= 0, "the panel renders");
+		const panel = divAt(html, html.lastIndexOf("<", at));
+		assert.ok(panel.slice(0, panel.indexOf(">")).includes('hidden=""'));
+		for (const id of [
+			"slider-line-height",
+			"slider-paragraph-spacing",
+			"slider-letter-spacing",
+			"slider-word-spacing",
+			"slider-reading-width",
+			"preset-wcag-text-spacing",
+		]) {
+			assert.ok(panel.includes(`data-testid="${id}"`), id);
+		}
+		assert.ok(html.includes('data-testid="a11y-reset"'), "Reset renders");
+		assert.ok(!panel.includes('data-testid="a11y-reset"'), "outside the collapsed panel");
+	});
+
+	it("a slider reads its value, and an unset field reads Default or Full width", () => {
+		const unset = render(undefined);
+		assert.ok(tagOf(unset, "slider-line-height").includes('aria-valuetext="1.5 times the text size"'));
+		assert.ok(tagOf(unset, "slider-paragraph-spacing").includes('aria-valuetext="Default"'));
+		assert.ok(tagOf(unset, "slider-word-spacing").includes('aria-valuetext="Default"'));
+		assert.ok(tagOf(unset, "slider-reading-width").includes('aria-valuetext="Full width"'));
+		const set = render({ paragraphSpacing: 2, letterSpacing: 0.12, readingWidth: 80 });
+		assert.ok(tagOf(set, "slider-paragraph-spacing").includes('aria-valuetext="2 times the text size"'));
+		assert.ok(tagOf(set, "slider-letter-spacing").includes('aria-valuetext="0.12 times the text size"'));
+		assert.ok(tagOf(set, "slider-reading-width").includes('aria-valuetext="80 characters"'));
+	});
+
+	it("a slider's Reset is offered only while its field is stored", () => {
+		assert.ok(tagOf(render(undefined), "slider-line-height-reset").includes('disabled=""'));
+		assert.ok(!tagOf(render({ lineHeight: 1.8 }), "slider-line-height-reset").includes('disabled=""'));
 	});
 });
 

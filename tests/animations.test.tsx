@@ -4,17 +4,20 @@
  *
  *   1. the animation maker: preview → look → final render, the unlooked-
  *      finish gate, the length limit, a failed final render, a renderer
- *      that isn't ready, bad tool calls, the iteration limit
+ *      that isn't ready, bad tool calls, the iteration limit, the describe
+ *      gate (M27)
  *   2. Manim stills in the visual maker: offered only when the renderer is
  *      ready and the job has a chat to save into; the last medium wins
  *   3. applyExactEdit (shared by every maker): `$` patterns stay literal
  *   4. the animation tool: offered only while the renderer is ready, one
  *      job per tool call, the teacher registry and the Settings toggle
- *   5. the job runner: animation and visual jobs end to end, and the
- *      honest failure when the server has no renderer
+ *   5. the job runner: animation and visual jobs end to end, the
+ *      descriptions track, and the honest failure when the server has no
+ *      renderer
  *   6. the cards: the video player and its failure/offline states, the
  *      inverted steer, the held delivery, Manim stills in the figure card,
- *      pngFigureSvg
+ *      pngFigureSvg, the text alternatives
+ *   7. the beats and the WebVTT descriptions track (pure)
  *
  * Runs under an isolated LH_DATA_DIR (jobs and chats are written to disk):
  * the seam is set before any config-loading import, so the store, runner,
@@ -48,7 +51,16 @@ import {
 	type SteerMessage,
 	type VisualResult,
 } from "../src/core/contracts.ts";
-import { MANIM_IMAGE, mediaUrl, type ManimRenderer, type ManimRenderRequest, type ManimStatus } from "../src/core/manim.ts";
+import {
+	beatTime,
+	cleanBeats,
+	descriptionsVtt,
+	MANIM_IMAGE,
+	mediaUrl,
+	type ManimRenderer,
+	type ManimRenderRequest,
+	type ManimStatus,
+} from "../src/core/manim.ts";
 import { newAnswerResult, newUserMessage, type LhMessage } from "../src/core/native-messages.ts";
 import { dismissedAnswer } from "../src/core/question-core.ts";
 import { projectView } from "../src/core/view.ts";
@@ -125,8 +137,11 @@ const STOPPED: ManimStatus = { state: "docker-stopped", reason: "Docker is insta
 /** A fake renderer that records every render. Previews last
  *  `previewSeconds` in turn (then 20 s); previews and stills report the
  *  layout `issues` in turn (then none); the first `failFinal` final
- *  renders fail. */
-function fakeManim(opts: { ready?: boolean; previewSeconds?: number[]; issues?: string[][]; failFinal?: number } = {}) {
+ *  renders fail. Saved descriptions tracks are recorded (`failSave`
+ *  makes saving throw). */
+function fakeManim(
+	opts: { ready?: boolean; previewSeconds?: number[]; issues?: string[][]; failFinal?: number; failSave?: boolean } = {},
+) {
 	const ready = opts.ready ?? true;
 	const previewSeconds = [...(opts.previewSeconds ?? [])];
 	const issues = [...(opts.issues ?? [])];
@@ -136,6 +151,7 @@ function fakeManim(opts: { ready?: boolean; previewSeconds?: number[]; issues?: 
 	};
 	let failFinal = opts.failFinal ?? 0;
 	const renders: ManimRenderRequest[] = [];
+	const saved: Array<{ chatId: string; jobId: string; vtt: string }> = [];
 	const renderer: ManimRenderer = {
 		ready: () => ready,
 		status: async () => (ready ? READY : STOPPED),
@@ -162,8 +178,13 @@ function fakeManim(opts: { ready?: boolean; previewSeconds?: number[]; issues?: 
 				durationSec: 12,
 			};
 		},
+		saveDescriptions(chatId, jobId, vtt) {
+			if (opts.failSave) throw new Error("disk full");
+			saved.push({ chatId, jobId, vtt });
+			return { file: `${jobId}.vtt`, mime: "text/vtt" };
+		},
 	};
-	return { renderer, renders, modes: () => renders.map((r) => r.mode) };
+	return { renderer, renders, saved, modes: () => renders.map((r) => r.mode) };
 }
 
 function fakeHeadless(): HeadlessApi & { svgRenders: string[] } {
@@ -208,6 +229,36 @@ const VIS_IDS = { chatId: "chat_v", jobId: "job_v1" };
 const write = (id: string, code = SCENE) => ({ id, name: "write_scene", input: { code } });
 const preview = (id: string) => ({ id, name: "render_preview", input: {} });
 
+/** describe_animation's arguments, and the text alternative the maker
+ *  delivers from them (M27). */
+const DESCRIPTION = {
+	alt: "An accent dot fades in at the center.",
+	description: "A single accent dot fades in at the origin, then holds still.",
+	beats: [
+		{ at: 1, text: "A dot fades in at the center." },
+		{ at: 2.5, text: "The dot holds." },
+	],
+};
+const DESCRIBED = {
+	alt: DESCRIPTION.alt,
+	description: DESCRIPTION.description,
+	beats: [
+		{ atSec: 1, text: "A dot fades in at the center." },
+		{ atSec: 2.5, text: "The dot holds." },
+	],
+};
+const describeAnim = (id: string, over: Partial<typeof DESCRIPTION> = {}) => ({
+	id,
+	name: "describe_animation",
+	input: { ...DESCRIPTION, ...over },
+});
+const ANIM_NUDGE = "Before you finish, call describe_animation with the alt text, description and beats of your final scene.";
+const FIGURE_TEXT = {
+	alt: "A number line from 0 to 4.",
+	description: "A horizontal number line runs from 0 to 4, with a tick and a label at each whole number.",
+};
+const describeFig = (id: string) => ({ id, name: "describe_figure", input: FIGURE_TEXT });
+
 // ─── 1. the animation maker ──────────────────────────────────────────────────
 
 describe("the animation maker (fake renderer, scripted model)", () => {
@@ -215,7 +266,7 @@ describe("the animation maker (fake renderer, scripted model)", () => {
 		const manim = fakeManim();
 		const { engine, contexts } = scriptedModel([
 			{ toolCalls: [write("w1")] },
-			{ toolCalls: [preview("p1")] },
+			{ toolCalls: [preview("p1"), describeAnim("d1")] },
 			{ text: "A dot fades in at the origin and holds." },
 		]);
 		const activity: string[] = [];
@@ -226,6 +277,7 @@ describe("the animation maker (fake renderer, scripted model)", () => {
 			poster: { file: "job_a1-poster.png", mime: "image/png" },
 			durationSec: 12,
 			notes: "A dot fades in at the origin and holds.",
+			...DESCRIBED,
 		});
 		assert.equal(contexts.length, 3, "write, preview, finish — one model call each");
 		assert.deepEqual(manim.modes(), ["preview", "final"]);
@@ -235,14 +287,16 @@ describe("the animation maker (fake renderer, scripted model)", () => {
 		);
 		assert.ok(!contexts[1]!.includes(SHEET_B64), "nothing to look at before the preview");
 		assert.ok(shown(contexts[2], "Rendered — 20.0 s long. The contact sheet follows in the next message."));
+		assert.ok(shown(contexts[2], "Saved the alt text, description and 2 beats."));
 		assert.ok(contexts[2]!.includes(SHEET_B64), "the contact sheet goes back to the model");
+		assert.ok(activity.includes("describe_animation: saved"));
 		assert.ok(activity.includes("rendering the final video"));
 	});
 
 	it("finishing before looking previews the final scene and makes the model look first", async () => {
 		const manim = fakeManim();
 		const { engine, contexts } = scriptedModel([
-			{ toolCalls: [write("w1")] },
+			{ toolCalls: [write("w1"), describeAnim("d1")] },
 			{ text: "Done." },
 			{ text: "Looked: the dot is centred and holds." },
 		]);
@@ -264,7 +318,7 @@ describe("the animation maker (fake renderer, scripted model)", () => {
 	it("the layout check reaches the model with the preview; finishing over it earns one reminder per scene", async () => {
 		const manim = fakeManim({ issues: [[SPILL]] });
 		const { engine, contexts } = scriptedModel([
-			{ toolCalls: [write("w1"), preview("p1")] },
+			{ toolCalls: [write("w1"), preview("p1"), describeAnim("d1")] },
 			{ text: "Done." },
 			{ text: "The spill is deliberate: the word bursts its box." },
 		]);
@@ -282,7 +336,7 @@ describe("the animation maker (fake renderer, scripted model)", () => {
 		const b = scriptedModel([
 			{ toolCalls: [write("w1"), preview("p1")] },
 			{ text: "Done." },
-			{ toolCalls: [write("w2", SCENE.replace("self.wait(1)", "self.wait(2)")), preview("p2")] },
+			{ toolCalls: [write("w2", SCENE.replace("self.wait(1)", "self.wait(2)")), preview("p2"), describeAnim("d2")] },
 			{ text: "Fixed: the box fits the word." },
 		]);
 		const shipped = await runAnimationMaker(BRIEF, { manim: fixed.renderer, ...ANIM_IDS, engine: b.engine });
@@ -300,7 +354,7 @@ describe("the animation maker (fake renderer, scripted model)", () => {
 	it("an unlooked finish shows the layout check with the contact sheet, and that look is the reminder", async () => {
 		const manim = fakeManim({ issues: [[SPILL]] });
 		const { engine, contexts } = scriptedModel([
-			{ toolCalls: [write("w1")] },
+			{ toolCalls: [write("w1"), describeAnim("d1")] },
 			{ text: "Done." },
 			{ text: "Looked: the spill is deliberate." },
 		]);
@@ -321,6 +375,7 @@ describe("the animation maker (fake renderer, scripted model)", () => {
 				toolCalls: [
 					{ id: "e1", name: "edit_scene", input: { old_text: "self.wait(70)", new_text: "self.wait(5)" } },
 					preview("p2"),
+					describeAnim("d1"),
 				],
 			},
 			{ text: "Shortened the hold to fit the limit." },
@@ -340,7 +395,7 @@ describe("the animation maker (fake renderer, scripted model)", () => {
 		const manim = fakeManim({ failFinal: 1 });
 		const { engine, contexts } = scriptedModel([
 			{ toolCalls: [write("w1")] },
-			{ toolCalls: [preview("p1")] },
+			{ toolCalls: [preview("p1"), describeAnim("d1")] },
 			{ text: "Done." },
 			{ text: "Done again." },
 			{ text: "Looked again: still correct." },
@@ -368,6 +423,10 @@ describe("the animation maker (fake renderer, scripted model)", () => {
 			{
 				toolCalls: [
 					preview("p0"),
+					describeAnim("d0"),
+					describeAnim("d1", { alt: " " }),
+					{ id: "d2", name: "describe_animation", input: { alt: "A dot.", description: "A dot appears." } },
+					describeAnim("d3", { beats: [{ at: "1" as unknown as number, text: "A dot appears." }] }),
 					{ id: "w0", name: "write_scene", input: { code: "print('no scene here')" } },
 					{ id: "x0", name: "write_svg", input: { svg: "<svg/>" } },
 				],
@@ -376,14 +435,78 @@ describe("the animation maker (fake renderer, scripted model)", () => {
 		]);
 		const result = await runAnimationMaker(BRIEF, { manim: manim.renderer, ...ANIM_IDS, engine });
 		assert.ok(shown(contexts[1], "ERROR: nothing to preview — call write_scene first."));
+		assert.ok(shown(contexts[1], "ERROR: nothing to describe — call write_scene first."));
+		assert.ok(shown(contexts[1], "ERROR: expected non-empty alt and description strings."));
+		assert.ok(shown(contexts[1], "ERROR: expected `beats` to be an array of { at, text }."));
+		assert.ok(shown(contexts[1], "ERROR: beats[0] needs a number `at` (seconds) and a `text` string."));
 		assert.ok(shown(contexts[1], "ERROR: expected the complete scene file in the `code` field, defining class Lesson(Scene)."));
-		assert.ok(shown(contexts[1], 'ERROR: unknown tool "write_svg". Use write_scene, edit_scene, or render_preview.'));
+		assert.ok(
+			shown(contexts[1], 'ERROR: unknown tool "write_svg". Use write_scene, edit_scene, render_preview, or describe_animation.'),
+		);
 		assert.deepEqual(result, {
 			title: "A dot appears",
 			video: null,
 			notes: "FAILED: the maker never wrote a scene. (I could not write a scene for this.)",
 		});
 		assert.equal(manim.renders.length, 0);
+	});
+
+	it("a finish without a description is nudged once, then ships without one and keeps the notes it held back", async () => {
+		const manim = fakeManim();
+		const { engine, contexts } = scriptedModel([
+			{ toolCalls: [write("w1"), preview("p1")] },
+			{ text: "A dot fades in at the origin and holds." },
+			{ text: "Done." },
+		]);
+		const result = await runAnimationMaker(BRIEF, { manim: manim.renderer, ...ANIM_IDS, engine });
+		assert.equal(contexts.length, 3, "one nudge, then the finish ships");
+		assert.ok(shown(contexts[2], ANIM_NUDGE));
+		assert.deepEqual(manim.modes(), ["preview", "final"], "the nudge renders nothing");
+		assert.deepEqual(result, {
+			title: "A dot appears",
+			video: { file: "job_a1.mp4", mime: "video/mp4", width: 1280, height: 720 },
+			poster: { file: "job_a1-poster.png", mime: "image/png" },
+			durationSec: 12,
+			notes: "A dot fades in at the origin and holds.",
+		});
+
+		// A finish on the last turn is not nudged: it ships as it is.
+		const last = fakeManim();
+		const b = scriptedModel([{ toolCalls: [write("w1"), preview("p1")] }, { text: "A dot fades in at the origin and holds." }]);
+		const bare = await runAnimationMaker(BRIEF, { manim: last.renderer, ...ANIM_IDS, engine: b.engine, maxIterations: 2 });
+		assert.equal(b.contexts.length, 2);
+		assert.equal(bare.video?.file, "job_a1.mp4");
+		assert.equal(bare.alt, undefined);
+		assert.equal(bare.notes, "A dot fades in at the origin and holds.");
+	});
+
+	it("a description is of one scene: an edit after it earns the nudge, and a bare finish drops the stale text", async () => {
+		const held = SCENE.replace("self.wait(1)", "self.wait(2)");
+		const NEW_ALT = "An accent dot fades in and holds for two seconds.";
+		const turns = (after: ScriptedTurn[]): ScriptedTurn[] => [
+			{ toolCalls: [write("w1"), preview("p1"), describeAnim("d1")] },
+			{ toolCalls: [{ id: "e1", name: "edit_scene", input: { old_text: "self.wait(1)", new_text: "self.wait(2)" } }, preview("p2")] },
+			{ text: "Held the dot longer." },
+			...after,
+		];
+
+		const again = fakeManim();
+		const a = scriptedModel(turns([{ toolCalls: [describeAnim("d2", { alt: NEW_ALT })] }, { text: "Described again." }]));
+		const redescribed = await runAnimationMaker(BRIEF, { manim: again.renderer, ...ANIM_IDS, engine: a.engine });
+		assert.ok(shown(a.contexts[3], ANIM_NUDGE));
+		assert.deepEqual(again.modes(), ["preview", "preview", "final"]);
+		assert.equal(again.renders[2]!.code, held);
+		assert.equal(redescribed.alt, NEW_ALT);
+		assert.deepEqual(redescribed.beats, DESCRIBED.beats);
+		assert.equal(redescribed.notes, "Held the dot longer.", "the notes the nudge held back ship");
+
+		const stale = fakeManim();
+		const b = scriptedModel(turns([{ text: "Done." }]));
+		const bare = await runAnimationMaker(BRIEF, { manim: stale.renderer, ...ANIM_IDS, engine: b.engine });
+		assert.equal(stale.renders[2]!.code, held);
+		assert.equal(bare.video?.file, "job_a1.mp4");
+		for (const key of ["alt", "description", "beats"] as const) assert.equal(bare[key], undefined, `no stale ${key}`);
+		assert.equal(bare.notes, "Held the dot longer.");
 	});
 
 	it("at the iteration limit, delivers only an animation the model has looked at", async () => {
@@ -478,11 +601,16 @@ describe("Manim stills in the visual maker", () => {
 	it("with a ready renderer and a job, renders the still, looks at it, and delivers the saved PNG", async () => {
 		const manim = fakeManim();
 		const headless = fakeHeadless();
-		const { engine, contexts } = scriptedModel([{ toolCalls: [writeManim, renderManim] }, { text: "A number line from 0 to 4." }]);
+		const { engine, contexts } = scriptedModel([
+			{ toolCalls: [writeManim, renderManim, describeFig("f1")] },
+			{ text: "A number line from 0 to 4." },
+		]);
 		const result = await runVisualMaker({ brief: "a number line" }, { engine, headless, manim: manim.renderer, ...VIS_IDS });
 		assert.equal(result.svg, "");
 		assert.deepEqual(result.png, { file: "job_v1.png", mime: "image/png", width: 1920, height: 1080 });
 		assert.equal(result.notes, "A number line from 0 to 4.");
+		assert.equal(result.alt, FIGURE_TEXT.alt);
+		assert.equal(result.description, FIGURE_TEXT.description);
 		assert.deepEqual(
 			manim.renders.map((r) => [r.mode, r.chatId, r.jobId]),
 			[["still", "chat_v", "job_v1"]],
@@ -496,7 +624,7 @@ describe("Manim stills in the visual maker", () => {
 	it("finishing before looking renders the final scene's still and makes the model look", async () => {
 		const manim = fakeManim();
 		const { engine, contexts } = scriptedModel([
-			{ toolCalls: [writeManim] },
+			{ toolCalls: [writeManim, describeFig("f1")] },
 			{ text: "Done." },
 			{ text: "Looked: the ticks are evenly spaced." },
 		]);
@@ -510,7 +638,7 @@ describe("Manim stills in the visual maker", () => {
 
 	it("the still's layout check reaches the model with the render", async () => {
 		const spill = '"query" at (0.0, 0.0) spills 0.17 past the edge of its box: size the box from the text.';
-		const { engine, contexts } = scriptedModel([{ toolCalls: [writeManim, renderManim] }, { text: "Three boxes." }]);
+		const { engine, contexts } = scriptedModel([{ toolCalls: [writeManim, renderManim, describeFig("f1")] }, { text: "Three boxes." }]);
 		await runVisualMaker({ brief: "three boxes" }, { engine, headless: fakeHeadless(), manim: fakeManim({ issues: [[spill]] }).renderer, ...VIS_IDS });
 		assert.ok(
 			shown(
@@ -542,7 +670,7 @@ describe("Manim stills in the visual maker", () => {
 		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="40"><line x1="0" y1="20" x2="100" y2="20"/></svg>';
 		const { engine } = scriptedModel([
 			{ toolCalls: [writeManim, renderManim] },
-			{ toolCalls: [{ id: "s1", name: "write_svg", input: { svg } }, { id: "r2", name: "render_svg", input: {} }] },
+			{ toolCalls: [{ id: "s1", name: "write_svg", input: { svg } }, { id: "r2", name: "render_svg", input: {} }, describeFig("f1")] },
 			{ text: "Switched to SVG for crisper ticks." },
 		]);
 		const result = await runVisualMaker({ brief: "a number line" }, { engine, headless, manim: manim.renderer, ...VIS_IDS });
@@ -560,12 +688,15 @@ describe("Manim stills in the visual maker", () => {
 		for (const c of cases) {
 			const { engine, contexts } = scriptedModel([
 				{ toolCalls: [writeManim] },
-				{ toolCalls: [{ id: "s1", name: "write_svg", input: { svg } }, { id: "r2", name: "render_svg", input: {} }] },
+				{ toolCalls: [{ id: "s1", name: "write_svg", input: { svg } }, { id: "r2", name: "render_svg", input: {} }, describeFig("f1")] },
 				{ text: "Drawn as SVG." },
 			]);
 			const result = await runVisualMaker({ brief: "b" }, { engine, headless: fakeHeadless(), manim: c.manim.renderer, ...c.ids });
 			assert.ok(!contexts[0]!.includes("write_manim"), `${c.label}: no Manim tools or instructions`);
-			assert.ok(shown(contexts[1], 'ERROR: unknown tool "write_manim". Use write_svg, edit_svg, or render_svg.'), c.label);
+			assert.ok(
+				shown(contexts[1], 'ERROR: unknown tool "write_manim". Use write_svg, edit_svg, render_svg, or describe_figure.'),
+				c.label,
+			);
 			assert.equal(result.svg, svg, c.label);
 			assert.equal(c.manim.renders.length, 0, c.label);
 		}
@@ -712,7 +843,7 @@ describe("animation and visual jobs through the runner", () => {
 		const manim = fakeManim();
 		const { engine } = scriptedModel([
 			{ toolCalls: [write("w1")] },
-			{ toolCalls: [preview("p1")] },
+			{ toolCalls: [preview("p1"), describeAnim("d1")] },
 			{ text: "A dot fades in and holds." },
 		]);
 		animationModelOverride.current = engine;
@@ -722,7 +853,8 @@ describe("animation and visual jobs through the runner", () => {
 			const record = jobStore.getJob(job.id)!;
 			assert.equal(record.status, "done");
 			assert.equal(record.activity, "finished");
-			assert.equal((record.result as AnimationResult).video?.file, `${job.id}.mp4`);
+			const result = record.result as AnimationResult;
+			assert.equal(result.video?.file, `${job.id}.mp4`);
 			assert.deepEqual(
 				manim.renders.map((r) => [r.mode, r.chatId, r.jobId]),
 				[
@@ -730,11 +862,52 @@ describe("animation and visual jobs through the runner", () => {
 					["final", chat.id, job.id],
 				],
 			);
+			// The beats become a descriptions track saved beside the video,
+			// the last cue running to the video's end (12 s).
+			assert.deepEqual(manim.saved, [
+				{
+					chatId: chat.id,
+					jobId: job.id,
+					vtt: "WEBVTT\n\n00:00:01.000 --> 00:00:02.500\nA dot fades in at the center.\n\n00:00:02.500 --> 00:00:12.000\nThe dot holds.\n",
+				},
+			]);
+			assert.deepEqual(result.descriptions, { file: `${job.id}.vtt`, mime: "text/vtt" });
+			assert.deepEqual(result.beats, DESCRIBED.beats);
 			assert.equal(steers.length, 1);
 			assert.equal(steers[0]!.id, `steer_${job.id}`);
 			assert.match(
 				String(steers[0]!.content),
 				/^The animation "A dot appears" is rendered \(12 s\) and plays in the lesson\. Maker notes: A dot fades in and holds\./,
+			);
+		} finally {
+			animationModelOverride.current = undefined;
+		}
+	});
+
+	it("when the descriptions track can't be saved, the video ships without it and keeps its transcript", async (t) => {
+		const chat = chatStore.createChat("Animation track");
+		const job = jobStore.createJob({ kind: "animation", chatId: chat.id, toolCallId: "call_aj3", input: BRIEF });
+		const manim = fakeManim({ failSave: true });
+		const { engine } = scriptedModel([
+			{ toolCalls: [write("w1")] },
+			{ toolCalls: [preview("p1"), describeAnim("d1")] },
+			{ text: "A dot fades in and holds." },
+		]);
+		const logged = t.mock.method(console, "error", () => {});
+		animationModelOverride.current = engine;
+		try {
+			const { runner } = testRunner(manim.renderer);
+			await runner.runJob(job.id);
+			const record = jobStore.getJob(job.id)!;
+			assert.equal(record.status, "done");
+			const result = record.result as AnimationResult;
+			assert.equal(result.video?.file, `${job.id}.mp4`);
+			assert.equal(result.descriptions, undefined);
+			assert.equal(result.alt, DESCRIBED.alt);
+			assert.deepEqual(result.beats, DESCRIBED.beats);
+			assert.ok(
+				logged.mock.calls.some((call) => String(call.arguments[0]).includes("saving the descriptions track failed")),
+				"the failure is logged",
 			);
 		} finally {
 			animationModelOverride.current = undefined;
@@ -771,6 +944,7 @@ describe("animation and visual jobs through the runner", () => {
 				toolCalls: [
 					{ id: "m1", name: "write_manim", input: { code: STILL_SCENE } },
 					{ id: "r1", name: "render_manim", input: {} },
+					describeFig("f1"),
 				],
 			},
 			{ text: "A number line from 0 to 4." },
@@ -783,6 +957,7 @@ describe("animation and visual jobs through the runner", () => {
 			const record = jobStore.getJob(job.id)!;
 			assert.equal(record.status, "done");
 			assert.equal((record.result as VisualResult).png?.file, `${job.id}.png`);
+			assert.equal((record.result as VisualResult).alt, FIGURE_TEXT.alt);
 			assert.deepEqual(
 				manim.renders.map((r) => [r.mode, r.chatId, r.jobId]),
 				[["still", chat.id, job.id]],
@@ -933,9 +1108,52 @@ describe("animation and still cards", () => {
 		assert.ok(html.includes(`src="${mediaUrl("chat_1", "job_v1.png")}"`));
 		assert.match(html, /download="figure\.png"/);
 		assert.ok(!html.includes("visual-card-failed"), "an empty svg beside a still is not a failure");
+		assert.match(html, /<img[^>]*alt="Figure"/, "without the maker's alt, the still is a Figure");
+		assert.ok(!html.includes("figure-description"), "no description, no disclosure");
+		const described = inChat(<VisualOutputCard output={{ ...still, ...FIGURE_TEXT }} />);
+		assert.ok(described.includes(`alt="${FIGURE_TEXT.alt}"`));
+		assert.match(described, /data-testid="figure-description"/);
+		assert.ok(described.includes(FIGURE_TEXT.description));
 		const offline = renderToStaticMarkup(<VisualOutputCard output={still} />);
 		assert.match(offline, /data-testid="visual-png-offline"/);
 		assert.match(offline, /Figure ready\. Open the session to view it\./);
+	});
+
+	it("the maker's alt names the video, its beats ride as a descriptions track, and the transcript waits closed", () => {
+		const described: AnimationResult = {
+			...RESULT,
+			alt: "A hash table doubles its buckets and re-spreads its keys.",
+			description: "Eight buckets hold the keys; the table grows to sixteen and every key moves to its new bucket.",
+			beats: [
+				{ atSec: 4.2, text: "The keys move to their new buckets." },
+				{ atSec: 1, text: "The table doubles to sixteen buckets." },
+				{ atSec: 2, text: "   " },
+			],
+			descriptions: { file: "job_c1.vtt", mime: "text/vtt" },
+		};
+		const html = inChat(<AnimationOutputCard output={described} />);
+		const video = html.match(/<video[^>]*>/)?.[0] ?? "";
+		assert.ok(video.includes(`aria-label="${described.alt}"`), video);
+		const track = html.match(/<track[^>]*>/)?.[0] ?? "";
+		assert.ok(track.includes('kind="descriptions"'), track);
+		assert.ok(track.includes(`src="${mediaUrl("chat_1", "job_c1.vtt")}"`), track);
+		assert.match(track, /srclang="en"/i);
+		assert.ok(track.includes('label="Descriptions"'), track);
+		const from = html.indexOf('data-testid="animation-transcript"');
+		assert.ok(from >= 0, "a transcript under the video");
+		const transcript = html.slice(from).replace(/<[^>]+>/g, "");
+		assert.ok(transcript.includes(described.description!));
+		const first = transcript.indexOf("0:01 — The table doubles to sixteen buckets.");
+		const second = transcript.indexOf("0:04 — The keys move to their new buckets.");
+		assert.ok(first >= 0 && second > first, `the beats in time order, blanks dropped: ${transcript}`);
+		const details = html.match(/<details[^>]*>/)?.[0] ?? "";
+		assert.ok(!/\sopen[\s=>]/.test(details), `closed until the learner opens it: ${details}`);
+
+		const bare = inChat(<AnimationOutputCard output={RESULT} />);
+		const bareVideo = bare.match(/<video[^>]*>/)?.[0] ?? "";
+		assert.ok(bareVideo.includes(`aria-label="${RESULT.title}"`), "without an alt, the title names the video");
+		assert.ok(!bare.includes("<track"), "no beats, no track");
+		assert.ok(!bare.includes("animation-transcript"), "nothing to transcribe");
 	});
 
 	it("pngFigureSvg wraps only a base64 PNG data URL, at whole-pixel size", () => {
@@ -952,5 +1170,68 @@ describe("animation and still cards", () => {
 		]) {
 			assert.equal(pngFigureSvg(bad, 10, 10), null, bad);
 		}
+	});
+});
+
+// ─── 7. the beats and the descriptions track ─────────────────────────────────
+
+describe("the beats and the WebVTT descriptions track (pure)", () => {
+	it("cleanBeats collapses the text, drops blanks and bad times, clamps to the video, and sorts", () => {
+		const beats = [
+			{ atSec: 3, text: " b  c " },
+			{ atSec: -1, text: "a" },
+			{ atSec: Number.NaN, text: "x" },
+			{ atSec: 2, text: "   " },
+			{ atSec: 20, text: "z" },
+		];
+		assert.deepEqual(cleanBeats(beats, 12), [
+			{ atSec: 0, text: "a" },
+			{ atSec: 3, text: "b c" },
+			{ atSec: 12, text: "z" },
+		]);
+		assert.deepEqual(cleanBeats(beats).at(-1), { atSec: 20, text: "z" }, "no length, no upper clamp");
+	});
+
+	it("descriptionsVtt writes one cue per beat, each running to the next and the last to the end", () => {
+		assert.equal(
+			descriptionsVtt(
+				[
+					{ atSec: 1, text: "A dot appears." },
+					{ atSec: 4.5, text: "It holds." },
+				],
+				12,
+			),
+			"WEBVTT\n\n00:00:01.000 --> 00:00:04.500\nA dot appears.\n\n00:00:04.500 --> 00:00:12.000\nIt holds.\n",
+		);
+		assert.equal(
+			descriptionsVtt([{ atSec: 3725.5, text: "Late." }], 4000),
+			"WEBVTT\n\n01:02:05.500 --> 01:06:40.000\nLate.\n",
+			"hours",
+		);
+	});
+
+	it("descriptionsVtt shares a cue between beats at one moment, and gives a lone beat at the end the last second", () => {
+		const shared = [
+			{ atSec: 2, text: "a" },
+			{ atSec: 2, text: "b" },
+			{ atSec: 9, text: "z" },
+		];
+		assert.equal(descriptionsVtt(shared, 5), "WEBVTT\n\n00:00:02.000 --> 00:00:05.000\na b z\n");
+		assert.equal(descriptionsVtt([{ atSec: 7, text: "only" }], 5), "WEBVTT\n\n00:00:04.000 --> 00:00:05.000\nonly\n");
+	});
+
+	it("descriptionsVtt escapes the cue text, and writes nothing without beats or a length", () => {
+		assert.equal(
+			descriptionsVtt([{ atSec: 0, text: "a <b> & c --> d" }], 2),
+			"WEBVTT\n\n00:00:00.000 --> 00:00:02.000\na &lt;b&gt; &amp; c --&gt; d\n",
+		);
+		const one = [{ atSec: 1, text: "a" }];
+		assert.equal(descriptionsVtt([], 10), null);
+		assert.equal(descriptionsVtt([{ atSec: 1, text: "  " }], 10), null);
+		for (const length of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) assert.equal(descriptionsVtt(one, length), null, String(length));
+	});
+
+	it("beatTime shows m:ss to the nearest second, never below zero", () => {
+		assert.deepEqual([0, 4.5, 59.6, 61, -3].map(beatTime), ["0:00", "0:05", "1:00", "1:01", "0:00"]);
 	});
 });

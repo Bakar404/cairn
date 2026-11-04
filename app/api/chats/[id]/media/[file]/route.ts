@@ -1,10 +1,11 @@
 /**
  * CHAT MEDIA (M13): the files a chat's Manim renders saved.
  *
- * GET /api/chats/:id/media/:file → the PNG still or MP4 animation, with
- * single byte ranges (206) so a <video> can seek; 416 past the end. Only
- * `<id>.png|mp4` names inside the chat's own media folder are served, so
- * an unknown chat or file is a 404. The folder is deleted with the chat.
+ * GET /api/chats/:id/media/:file → the PNG still, MP4 animation or the
+ * animation's WebVTT descriptions track, with single byte ranges (206) so
+ * a <video> can seek; 416 past the end. Only `<id>.png|mp4|vtt` names
+ * inside the chat's own media folder are served, so an unknown chat or
+ * file is a 404. The folder is deleted with the chat.
  */
 import { chatMediaResponse } from "@/src/server";
 

@@ -21,9 +21,11 @@ import type {
 	ChatRecord,
 	ExtractionRunUsage,
 	ExtractionStageUsage,
+	NotesSourceKind,
 	SessionFindings,
 } from "../../core/contracts.ts";
 import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../../core/graph.ts";
+import { quoteFinder, sourceLocator, type SourceLocator } from "../../core/quote-check.ts";
 import type { GraphStore } from "../../core/ports.ts";
 import { emit } from "../../core/events.ts";
 import { settleGraphLayout } from "../../core/layout-settle.ts";
@@ -207,6 +209,32 @@ const findingsSchema = Type.Object({
 	}),
 });
 
+// THE IMPORT EXTENSION (M25, checked quotes): an imported document's
+// propositions may carry a short verbatim quote. The import checks it
+// against the text the extractor read and drops it on any mismatch, so a
+// wrong quote costs nothing — never a retry. Null is tolerated for the
+// same reason.
+const notesPropositionProps = {
+	...propositionProps,
+	quote: Type.Optional(
+		Type.Union([Type.String(), Type.Null()], {
+			description:
+				"A short verbatim quote (under ~30 words) from this stretch that states the idea — copied exactly, " +
+				"character for character. Omit it when no sentence states the idea; it is checked against the source " +
+				"and discarded if it doesn't match.",
+		}),
+	),
+};
+
+const notesFindingsSchema = Type.Object({
+	propositions: Type.Array(Type.Object(notesPropositionProps), {
+		description: propositionsDescription,
+	}),
+	chains: Type.Array(chainSchema, {
+		description: chainsDescription,
+	}),
+});
+
 // THE SESSION EXTENSION (owner, 2026-10-13): every session proposition
 // carries a REQUIRED messageId — the anchor of the passage it came from,
 // copied from the view's "TEACHER [id]" label (validated at the submit
@@ -236,6 +264,9 @@ const sessionFindingsSchema = Type.Object({
  *  SessionFindings — chains are stored AS-IS (chains-primary, owner
  *  2026-09-30: no edge translation at any seam). */
 type FindingsSubmit = Static<typeof findingsSchema>;
+
+/** The NOTES wire — the base shape plus the optional checked quote (M25). */
+type NotesFindingsSubmit = Static<typeof notesFindingsSchema>;
 
 /** The SESSION wire — the notes shape plus the REQUIRED messageId anchor
  *  on every proposition (owner, 2026-10-13). */
@@ -289,13 +320,16 @@ function fillFindings<T extends { propositions: Array<{ aliases?: string[] }>; c
 /** The notes fill: the shared alias ??-fill PLUS the door's boundary — a
  *  stray messageId (the notes schema has none; extra properties pass
  *  schema validation) is stripped so notes provenance stays chat-level
- *  (the file is the anchor, owner 2026-09-13). */
-function fillNotesFindings(raw: FindingsSubmit): FindingsSubmit {
+ *  (the file is the anchor, owner 2026-09-13). Page and hunk are the
+ *  import's to derive (M25), never the model's: strays are stripped too. */
+function fillNotesFindings(raw: NotesFindingsSubmit): NotesFindingsSubmit {
 	return fillFindings({
 		...raw,
 		propositions: raw.propositions.map((p) => {
-			const stripped = { ...p } as typeof p & { messageId?: unknown };
+			const stripped = { ...p } as typeof p & { messageId?: unknown; page?: unknown; hunk?: unknown };
 			delete stripped.messageId;
+			delete stripped.page;
+			delete stripped.hunk;
 			return stripped;
 		}),
 	});
@@ -352,16 +386,63 @@ function validateSessionAnchors(value: SessionFindingsSubmit, batchIds: Readonly
  *  chains and the derived edge view is recomputed on read. The fill
  *  already ran inside runSubmitAgent; this only re-asserts the
  *  aliases-filled type (and preserves the session submit's messageId
- *  anchor, 2026-10-13 — both doors lift through here). */
+ *  anchor, 2026-10-13 — both doors lift through here). Propositions are
+ *  rebuilt field by field: a stray quote/page/hunk on the wire must never
+ *  reach the merger unchecked (M25). */
 const asSessionFindings = (
 	raw: {
 		propositions: Array<{ id: string; name: string; statement: string; aliases?: string[]; messageId?: string }>;
 		chains: Array<{ premises: string[]; conclusion: string }>;
 	},
 ): SessionFindings => ({
-	propositions: raw.propositions.map((p) => ({ ...p, aliases: p.aliases ?? [] })),
+	propositions: raw.propositions.map((p) => ({
+		id: p.id,
+		name: p.name,
+		statement: p.statement,
+		aliases: p.aliases ?? [],
+		...(p.messageId !== undefined ? { messageId: p.messageId } : {}),
+	})),
 	chains: raw.chains,
 });
+
+/** The notes lift: the session lift plus the quote, still UNCHECKED here —
+ *  runNotesExtraction checks it against the stretch before the merge. */
+const asNotesFindings = (raw: NotesFindingsSubmit): NotesFindings => {
+	const lifted = asSessionFindings(raw);
+	lifted.propositions.forEach((p, i) => {
+		const quote = raw.propositions[i]?.quote;
+		if (typeof quote === "string" && quote.trim().length > 0) p.quote = quote;
+	});
+	return lifted;
+};
+
+/**
+ * The quote check (M25): keep a proposition's quote only when it appears in
+ * the stretch the extractor read, replaced by the source's own span, with
+ * the page or hunk it sits in. `offset` places the stretch in the full
+ * source text, so markers in earlier stretches still count. Never throws.
+ */
+export function checkFindingsQuotes(
+	findings: SessionFindings,
+	stretch: string,
+	offset: number,
+	locator: SourceLocator,
+	kind: NotesSourceKind,
+): SessionFindings {
+	const find = quoteFinder(stretch);
+	return {
+		...findings,
+		propositions: findings.propositions.map((p) => {
+			const { quote, page: _page, hunk: _hunk, ...rest } = p;
+			const match = find(quote);
+			if (!match) return rest;
+			const at = offset + match.start;
+			const page = kind === "pdf" ? locator.pageAt(at) : undefined;
+			const hunk = kind === "change" ? locator.hunkAt(at) : undefined;
+			return { ...rest, quote: match.quote, ...(page !== undefined ? { page } : {}), ...(hunk ? { hunk } : {}) };
+		}),
+	};
+}
 
 function fillAudit(raw: Static<typeof auditSchema>): AuditVerdicts {
 	return {
@@ -398,6 +479,27 @@ export const NOTES_PREAMBLE =
 	"author's personal notes, rendered in reading order — and report what it teaches as findings for the " +
 	"learner's global knowledge graph, building on everything already extracted from this source.";
 
+/** A PDF import (M25): a document's text, page by page. */
+export const PDF_PREAMBLE =
+	"You are the extraction stage of a learning application. You read one stretch of a source — a PDF " +
+	'document\'s text in reading order, each page opened by a "--- Page N ---" marker — and report what it ' +
+	"teaches as findings for the learner's global knowledge graph, building on everything already extracted " +
+	"from this source.";
+
+/** A code-change import (M22): a commit range or pull request. */
+export const CHANGE_PREAMBLE =
+	"You are the extraction stage of a learning application. You read one stretch of a source — a code " +
+	"change (a commit range or pull request): its description, commit messages, and unified diff — and report " +
+	"what a developer must understand to know this change as findings for the learner's global knowledge " +
+	"graph: what the code does now, why it changed, and the ideas the change relies on. Build on everything " +
+	"already extracted from this source.";
+
+/** The import-only quote instruction (M25): the quote is optional, and the
+ *  import checks it — a mismatch is discarded, never an error. */
+export const NOTES_QUOTE_RULE =
+	"For each new proposition, copy into quote the source's own words that most directly state it — a short " +
+	"verbatim excerpt, exactly as written. Leave quote out when no passage states it.";
+
 export const EXTRACTION_CORE = `THE GOAL: uncover the source's CORE IDEAS and show how everything derives from the foundations. The
 source teaches by arguing — ideas worked out from other ideas, down to a foundation the rest stands on.
 Your deliverable is twofold: the core ideas themselves, and the chains of reasoning that derive them.
@@ -433,7 +535,21 @@ propositions list alone. Include every field even when empty — "chains": [] wh
 arguments. The tool's field descriptions carry the details.`;
 
 export const EXTRACTOR_INSTRUCTIONS = `${SESSION_PREAMBLE}\n\n${EXTRACTION_CORE}\n\n${SESSION_MESSAGE_ID_RULE}`;
-export const NOTES_EXTRACTOR_INSTRUCTIONS = `${NOTES_PREAMBLE}\n\n${EXTRACTION_CORE}`;
+export const NOTES_EXTRACTOR_INSTRUCTIONS = `${NOTES_PREAMBLE}\n\n${EXTRACTION_CORE}\n\n${NOTES_QUOTE_RULE}`;
+
+/** The import extractor's instructions per source kind — one core, one
+ *  quote rule, the preamble naming what is being read. */
+export function importExtractorInstructions(kind: NotesSourceKind): string {
+	const preamble = kind === "pdf" ? PDF_PREAMBLE : kind === "change" ? CHANGE_PREAMBLE : NOTES_PREAMBLE;
+	return `${preamble}\n\n${EXTRACTION_CORE}\n\n${NOTES_QUOTE_RULE}`;
+}
+
+/** How the extractor's view labels the source, per kind. */
+const SOURCE_LABEL: Record<NotesSourceKind, string> = {
+	notes: "the author's personal notes",
+	pdf: "a PDF document",
+	change: "a code change",
+};
 
 // ── the same-source digest (owner, 2026-09-30 evening) ──
 //
@@ -511,24 +627,25 @@ function runNotesExtractor(
 	existingIds: ReadonlySet<string>,
 	signal: AbortSignal | undefined,
 	onStep: (usage: Usage, model: string, step: number, finishReason: string, tools: string) => void,
+	kind: NotesSourceKind = "notes",
 ): Promise<NotesFindings> {
-	return runSubmitAgent<FindingsSubmit>({
+	return runSubmitAgent<NotesFindingsSubmit>({
 		role: "extractor",
 		// Debug recorder key: the notes' source id (the ledger key).
 		chatId: sourceId,
 		toolName: "submit_findings",
 		toolDescription: "Submit the notes findings.",
-		parameters: findingsSchema,
+		parameters: notesFindingsSchema,
 		fill: fillNotesFindings,
 		validate: (value) => validateFindingsChains(value, existingIds),
-		systemPrompt: NOTES_EXTRACTOR_INSTRUCTIONS,
+		systemPrompt: importExtractorInstructions(kind),
 		prompt,
 		engine,
 		signal,
 		onStep,
 		neverSubmitted: "the extractor never submitted findings",
 		prepareArguments: healStringifiedArrays,
-	}).then(asSessionFindings);
+	}).then(asNotesFindings);
 }
 
 // ─── the auditor ───────────────────────────────────────────────────────────
@@ -748,8 +865,12 @@ export interface NotesImportInput {
 	/** The source's file path — its identity (deterministic src id) AND its
 	 *  provenance label in the detail card. */
 	filePath: string;
-	/** The file's raw content, VERBATIM — any format. */
+	/** The file's raw content, VERBATIM — any format. A PDF arrives as its
+	 *  extracted text with "--- Page N ---" markers (M25). */
 	text: string;
+	/** What the source is (M25/M22) — the extractor's preamble, and where a
+	 *  checked quote is located: a PDF page, or a diff hunk. Default notes. */
+	kind?: NotesSourceKind;
 }
 
 /** A notes import did not finish. Earlier graph writes and billed usage are
@@ -1244,9 +1365,9 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 
 	/** The raw source view the notes stages see: the file path + the text
 	 *  VERBATIM. No message ids — provenance is the file itself. */
-	function notesView(input: { filePath: string; text: string; part?: { i: number; n: number } }): string {
+	function notesView(input: { filePath: string; text: string; part?: { i: number; n: number }; kind?: NotesSourceKind }): string {
 		const part = input.part && input.part.n > 1 ? ` (part ${input.part.i}/${input.part.n})` : "";
-		return `SOURCE (the author's personal notes): ${input.filePath}${part}\n\n${input.text}`;
+		return `SOURCE (${SOURCE_LABEL[input.kind ?? "notes"]}): ${input.filePath}${part}\n\n${input.text}`;
 	}
 
 	/** Chunk the notes text under the same budget the chat path uses
@@ -1273,7 +1394,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 
 	async function notesExtract(
 		jobKey: string,
-		input: { id: string; filePath: string; text: string; part?: { i: number; n: number } },
+		input: { id: string; filePath: string; text: string; part?: { i: number; n: number }; kind?: NotesSourceKind },
 	): Promise<NotesFindings> {
 		// jobKey (per-chunk jobs, owner 2026-09-28): the registry key —
 		// "src#i" for chunk jobs — so the abort signal reaches the call.
@@ -1301,6 +1422,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				recordStep(jobKey, "extractor", callUsage(usage), model);
 				console.info(`[extraction] extractor step ${step}: ${finishReason}, tools: ${tools}`);
 			},
+			input.kind ?? "notes",
 		);
 		console.info(`[extraction ${jobKey}] notes extractor done in ${Math.round(performance.now() - t0)}ms`);
 		return findings;
@@ -1309,8 +1431,15 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	// The notes auditor is the SAME identity-linker as the chat one (one
 	// schema now that attribution is gone) — audit() above, verbatim.
 
-	async function runNotesExtraction(input: { id: string; filePath: string; text: string; importedAt: string }): Promise<EmissionStats> {
+	async function runNotesExtraction(input: {
+		id: string;
+		filePath: string;
+		text: string;
+		importedAt: string;
+		kind?: NotesSourceKind;
+	}): Promise<EmissionStats> {
 		const { id } = input;
+		const kind = input.kind ?? "notes";
 		// importNotes owns the source exclusion, including metadata and cleanup.
 		const t0 = performance.now();
 		const mergedStats: EmissionStats = { nodes: 0, chains: 0 };
@@ -1325,6 +1454,16 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			// (same doctrine as chat batches).
 			const chunkTokens = deps.getChunkTokens?.() ?? FACTORY_SETTINGS.graph.extractionChunkTokens;
 			const chunks = chunkNotes(input.text, chunkTokens);
+			// Each chunk is a verbatim run of the text's lines: its offset places
+			// a checked quote in the whole source (a page marker or diff header
+			// may sit in an earlier chunk).
+			const offsets: number[] = [];
+			for (let cursor = 0, k = 0; k < chunks.length; k++) {
+				const at = input.text.indexOf(chunks[k]!, cursor);
+				offsets.push(at < 0 ? cursor : at);
+				cursor = (at < 0 ? cursor : at) + chunks[k]!.length;
+			}
+			const locator = sourceLocator(input.text);
 			console.info(
 				`[extraction ${id}] notes pipeline start (${input.filePath}) — ${chunks.length} chunk(s) of ≤${chunkTokens} tok`,
 			);
@@ -1348,10 +1487,13 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 						value: await runJob({ id, kind: "notes", label: input.filePath, part }, async (jobKey) => {
 							setPhase(jobKey, "queued", "notes", input.filePath, part);
 							chunkSignal = runningExtractions.get(jobKey)?.controller.signal;
-							const findings = await withExtractSlot(jobKey, async () => {
+							const extracted = await withExtractSlot(jobKey, async () => {
 								setPhase(jobKey, "extracting", "notes", input.filePath, part);
 								return notesExtract(jobKey, { ...input, text: chunk, part });
 							});
+							// Checked quotes (M25): unmatched quotes drop here, before
+							// the audit — never an error.
+							const findings = checkFindingsQuotes(extracted, chunk, offsets[chunkIndex] ?? 0, locator, kind);
 							// SERIALIZED AUDIT (owner, 2026-09-28): audit + merge one
 							// at a time, process-wide — the auditor explores the graph
 							// as it stands AFTER every earlier job's merge. Reacquired
@@ -1430,7 +1572,12 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		inFlight.add(id);
 		try {
 			const importedAt = new Date().toISOString();
-			graphStore.upsertSource({ id, filePath: input.filePath, importedAt });
+			graphStore.upsertSource({
+				id,
+				filePath: input.filePath,
+				importedAt,
+				...(input.kind && input.kind !== "notes" ? { kind: input.kind } : {}),
+			});
 			return await runNotesExtraction({ id, ...input, importedAt });
 		} catch (err) {
 			if (err instanceof NotesImportError || err instanceof ModelsNotConfiguredError || err instanceof ProviderKeyMissingError) throw err;

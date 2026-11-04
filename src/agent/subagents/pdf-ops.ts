@@ -75,6 +75,41 @@ function itemsToText(items: unknown[]): string {
 	return out;
 }
 
+/** The marker that opens each page in pdfBytesToText's output. The quote
+ *  locator (core/quote-check.ts) reads it back to place a checked quote. */
+export const pageMarker = (page: number): string => `--- Page ${page} ---`;
+
+/**
+ * A PDF's text for the import door (M25): every page in order, each opened
+ * by a "--- Page N ---" line, items joined with the line breaks pdfjs
+ * reports (hasEOL) so sentences stay findable. Throws pdfjs's own error for
+ * a file that isn't a parseable PDF.
+ */
+export async function pdfBytesToText(data: Uint8Array): Promise<string> {
+	const pdfjs = await loadPdfjs();
+	// pdfjs may detach the buffer it is handed: give it a copy.
+	const task = pdfjs.getDocument({ data: new Uint8Array(data), standardFontDataUrl: standardFontsDir(), verbosity: 0 });
+	try {
+		const doc = await task.promise;
+		const pages: string[] = [];
+		for (let i = 1; i <= doc.numPages; i++) {
+			const page = await doc.getPage(i);
+			const content = await page.getTextContent();
+			let text = "";
+			for (const it of content.items as unknown[]) {
+				if (!it || typeof it !== "object") continue;
+				const { str, hasEOL } = it as { str?: unknown; hasEOL?: unknown };
+				if (typeof str === "string") text += str;
+				if (hasEOL === true) text += "\n";
+			}
+			pages.push(`${pageMarker(i)}\n${text.trim()}`);
+		}
+		return pages.join("\n\n");
+	} finally {
+		await task.destroy();
+	}
+}
+
 /** Math-flavored char fraction — the skill's heuristic, verbatim ranges. */
 function mathDensity(text: string): number {
 	let mathChars = 0;

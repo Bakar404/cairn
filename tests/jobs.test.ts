@@ -73,6 +73,7 @@ import { jobStore } from "../src/store/jobs.ts";
 import { createJobRunner, pdfModelOverride, researchModelOverride } from "../src/agent/subagents/runner.ts";
 import { providerKeyMissing, type ModelSlotName } from "../src/core/settings.ts";
 import type { PiEngine } from "../src/agent/models.ts";
+import type { LearnDocsClient } from "../src/core/learn-docs.ts";
 import type { SearchProvider } from "../src/core/search.ts";
 import { deviceId, PATHS } from "../config.ts";
 import { projectView as projectNative } from "../src/core/view.ts";
@@ -664,6 +665,48 @@ describe("research runner (async protocol §3)", () => {
 		assert.ok((done.result as ResearchResult).sources.some((s) => s.url === url));
 		assert.equal(delivery.steers.length, 1);
 		assert.equal(isSubagentFailure("research", done.result as ResearchResult), false);
+	});
+
+	it("a Microsoft Learn page the researcher read becomes the job's source (M21)", async () => {
+		const url = "https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview";
+		const brief = "## Summary\nAzure Functions runs code on demand.";
+		const chat = chatStore.createChat("Test: Microsoft Learn research");
+		trackChat(chat.id);
+		chatStore.saveMessages(chat.id, nativeToolMessages("what is azure functions?", "research", "call-learn", RESEARCH_INPUT));
+		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-learn" });
+		trackJob(job.id);
+		const fetched: string[] = [];
+		const learn: LearnDocsClient = {
+			search: async () => [],
+			fetch: async (page) => {
+				fetched.push(page);
+				return "# Azure Functions overview\n\nServerless compute.";
+			},
+			codeSamples: async () => [],
+		};
+		const delivery = fakeDeliver();
+		const runner = createJobRunner({
+			chatStore,
+			jobStore,
+			deliver: delivery.deliver,
+			searchProvider: () => null,
+			learnDocs: () => learn,
+		});
+		researchModelOverride.current = fauxEngine([
+			fauxAssistantMessage([fauxToolCall("learn_fetch", { url }, { id: "learn-fetch" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText(brief)]),
+		]);
+		try {
+			await runner.runJob(job.id);
+		} finally {
+			researchModelOverride.current = undefined;
+		}
+		assert.deepEqual(fetched, [url]);
+		const done = jobStore.getJob(job.id)!;
+		assert.equal(done.status, "done");
+		assert.equal((done.result as ResearchResult).brief, brief);
+		assert.deepEqual((done.result as ResearchResult).sources, [{ title: "learn.microsoft.com", url }], "an uncited brief falls back to the pages read");
+		assert.equal(delivery.steers.length, 1);
 	});
 
 	it("a failing runner still steers (the teacher learns the outcome) and the job lands error", async () => {

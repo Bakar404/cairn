@@ -55,6 +55,7 @@ import type { CoverageEntry,
 import type {
 	AuditVerdicts,
 	ExtractedChain,
+	ExtractedProposition,
 	GraphChain,
 	SessionFindings,
 	Cluster,
@@ -67,6 +68,8 @@ import type {
 import { MIN_CLUSTER_SIZE } from "./clusters.ts";
 import { formatChainLine } from "./chains.ts";
 import { attachImpToCommunities, birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
+import type { GraphContextEvidence } from "./native-messages.ts";
+import type { NotesSource } from "./contracts/graph.ts";
 import type { ChatStore, GraphStore } from "./ports.ts";
 
 /** The storage ports every graph operation needs, passed explicitly. */
@@ -116,9 +119,20 @@ export interface MergeSource {
  *  restore (owner, 2026-10-13) a SESSION birth may carry its passage's
  *  message id — the extractor-copied messageId, validated at the submit
  *  seam against the current batch. Chains, notes imports, and
- *  legacy/core callers lacking an anchor keep "" (chat-level). */
-function pointOf(chatId: string, messageId?: string): ProvenancePoint[] {
-	return [{ chatId, messageId: messageId ?? "" }];
+ *  legacy/core callers lacking an anchor keep "" (chat-level). An import's
+ *  checked quote (M25) rides along with its page or hunk. */
+function pointOf(
+	chatId: string,
+	messageId?: string,
+	evidence?: Pick<ExtractedProposition, "quote" | "page" | "hunk">,
+): ProvenancePoint[] {
+	const point: ProvenancePoint = { chatId, messageId: messageId ?? "" };
+	if (evidence?.quote) {
+		point.quote = evidence.quote;
+		if (evidence.page !== undefined) point.page = evidence.page;
+		if (evidence.hunk !== undefined) point.hunk = { ...evidence.hunk };
+	}
+	return [point];
 }
 
 const samePoint = (a: ProvenancePoint, b: ProvenancePoint): boolean =>
@@ -175,7 +189,7 @@ export function mergeFindings(
 		// passage's messageId — it rides BOTH the create and the link-append
 		// line (each re-encounter anchors to ITS passage); absent (notes,
 		// legacy/core callers) → "", chat-level as before.
-		const points = pointOf(chatId, p.messageId);
+		const points = pointOf(chatId, p.messageId, p);
 		const linkTo = linkOf.get(p.id);
 		let graphNodeId: string;
 		if (linkTo !== undefined && existingIds.has(linkTo)) {
@@ -404,11 +418,16 @@ export interface DerivedGraph {
  */
 export function getGraph(graphStore: Pick<GraphStore, "readNodes" | "readChains">): DerivedGraph {
 	// Merge node lines by id (first line defines; later lines add phrasings).
+	// Points are copied, never shared with the store's lines.
 	const byId = new Map<string, GraphNode>();
 	for (const line of graphStore.readNodes()) {
 		const existing = byId.get(line.id);
 		if (!existing) {
-			byId.set(line.id, { ...line, aliases: [...line.aliases], provenance: [...line.provenance] });
+			byId.set(line.id, {
+				...line,
+				aliases: [...line.aliases],
+				provenance: line.provenance.map((pt) => ({ ...pt })),
+			});
 			continue;
 		}
 		// A later line's statement is a phrasing, not a replacement.
@@ -416,7 +435,11 @@ export function getGraph(graphStore: Pick<GraphStore, "readNodes" | "readChains"
 			if (phrasing.length > 0 && !existing.aliases.includes(phrasing)) existing.aliases.push(phrasing);
 		}
 		for (const pt of line.provenance) {
-			if (!existing.provenance.some((q) => samePoint(q, pt))) existing.provenance.push(pt);
+			const same = existing.provenance.find((q) => samePoint(q, pt));
+			if (!same) existing.provenance.push({ ...pt });
+			// A re-import that found a checked quote upgrades the bare point
+			// an earlier import left (same file, same chat-level anchor).
+			else if (same.quote === undefined && pt.quote !== undefined) Object.assign(same, pt);
 		}
 	}
 
@@ -682,6 +705,52 @@ export function graphSessionPropositions(deps: GraphDeps, sessionId: string): Gr
 	return born
 		.map((node) => ({ nodeId: node.id, name: node.name }))
 		.sort((a, b) => (a.nodeId < b.nodeId ? -1 : 1));
+}
+
+// ─── Source evidence for a session's graph context (M22) ────────────────────
+
+/** At most this many picks carry evidence into one session. */
+export const MAX_CONTEXT_EVIDENCE = 12;
+/** Diff hunks past this many characters (headers included) ride as
+ *  quotes only — the context stays a briefing, not a diff dump. */
+export const MAX_CONTEXT_HUNK_CHARS = 12_000;
+
+/**
+ * The checked quotes behind picked propositions, in pick order, one per
+ * pick at most: a quote with its diff hunk first (a code change teaches
+ * best beside its diff), else the first checked quote. A point whose
+ * source record is gone is skipped — nothing could label it. Picks
+ * without a checked quote (chat-born, or imported before M25) carry none.
+ */
+export function graphContextEvidence(
+	nodes: readonly GraphNode[],
+	sources: readonly NotesSource[],
+	ids: readonly string[],
+): GraphContextEvidence[] {
+	const byId = new Map(nodes.map((node) => [node.id, node]));
+	const labels = new Map(sources.map((source) => [source.id, source.filePath]));
+	const out: GraphContextEvidence[] = [];
+	let hunkChars = 0;
+	for (const id of new Set(ids)) {
+		if (out.length >= MAX_CONTEXT_EVIDENCE) break;
+		const quoted = (byId.get(id)?.provenance ?? []).filter(
+			(pt) => pt.quote !== undefined && labels.has(pt.chatId),
+		);
+		const point = quoted.find((pt) => pt.hunk !== undefined) ?? quoted[0];
+		const source = point && labels.get(point.chatId);
+		if (!point?.quote || source === undefined) continue;
+		const evidence: GraphContextEvidence = { id, source, quote: point.quote };
+		if (point.page !== undefined) evidence.page = point.page;
+		if (point.hunk) {
+			const size = point.hunk.header.length + point.hunk.text.length;
+			if (hunkChars + size <= MAX_CONTEXT_HUNK_CHARS) {
+				evidence.hunk = { ...point.hunk };
+				hunkChars += size;
+			}
+		}
+		out.push(evidence);
+	}
+	return out;
 }
 
 // Re-export: the contract owns the shape; legacy importers still reach it.

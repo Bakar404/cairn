@@ -13,6 +13,7 @@ import {
 	parseAgentSettingsBody,
 	parseModelsSettingsBody,
 	parseAppearanceSettingsBody,
+	parseAccessibilitySettingsBody,
 	parseGeneralSettingsBody,
 	parseCompactionSettingsBody,
 	parseGraphSettingsBody,
@@ -231,13 +232,81 @@ describe("parseCompactionSettingsBody (owner round 14)", () => {
 	});
 });
 
+describe("parseAccessibilitySettingsBody (accessibility mode, M27)", () => {
+	it("keeps every valid field; {} is the empty section (all defaults); unknown keys drop", () => {
+		const full = {
+			followSystem: false,
+			contrast: "high",
+			motion: "full",
+			focus: "enhanced",
+			lineHeight: 1.75,
+			paragraphSpacing: 2,
+			letterSpacing: 0.12,
+			wordSpacing: 0.16,
+			readingWidth: 60,
+			expandDescriptions: true,
+			announceToolSteps: false,
+		};
+		const r = parseAccessibilitySettingsBody({ ...full, sparkle: true });
+		assert.ok(r.ok);
+		assert.deepEqual(r.settings, full);
+		const empty = parseAccessibilitySettingsBody({});
+		assert.ok(empty.ok);
+		assert.deepEqual(empty.settings, {});
+	});
+
+	it("stores a value a float's hair off a step on the step", () => {
+		const r = parseAccessibilitySettingsBody({ letterSpacing: 0.1 + 0.2, lineHeight: 1.1 + 0.05 });
+		assert.ok(r.ok);
+		assert.deepEqual(r.settings, { letterSpacing: 0.3, lineHeight: 1.15 });
+	});
+
+	it("rejects off-step, out-of-range and non-finite numbers with the range named", () => {
+		for (const [body, field] of [
+			[{ lineHeight: 1.53 }, "lineHeight must be a number from 1 to 2 in steps of 0.05"],
+			[{ lineHeight: 2.05 }, "lineHeight must be a number from 1 to 2 in steps of 0.05"],
+			[{ readingWidth: 47.5 }, "readingWidth must be a number from 45 to 90 in steps of 5"],
+			[{ readingWidth: 100 }, "readingWidth must be a number from 45 to 90 in steps of 5"],
+			[{ letterSpacing: -0.01 }, "letterSpacing must be a number from 0 to 0.5 in steps of 0.01"],
+			[{ wordSpacing: NaN }, "wordSpacing must be a number from 0 to 1 in steps of 0.01"],
+			[{ paragraphSpacing: Infinity }, "paragraphSpacing must be a number from 0 to 2.5 in steps of 0.05"],
+			[{ paragraphSpacing: null }, "paragraphSpacing must be a number from 0 to 2.5 in steps of 0.05"],
+			[{ lineHeight: "1.5" }, "lineHeight must be a number from 1 to 2 in steps of 0.05"],
+		] as const) {
+			const r = parseAccessibilitySettingsBody(body);
+			assert.equal(r.ok, false, JSON.stringify(body));
+			assert.equal(r.ok === false ? r.error : "", field);
+		}
+	});
+
+	it("rejects unknown choices and non-boolean switches, naming the allowed values", () => {
+		for (const [body, error] of [
+			[{ contrast: "max" }, "contrast must be one of: standard, high"],
+			[{ motion: "none" }, "motion must be one of: system, reduced, full"],
+			[{ focus: "thick" }, "focus must be one of: standard, enhanced"],
+			[{ followSystem: "yes" }, "followSystem must be a boolean"],
+			[{ expandDescriptions: 1 }, "expandDescriptions must be a boolean"],
+			[{ announceToolSteps: null }, "announceToolSteps must be a boolean"],
+		] as const) {
+			const r = parseAccessibilitySettingsBody(body);
+			assert.equal(r.ok, false, JSON.stringify(body));
+			assert.equal(r.ok === false ? r.error : "", error);
+		}
+		for (const junk of ["x", null, [], 3]) {
+			const r = parseAccessibilitySettingsBody(junk);
+			assert.equal(r.ok === false ? r.error : "", "Invalid JSON body", JSON.stringify(junk));
+		}
+	});
+});
+
 describe("SETTINGS_SECTIONS (the route's section map)", () => {
-	it("maps exactly the seven record sections", () => {
+	it("maps exactly the eight record sections", () => {
 		// compaction joined (owner round 14): its own section PUT — the
 		// threshold is engine behavior, not an agent-section key.
+		// accessibility joined with accessibility mode (M27).
 		assert.deepEqual(
 			Object.keys(SETTINGS_SECTIONS),
-			["general", "chat", "agent", "appearance", "graph", "compaction", "models"],
+			["general", "chat", "agent", "appearance", "accessibility", "graph", "compaction", "models"],
 		);
 	});
 });

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 
 /**
  * The ESC-abort guard (owner, 2026-10-02): the global Esc → abort chain
@@ -62,11 +63,18 @@ export function AbortTurnBody({
 }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
 	const copy = COPY[mode];
+	const dialogRef = useRef<HTMLDivElement>(null);
+	const cancelRef = useRef<HTMLButtonElement>(null);
+	// Focus starts on Cancel: the cautious default, like Esc and the scrim.
+	useDialogFocus(dialogRef, true, { initialFocus: cancelRef });
 	return (
 		<div
+			ref={dialogRef}
 			role="dialog"
 			aria-modal="true"
 			aria-label={copy.title}
+			tabIndex={-1}
+			data-focus-container=""
 			data-testid="abort-turn-dialog"
 			className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
 			// A genuine click on the scrim cancels — the cautious default, like Esc.
@@ -85,6 +93,7 @@ export function AbortTurnBody({
 				</p>
 				<div className="mt-4 flex justify-end gap-2">
 					<button
+						ref={cancelRef}
 						type="button"
 						data-testid="abort-turn-cancel"
 						onClick={onClose}

@@ -3,7 +3,8 @@ import { GRAPH_FILES, LEDGER_FILES } from "../../config.ts";
 import type { GraphSnapshot } from "../core/contracts.ts";
 import type { GraphCostSummary } from "../core/cost-summary.ts";
 import { graphCostSummary } from "../core/cost-summary.ts";
-import { graphSnapshot } from "../core/graph.ts";
+import { getGraph, graphContextEvidence, graphSnapshot } from "../core/graph.ts";
+import type { GraphContextEvidence } from "../core/native-messages.ts";
 import { birthSessionPartition } from "../core/session-clusters.ts";
 import {
 	deleteNodeTraces,
@@ -21,6 +22,13 @@ import { callCost } from "./pricing.ts";
  */
 export function graphView(): GraphSnapshot {
 	return graphSnapshot(stores);
+}
+
+/** The checked quotes (and diff hunks) behind a session's picked
+ *  propositions — the graph-context marker's evidence (M22). */
+export function graphEvidenceFor(ids: readonly string[]): GraphContextEvidence[] {
+	if (ids.length === 0) return [];
+	return graphContextEvidence(getGraph(stores.graphStore).nodes, stores.graphStore.readSources(), ids);
 }
 
 /** The graph view's cost surface (GET /api/graph/costs — the 2026-09 cost

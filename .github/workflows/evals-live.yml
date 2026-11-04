@@ -1,0 +1,66 @@
+name: Live evals
+
+# Plays the synthetic learners against a real tutor model over GitHub Copilot
+# and grades the sessions (npm run evals -- --live). It spends Copilot
+# requests, so it needs a COPILOT_GITHUB_TOKEN secret with Copilot access and
+# skips when there is none. The CI quality job only grades the recorded
+# transcripts in evals/transcripts.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Tutor model id (one or more, comma-separated)
+        required: false
+        default: claude-haiku-4.5
+  schedule:
+    - cron: "41 6 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - "src/agent/prompts/**"
+      - "src/agent/system-prompt.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-live
+  cancel-in-progress: false
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  live:
+    name: Tutor evals (live)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HAS_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN != '' }}
+    steps:
+      - name: No COPILOT_GITHUB_TOKEN secret
+        if: env.HAS_TOKEN != 'true'
+        run: echo "::notice::Add a COPILOT_GITHUB_TOKEN repository secret to run the live evals."
+      - uses: actions/checkout@v7
+        if: env.HAS_TOKEN == 'true'
+      - uses: actions/setup-node@v7
+        if: env.HAS_TOKEN == 'true'
+        with:
+          node-version: "26"
+          cache: npm
+      - run: npm ci
+        if: env.HAS_TOKEN == 'true'
+      - name: Play and grade
+        if: env.HAS_TOKEN == 'true'
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          EVAL_MODEL: ${{ inputs.model || 'claude-haiku-4.5' }}
+        run: npm run evals -- --live --model "$EVAL_MODEL" --out evals-out
+      - uses: actions/upload-artifact@v7
+        if: always() && env.HAS_TOKEN == 'true'
+        with:
+          name: eval-sessions
+          path: evals-out/
+          if-no-files-found: ignore
+          retention-days: 14

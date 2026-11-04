@@ -237,6 +237,12 @@ export interface VisualResult {
 	 *  when the maker drew the figure with Manim instead of SVG. */
 	png?: MediaRef;
 	notes?: string;
+	/** The text alternative (M27), written by the maker for the figure it
+	 *  delivered: one sentence for the image's alt, and the figure in words
+	 *  for the card's Describe disclosure. Absent when the maker didn't
+	 *  describe the final figure; the alt then falls back to "Figure". */
+	alt?: string;
+	description?: string;
 }
 
 /** A rendered file in a chat's media folder (data/media/<chatId>/), served
@@ -244,7 +250,7 @@ export interface VisualResult {
 export interface MediaRef {
 	/** Bare file name inside the chat's media folder (no path parts). */
 	file: string;
-	mime: "video/mp4" | "image/png";
+	mime: "video/mp4" | "image/png" | "text/vtt";
 	width?: number;
 	height?: number;
 	bytes?: number;
@@ -268,6 +274,21 @@ export interface AnimationResult {
 	poster?: MediaRef;
 	durationSec?: number;
 	notes?: string;
+	/** The text alternative (M27), written by the maker for the scene it
+	 *  delivered: a one-sentence alt, what happens overall, and one line
+	 *  per beat (the card's Transcript). Absent when it wasn't described. */
+	alt?: string;
+	description?: string;
+	beats?: AnimationBeat[];
+	/** The beats as a WebVTT descriptions track, for the player. */
+	descriptions?: MediaRef;
+}
+
+/** One beat of an animation's text alternative: what is on screen once
+ *  the beat settles, `atSec` seconds in. */
+export interface AnimationBeat {
+	atSec: number;
+	text: string;
 }
 
 /** The Work IQ lookup (M10): the prober asks once, at the start of a probe,

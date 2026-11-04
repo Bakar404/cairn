@@ -83,7 +83,8 @@ describe("desktop window chrome", () => {
 		runInNewContext(readFileSync(new URL("../electron/preload.cjs", import.meta.url), "utf8"), context);
 		assert.equal(bridge.platform, "win32");
 		assert.deepEqual(Object.keys(bridge).sort(), [
-			"checkForUpdates", "expandWindow", "getUpdateState", "getZoom", "installUpdate", "onOpenSettings", "onUpdateStatus", "onZoom", "platform", "setTheme",
+			"checkForUpdates", "expandWindow", "getSystemAccessibility", "getUpdateState", "getZoom", "installUpdate", "onOpenSettings",
+			"onSystemAccessibility", "onUpdateStatus", "onZoom", "platform", "setTheme", "setZoom",
 		]);
 	});
 });
@@ -119,6 +120,41 @@ describe("update preload bridge", () => {
 		offNext();
 		await bridge.getUpdateState(); await bridge.checkForUpdates();
 		assert.deepEqual(invoked, ["lh:update:get", "lh:update:check"]);
+	});
+});
+
+describe("accessibility preload bridge (M27)", () => {
+	it("pulls and follows the OS flags on matching channels, unsubscribes, and sends zoom requests", async () => {
+		let bridge!: {
+			getSystemAccessibility: () => Promise<unknown>;
+			onSystemAccessibility: (cb: (flags: unknown) => void) => () => void;
+			setZoom: (factor: number) => void;
+		};
+		const listeners = new Map<string, Set<(event: unknown, value: unknown) => void>>();
+		const calls: [string, string, unknown?][] = [];
+		runInNewContext(readFileSync(new URL("../electron/preload.cjs", import.meta.url), "utf8"), {
+			process: { platform: "win32" },
+			require: () => ({
+				contextBridge: { exposeInMainWorld: (_: string, value: typeof bridge) => { bridge = value; } },
+				ipcRenderer: {
+					on: (channel: string, listener: (event: unknown, value: unknown) => void) => {
+						if (!listeners.has(channel)) listeners.set(channel, new Set());
+						listeners.get(channel)!.add(listener);
+					},
+					removeListener: (channel: string, listener: (event: unknown, value: unknown) => void) => listeners.get(channel)?.delete(listener),
+					invoke: async (channel: string) => { calls.push(["invoke", channel]); },
+					send: (channel: string, value: unknown) => { calls.push(["send", channel, value]); },
+				},
+			}),
+		});
+		const push = (flags: unknown) => { for (const listener of listeners.get("lh:a11y") ?? []) listener({}, flags); };
+		const seen: unknown[] = [];
+		const off = bridge.onSystemAccessibility((flags) => seen.push(flags));
+		push({ forcedColors: true });
+		off(); push({ forcedColors: false });
+		assert.deepEqual(seen, [{ forcedColors: true }]);
+		await bridge.getSystemAccessibility(); bridge.setZoom(1.25);
+		assert.deepEqual(calls, [["invoke", "lh:a11y:get"], ["send", "lh:zoom:set", 1.25]]);
 	});
 });
 

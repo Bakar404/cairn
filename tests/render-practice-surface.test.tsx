@@ -255,6 +255,24 @@ describe("GraphContextCard", () => {
 		assert.ok(!html.includes("chain"));
 	});
 
+	it("source evidence (M22): counted in the summary, the quote and hunk stay collapsed", () => {
+		const html = renderToStaticMarkup(
+			<GraphContextCard data={{
+				propositions: [{ id: "n1", name: "A", statement: "S." }],
+				chains: [],
+				evidence: [{
+					id: "n1",
+					source: "repo@abc1234",
+					quote: "retry the request with backoff",
+					hunk: { file: "src/net.ts", header: "@@ -1,2 +1,3 @@", text: "+retry()" },
+				}],
+			}} />,
+		);
+		assert.ok(html.includes("1 source quote"));
+		assert.ok(!html.includes("retry the request"));
+		assert.ok(!html.includes("source-evidence"));
+	});
+
 	it("the marker projects to the card's part (projectView fold)", () => {
 		const view = projectView([newGraphContextMessage(
 			[{ id: "n1", name: "A", statement: "S." }], [],

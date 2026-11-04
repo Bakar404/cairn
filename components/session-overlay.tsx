@@ -8,6 +8,8 @@ import { renderMermaid } from "@/components/mermaid-render";
 import { usePaletteKey } from "@/components/color-scheme";
 import { MermaidError } from "@/components/mermaid-error";
 import { Hint } from "@/components/ui/hint";
+import { useDialogFocus } from "@/components/use-dialog-focus";
+import { useMotionReduced } from "@/components/reduced-motion";
 import { SvgImage } from "@/components/artifacts/svg-image";
 import { paperStyle, ThemedSvgImage, useFigureVariants } from "@/components/artifacts/figure-image";
 
@@ -136,6 +138,9 @@ export function MermaidOverlay({
 		return () => document.removeEventListener("keydown", onKey);
 	}, [onClose]);
 
+	const dialogRef = useRef<HTMLDivElement>(null);
+	useDialogFocus(dialogRef, true, { initialFocus: "container" });
+
 	// ── pan/zoom viewport (same wiring as the plan popup) ──
 	const viewportRef = useRef<HTMLDivElement>(null);
 	const [size, setSize] = useState({ w: 0, h: 0 });
@@ -155,6 +160,7 @@ export function MermaidOverlay({
 	const atFloor = view.zoom <= fitZoom + 1e-9;
 	const [settled, setSettled] = useState(false);
 	const [panning, setPanning] = useState(false);
+	const reduced = useMotionReduced();
 
 	useEffect(() => {
 		if (atFloor) userAdjustedRef.current = false;
@@ -228,9 +234,12 @@ export function MermaidOverlay({
 			// sidebar. 80% + blur: the transcript ghosts through (owner
 			// decision, 2026-09-19).
 			className="absolute inset-0 z-40 flex flex-col bg-background/80 p-4 backdrop-blur-sm"
+			ref={dialogRef}
 			role="dialog"
 			aria-modal="true"
 			aria-label="Diagram focus"
+			tabIndex={-1}
+			data-focus-container=""
 		>
 			<div className="mb-2 flex items-center gap-2">
 				<span className="text-sm font-medium">Diagram</span>
@@ -274,9 +283,10 @@ export function MermaidOverlay({
 							// at the initial top-left zoom:1 state for a frame (the
 							// owner saw exactly that; transition-gating alone doesn't
 							// hide it — VISIBILITY must be gated on settled too).
+							// Reduced motion zooms and appears without easing.
 								opacity: settled ? 1 : 0,
 								transition:
-									panning || !settled
+									panning || !settled || reduced
 										? "none"
 										: "transform 180ms ease-out, opacity 160ms ease-out",
 							}}
@@ -340,7 +350,7 @@ export function MermaidOverlay({
 					</>
 				) : (
 					<div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-						<span className="inline-block size-4 animate-spin rounded-full border border-current border-b-2" />
+						<span className="inline-block size-4 motion-safe:animate-spin rounded-full border border-current border-b-2" />
 						Rendering diagram…
 					</div>
 				)}

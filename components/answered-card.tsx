@@ -107,9 +107,24 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 					{answer.options?.map((opt) => {
 						const sel = selectedIdx.has(opt.index);
 						const key = isQuiz && correctIdx.has(opt.index);
+						// The row's verdict in words: the tints and ✓/✗ marks below
+						// are color + aria-hidden glyphs, so a screen reader (and a
+						// forced-colors reader, where the tints flatten) needs it said.
+						const verdict = isQuiz
+							? sel
+								? key
+									? "Your answer, correct"
+									: "Your answer, incorrect"
+								: key
+									? "Correct answer"
+									: undefined
+							: sel
+								? "Your answer"
+								: undefined;
 						return (
 							<div
 								key={opt.index}
+								data-selected={sel ? "" : undefined}
 								className={cn(
 									"flex items-center gap-2 rounded-lg border px-3 py-1.5",
 									sel && key && "border-success/60 bg-success/10",
@@ -137,6 +152,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 									</span>
 								)}
 								<span className={cn(!sel && "text-muted-foreground")}>
+									{verdict && <span className="sr-only">{`${verdict}: `}</span>}
 									<ToolContentResponse>{opt.label}</ToolContentResponse>
 									{descByIndex.get(opt.index) && (
 										// Ask-option subtext (owner, 2026-10-12): same markdown path
@@ -156,9 +172,12 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 					{answer.other && (
 						<div
 							data-testid="answered-other"
+							data-selected=""
 							className="flex items-center gap-2 rounded-lg border border-primary bg-accent px-3 py-1.5"
 						>
-							<span>“{answer.other}”</span>
+							<span>
+								<span className="sr-only">Your answer: </span>“{answer.other}”
+							</span>
 						</div>
 					)}
 				</div>

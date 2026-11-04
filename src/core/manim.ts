@@ -1,4 +1,4 @@
-import type { MediaRef } from "./contracts.ts";
+import type { AnimationBeat, MediaRef } from "./contracts.ts";
 
 /**
  * The Manim renderer PORT (M13). Manim Community Edition runs inside a
@@ -82,13 +82,72 @@ export interface ManimRenderer {
 	/** Render one scene. Scene errors and timeouts resolve with ok: false;
 	 *  it throws only when abortSignal fires. */
 	render(req: ManimRenderRequest): Promise<ManimRenderResult>;
+	/** Save an animation's descriptions track (WebVTT, from
+	 *  descriptionsVtt) as `<jobId>.vtt` in the chat's media. Throws on a
+	 *  bad id or a failed write. */
+	saveDescriptions(chatId: string, jobId: string, vtt: string): MediaRef;
 }
 
 /** The media names a job may write: `<jobId>.mp4`, `<jobId>-poster.png`,
- *  `<jobId>.png`. The media route serves nothing else. */
-export const MEDIA_FILE_RE = /^[A-Za-z0-9_-]{1,120}\.(?:png|mp4)$/;
+ *  `<jobId>.png`, `<jobId>.vtt`. The media route serves nothing else. */
+export const MEDIA_FILE_RE = /^[A-Za-z0-9_-]{1,120}\.(?:png|mp4|vtt)$/;
 
 /** Where the browser fetches a chat's media file. */
 export function mediaUrl(chatId: string, file: string): string {
 	return `/api/chats/${encodeURIComponent(chatId)}/media/${encodeURIComponent(file)}`;
+}
+
+// ─── Animation descriptions (M27) ──────────────────────────────────────────
+
+/** An animation's beats made safe to show: text with its whitespace
+ *  collapsed (empty ones dropped), times rounded to the millisecond and
+ *  clamped to [0, durationSec], in time order (ties keep their order). */
+export function cleanBeats(beats: readonly AnimationBeat[], durationSec?: number): AnimationBeat[] {
+	const end = typeof durationSec === "number" && Number.isFinite(durationSec) && durationSec > 0 ? durationSec : Infinity;
+	const out: AnimationBeat[] = [];
+	for (const beat of beats) {
+		if (!beat || typeof beat.atSec !== "number" || !Number.isFinite(beat.atSec) || typeof beat.text !== "string") continue;
+		const text = beat.text.replace(/\s+/g, " ").trim();
+		if (!text) continue;
+		out.push({ atSec: Math.round(Math.min(Math.max(beat.atSec, 0), end) * 1000) / 1000, text });
+	}
+	return out.sort((a, b) => a.atSec - b.atSec);
+}
+
+function vttTime(sec: number): string {
+	const ms = Math.round(sec * 1000);
+	const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+	return `${pad(Math.floor(ms / 3_600_000))}:${pad(Math.floor(ms / 60_000) % 60)}:${pad(Math.floor(ms / 1000) % 60)}.${pad(ms % 1000, 3)}`;
+}
+
+function vttText(text: string): string {
+	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** The beats as a WebVTT descriptions track, or null when there is
+ *  nothing to write (no beats, or no positive duration). Cue i runs from
+ *  beat i to beat i+1 and the last to the end. Beats at the same moment
+ *  share a cue; a beat at the very end joins the cue before it (or, alone,
+ *  gets the last second). Pure. */
+export function descriptionsVtt(beats: readonly AnimationBeat[], durationSec: number): string | null {
+	if (!Number.isFinite(durationSec) || durationSec <= 0) return null;
+	const end = Math.round(durationSec * 1000) / 1000;
+	const cues: Array<{ start: number; texts: string[] }> = [];
+	for (const beat of cleanBeats(beats, end)) {
+		const last = cues[cues.length - 1];
+		if (last && (beat.atSec === last.start || beat.atSec >= end)) last.texts.push(beat.text);
+		else cues.push({ start: beat.atSec >= end ? Math.max(0, end - 1) : beat.atSec, texts: [beat.text] });
+	}
+	if (cues.length === 0) return null;
+	const blocks = cues.map((cue, i) => {
+		const stop = cues[i + 1]?.start ?? end;
+		return `${vttTime(cue.start)} --> ${vttTime(stop)}\n${vttText(cue.texts.join(" "))}`;
+	});
+	return `WEBVTT\n\n${blocks.join("\n\n")}\n`;
+}
+
+/** A beat's time as the transcript shows it: m:ss, to the nearest second. */
+export function beatTime(atSec: number): string {
+	const total = Math.max(0, Math.round(atSec));
+	return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }

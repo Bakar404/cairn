@@ -77,6 +77,19 @@ describe("sanitizeUserSettings", () => {
 				sessionNameSerif: false,
 				mdRendering: { headingWeight: 700, boldColor: "#ff8800", italicColor: null },
 			},
+			accessibility: {
+				followSystem: false,
+				contrast: "high",
+				motion: "reduced",
+				focus: "enhanced",
+				lineHeight: 1.8,
+				paragraphSpacing: 1.5,
+				letterSpacing: 0.12,
+				wordSpacing: 0.16,
+				readingWidth: 70,
+				expandDescriptions: true,
+				announceToolSteps: true,
+			},
 			graph: { enabled: false },
 		};
 		assert.deepEqual(sanitizeUserSettings(record), record);
@@ -101,12 +114,24 @@ describe("sanitizeUserSettings", () => {
 			general: { autoUpdate: "yes" },
 			agent: { tools: { research: "no" }, prompts: { "system-prompt.md": 1 }, models: { researcher: "fast" } },
 			appearance: { mode: "sepia", sessionNameSerif: "true" },
+			accessibility: {
+				followSystem: "yes",
+				contrast: "max",
+				motion: 1,
+				focus: "thick",
+				lineHeight: "1.5",
+				readingWidth: NaN,
+				letterSpacing: Infinity,
+				expandDescriptions: 0,
+				announceToolSteps: null,
+			},
 			graph: { enabled: 0 },
 		});
 		assert.ok(out);
 		assert.deepEqual(out.general, {});
 		assert.deepEqual(out.agent, {});
 		assert.deepEqual(out.appearance, {});
+		assert.deepEqual(out.accessibility, {});
 		assert.deepEqual(out.graph, {});
 
 		// extractionChunkTokens (extraction-UX redesign, 2026-09-24):
@@ -136,6 +161,19 @@ describe("sanitizeUserSettings", () => {
 		assert.ok(low);
 		assert.equal(low.appearance?.proseFontSize, 12);
 		assert.equal(low.appearance?.mdRendering?.headingWeight, 100);
+	});
+
+	it("accessibility numbers clamp into range and land on a step", () => {
+		const out = sanitizeUserSettings({
+			accessibility: { lineHeight: 9, readingWidth: 10, letterSpacing: -1, paragraphSpacing: 1.53, wordSpacing: 0.1 + 0.2 },
+		});
+		assert.deepEqual(out?.accessibility, {
+			lineHeight: 2,
+			readingWidth: 45,
+			letterSpacing: 0,
+			paragraphSpacing: 1.55,
+			wordSpacing: 0.3,
+		});
 	});
 
 	it("invalid colors become null (the factory default), valid ones pass", () => {

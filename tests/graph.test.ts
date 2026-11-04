@@ -603,6 +603,27 @@ describe("the merger (mergeFindings)", () => {
 		// The checkpoint stamps the import time.
 		assert.equal(graphStore.readCheckpoints().find((c) => c.chatId === "src_notesfixture")?.foldedAt, "2026-09-13T00:00:00.000Z");
 	});
+
+	it("stamps a checked quote on the point, and a re-import's quote upgrades the bare point (M25)", () => {
+		const prop = { id: "p1", name: "Quote upgrade", statement: "Quote upgrade fixture statement.", aliases: [] as string[] };
+		mergeFindings("src_quotefixture", { propositions: [prop], chains: [] }, { links: [] }, graphDeps, {
+			foldedAt: "2026-11-02T00:00:00.000Z",
+		});
+		const created = getGraph(graphStore).nodes.find((n) => n.statement === prop.statement)!;
+		assert.deepEqual(created.provenance, [{ chatId: "src_quotefixture", messageId: "" }]);
+
+		mergeFindings(
+			"src_quotefixture",
+			{ propositions: [{ ...prop, quote: "the source's own words", page: 4 }], chains: [] },
+			{ links: [{ id: "p1", linkTo: created.id }] },
+			graphDeps,
+			{ foldedAt: "2026-11-02T00:01:00.000Z" },
+		);
+		const upgraded = getGraph(graphStore).nodes.find((n) => n.id === created.id)!;
+		assert.deepEqual(upgraded.provenance, [
+			{ chatId: "src_quotefixture", messageId: "", quote: "the source's own words", page: 4 },
+		]);
+	});
 });
 
 
@@ -631,6 +652,27 @@ describe("graph ledger store", () => {
 		assert.equal(nodes[0]!.name, "Store test");
 		assert.equal(nodes[0]!.statement, "Store test, elaborated.");
 		assert.deepEqual(nodes[0]!.provenance, [{ chatId: "chat_c", messageId: "m1" }]);
+	});
+
+	it("keeps a point's checked quote, page, and hunk, and skips a line whose evidence is malformed (M25)", () => {
+		const base = { name: "Quote test", statement: "Quote test.", aliases: [], createdAt: "2026-11-02T00:00:00.000Z" };
+		const good = {
+			chatId: "src_q",
+			messageId: "",
+			quote: "a checked quote",
+			page: 3,
+			hunk: { file: "a.ts", header: "@@ -1 +1 @@", text: "+x" },
+		};
+		const lines = [
+			{ ...base, id: "n_quote_ok", provenance: [good] },
+			{ ...base, id: "n_quote_badpage", provenance: [{ ...good, page: 0 }] },
+			{ ...base, id: "n_quote_badhunk", provenance: [{ ...good, hunk: { file: "a.ts" } }] },
+			{ ...base, id: "n_quote_badquote", provenance: [{ ...good, quote: 42 }] },
+		];
+		fs.appendFileSync(LEDGER_FILES.nodes, `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`, "utf-8");
+		const read = graphStore.readNodes().filter((n) => n.id.startsWith("n_quote_"));
+		assert.deepEqual(read.map((n) => n.id), ["n_quote_ok"]);
+		assert.deepEqual(read[0]!.provenance, [good]);
 	});
 
 

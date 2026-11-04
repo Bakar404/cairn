@@ -32,6 +32,7 @@ import {
 	type ColorScheme,
 } from "@/src/core";
 import { currentScheme, useColorScheme, useSystemPrefersDark } from "@/components/color-scheme";
+import { motionReduced } from "@/components/reduced-motion";
 import { notifySettingsSaved } from "@/components/settings-signal";
 
 /** The resolved, fully-concrete appearance view (delta + factory merged). */
@@ -169,8 +170,7 @@ function applyScheme(target: ColorScheme, animate: boolean) {
 		syncSchemeChrome(target);
 	};
 	const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
-	const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-	if (animate && !reduce && typeof doc.startViewTransition === "function") doc.startViewTransition(flip);
+	if (animate && !motionReduced() && typeof doc.startViewTransition === "function") doc.startViewTransition(flip);
 	else flip();
 }
 

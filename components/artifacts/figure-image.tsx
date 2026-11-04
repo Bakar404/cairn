@@ -37,16 +37,18 @@ export function ThemedSvgImage({
 	variants,
 	className = "",
 	width,
+	alt,
 }: {
 	variants: FigureVariants;
 	className?: string;
 	width?: number;
+	alt?: string;
 }) {
 	const base = className.replace(/(^|\s)block(?=\s|$)/g, " ").trim();
 	return (
 		<>
-			<SvgImage svg={variants.light} width={width} className={`${base} block dark:hidden`.trim()} />
-			<SvgImage svg={variants.dark} width={width} className={`${base} hidden dark:block`.trim()} />
+			<SvgImage svg={variants.light} width={width} alt={alt} className={`${base} block dark:hidden`.trim()} />
+			<SvgImage svg={variants.dark} width={width} alt={alt} className={`${base} hidden dark:block`.trim()} />
 		</>
 	);
 }

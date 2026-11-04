@@ -7,6 +7,8 @@ import {
 	IS_MAC,
 	kbdEventForAction,
 	KEYBOARD_ACTIONS,
+	loadOverrides,
+	reservedBindingReason,
 } from "../src/core/keyboard.ts";
 import { kbdEventForAction as kbdEventForActionFromUi } from "../components/keyboard-shortcuts.tsx";
 
@@ -51,10 +53,48 @@ describe("the ⌘B chain — keypress → binding → action → event", () => {
 	});
 });
 
-describe("the thinking pill suffix — ⇧⇥ via the registry", () => {
-	it("shift+tab uses the platform's modifier label and maps to cycle-thinking", () => {
-		assert.equal(actionForBinding("shift+tab"), "cycle-thinking");
-		assert.equal(formatBinding("shift+tab"), IS_MAC ? "⇧⇥" : "Shift+⇥");
+describe("the thinking cycle — ⌘⇧K via the registry (M27)", () => {
+	it("mod+shift+k uses the platform's modifier labels and maps to cycle-thinking", () => {
+		assert.equal(actionForBinding("mod+shift+k"), "cycle-thinking");
+		assert.equal(bindingForAction("cycle-thinking"), "mod+shift+k");
+		assert.equal(formatBinding("mod+shift+k"), IS_MAC ? "⌘⇧K" : "Ctrl+Shift+K");
+	});
+
+	it("Tab and Shift+Tab fire no action — they move focus", () => {
+		assert.equal(actionForBinding("tab") ?? null, null);
+		assert.equal(actionForBinding("shift+tab") ?? null, null);
+	});
+});
+
+describe("reserved keys (M27) — Tab moves focus, F6 walks the text fields", () => {
+	it("Tab, Shift+Tab, F6 and Shift+F6 are refused with a reason", () => {
+		assert.equal(reservedBindingReason("tab"), "Tab moves focus, so it can't be a shortcut.");
+		assert.equal(reservedBindingReason("shift+tab"), "Tab moves focus, so it can't be a shortcut.");
+		assert.equal(reservedBindingReason("f6"), "F6 moves between text fields, so it can't be a shortcut.");
+		assert.equal(reservedBindingReason("shift+f6"), "F6 moves between text fields, so it can't be a shortcut.");
+	});
+
+	it("an ordinary chord is not reserved", () => {
+		assert.equal(reservedBindingReason("mod+k"), undefined);
+		assert.equal(reservedBindingReason("mod+tab"), undefined);
+	});
+
+	it("a saved override on a reserved key is dropped; the rest load", () => {
+		const g = globalThis as { window?: unknown };
+		const had = "window" in g;
+		const prev = g.window;
+		g.window = {
+			localStorage: { getItem: () => JSON.stringify({ "toggle-sidebar": "tab", "cycle-thinking": "shift+f6", find: "mod+j" }) },
+		};
+		try {
+			assert.deepEqual(loadOverrides(), { find: "mod+j" });
+			assert.equal(actionForBinding("tab") ?? null, null);
+			assert.equal(actionForBinding("mod+b"), "toggle-sidebar", "the dropped override falls back to the default");
+			assert.equal(actionForBinding("mod+j"), "find");
+		} finally {
+			if (had) g.window = prev;
+			else delete g.window;
+		}
 	});
 });
 

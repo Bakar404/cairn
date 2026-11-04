@@ -16,6 +16,8 @@ import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/comp
 import type { PlanBlockData, PlanNodeStatus, PlanTree } from "@/src/core";
 import { derivedNodeStatus, derivePlanStatuses } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
+import { useDialogFocus } from "@/components/use-dialog-focus";
+import { useMotionReduced } from "@/components/reduced-motion";
 
 /**
  * PLAN BLOCKS — the plan lives in the chat (wave 4): persisted
@@ -776,6 +778,9 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 		return () => document.removeEventListener("keydown", onKey);
 	}, [onClose]);
 
+	const dialogRef = useRef<HTMLDivElement>(null);
+	useDialogFocus(dialogRef, true, { initialFocus: "container" });
+
 	// ── pan/zoom viewport (harvested semantics: fit floor = the default) ──
 	const viewportRef = useRef<HTMLDivElement>(null);
 	const [size, setSize] = useState({ w: 0, h: 0 });
@@ -840,6 +845,7 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 	// current computed value, so chained wheel ticks stay fluid). Panning is
 	// per-frame — the transition is off while dragging or it rubber-bands.
 	const [panning, setPanning] = useState(false);
+	const reduced = useMotionReduced();
 	const dragRef = useRef<{ px: number; py: number; x: number; y: number; moved: boolean } | null>(null);
 	const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
 		if (e.button !== 0) return;
@@ -886,9 +892,12 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 			// INSIDE the session-area div — below the drag bar, right of the
 			// sidebar. 80% + blur: the transcript ghosts through.
 			className="absolute inset-0 z-40 flex flex-col bg-background/80 p-4 backdrop-blur-sm"
+			ref={dialogRef}
 			role="dialog"
 			aria-modal="true"
 			aria-label="The full plan"
+			tabIndex={-1}
+			data-focus-container=""
 			onClick={(e) => {
 				if (e.target === e.currentTarget) onClose();
 			}}
@@ -929,10 +938,11 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 								// effect (after paint), so an opacity-gated chart can never flash
 								// at the initial top-left zoom:1 state (same fix as the mermaid
 								// overlay; transition-gating alone didn't hide the fly-in the
-								// owner kept seeing in rounds 4–7).
+								// owner kept seeing in rounds 4–7). Reduced motion zooms and
+								// appears without easing.
 								opacity: settled ? 1 : 0,
 								transition:
-									panning || !settled
+									panning || !settled || reduced
 										? "none"
 										: "transform 180ms ease-out, opacity 160ms ease-out",
 							}}

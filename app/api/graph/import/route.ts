@@ -2,7 +2,8 @@
  * POST /api/graph/import — the format-agnostic front door's transport
  * (vision §1, 2026-09-13): raw personal-notes files in, one extraction run
  * per file through the SAME pipeline the sessions use. Multipart form data
- * (field "files", any text format — the extractor is format-agnostic); the
+ * (field "files", any text format — the extractor is format-agnostic; a PDF
+ * is converted to page-marked text first, M25); the
  * pipeline mints a deterministic source id per file path, persists the
  * source record (the file's provenance + the run's usage), and runs
  * extractor → auditor → merger over the raw text.
@@ -13,7 +14,7 @@
  * healthy. The dock's chips + graph refetch track progress live through
  * /api/graph/status, as with session runs.
  */
-import { extraction, NotesImportError } from "@/src/server";
+import { extraction, NotesImportError, pdfBytesToText } from "@/src/server";
 import {
 	ModelsNotConfiguredError,
 	PROVIDER_KEY_MISSING_CODE,
@@ -55,8 +56,11 @@ export async function POST(request: Request) {
 			if (!next) return;
 			const { file, requestIndex } = next;
 			try {
-				const text = await file.text();
-				const stats = await extraction.importNotes({ filePath: file.name, text });
+				// PDFs (M25) arrive as their page-marked text, so checked quotes
+				// carry a page; everything else stays raw text.
+				const isPdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
+				const text = isPdf ? await pdfBytesToText(new Uint8Array(await file.arrayBuffer())) : await file.text();
+				const stats = await extraction.importNotes({ filePath: file.name, text, ...(isPdf ? { kind: "pdf" as const } : {}) });
 				results.push({ filePath: file.name, requestIndex, outcome: "completed", ok: true, stats });
 			} catch (err) {
 				if (err instanceof ModelsNotConfiguredError) {

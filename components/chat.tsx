@@ -23,15 +23,19 @@ import { AnsweredCard } from "@/components/answered-card";
 import { artifactRenderers } from "@/components/artifacts";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
 import { Composer } from "@/components/composer";
-import { useEnterSubmits } from "@/components/enter-submits";
+import { keepsNativeEnter, useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
+import { motionReduced } from "@/components/reduced-motion";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { useFieldCycle } from "@/components/field-cycle";
 import { HeldResultsContext, JobsContext, heldResultJobIds } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
+import { AssessmentsContext } from "@/components/assessments-context";
 import {
+	assessmentsByConclude,
+	type PracticeAssessment,
 	isProviderKeyRefusal,
 	firstSourceTextParts,
 	messageAnchorId,
@@ -54,9 +58,11 @@ import { SessionMessageNavigation } from "@/components/session-navigation";
 import { PracticeDock } from "@/components/practice-dock";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
+import { GoalContextCard } from "@/components/goal-context-card";
 import { TopBar } from "@/components/top-bar";
 import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
+import type { LearningGoal } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
 import {
 	CompactionCutDivider,
@@ -70,11 +76,13 @@ import {
 	findPendingToolCall,
 	phaseAt3,
 	phaseTimeline,
+	streamingToolStep,
 	teachStepIndex,
 	toolQuestionKind,
 	questionNeedsReveal,
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
+import { ReplyAnnouncer } from "@/components/reply-announcer";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
 import { slotsConfigured, type ModelsSettings } from "@/src/core";
 import { useSettingsSaved } from "@/components/settings-signal";
@@ -635,12 +643,12 @@ export function Chat({
 		// (setMessages/clearError are stable per useChat instance — the
 		//  dep pair [error, chatId] is what the flow actually keys on.)
 	}, [error, chatId]);
-	// TAB CYCLES THE CHAT'S FIELDS (owner, keyboard round 2026-10-06):
-	// reading-thinking → the active dock's field → the composer, in
-	// visual order, forward-only with wrap; Tab from anywhere else
-	// focuses the first live field (navigate IN). Gathered from live
-	// DOM at event time — the docks mount and unmount, refs would go
-	// stale. The quiz dock's rows↔thinking claim never reaches here.
+	// F6 / SHIFT+F6 WALK THE CHAT'S FIELDS (the owner's 2026-10-06 Tab
+	// cycle, on F6 since M27): reading-thinking → the active dock's field
+	// → the composer, in visual order, wrapping both ways; F6 from anywhere
+	// else focuses the first live field (navigate IN), Shift+F6 the last.
+	// Gathered from live DOM at event time — the docks mount and unmount,
+	// refs would go stale.
 	const cycleChatFields = useCallback((): readonly HTMLElement[] => {
 		const pick = (sel: string) => Array.from(document.querySelectorAll<HTMLElement>(sel));
 		return [
@@ -706,9 +714,16 @@ export function Chat({
 	const syncFromServer = useCallback(async () => {
 		const res = await fetch(`/api/chats/${chatId}`);
 		if (!res.ok) return;
-		const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string };
+		const record = (await res.json()) as {
+			messages?: LhMessage[];
+			turns?: TurnUsage[];
+			pricing?: SessionPricing;
+			turnError?: string;
+			assessments?: PracticeAssessment[];
+		};
 		if (Array.isArray(record.turns)) setTurns(record.turns);
 		setPricing(record.pricing);
+		setAssessments((prev) => adoptAssessments(prev, record.assessments));
 		if (!Array.isArray(record.messages)) return;
 		setMessages(record.messages, record.turnError);
 		// The continuation seam (contracts.ts protocol §4): a job result
@@ -842,6 +857,10 @@ export function Chat({
 	// fetches the record. No turns yet → the bar renders "—" everywhere.
 	const [turns, setTurns] = useState<TurnUsage[]>([]);
 	const [pricing, setPricing] = useState<SessionPricing | undefined>();
+	// The answer check's grades (M24), keyed by conclude call. They land
+	// after a practice turn settles (record-changed); syncTurns also picks
+	// them up, which covers a check that finished while a turn was running.
+	const [assessments, setAssessments] = useState<Readonly<Record<string, PracticeAssessment>>>({});
 	// The per-chat model control state (model-picker writes via PUT; the
 	// record is the source of truth, lifted here so the stats bar re-renders).
 	// The dock's reserved tail height (DockOverlay reports it; the spacer at
@@ -855,9 +874,14 @@ export function Chat({
 		try {
 			const res = await fetch(`/api/chats/${chatId}`);
 			if (!res.ok) return;
-			const record = (await res.json()) as { turns?: TurnUsage[]; pricing?: SessionPricing };
+			const record = (await res.json()) as {
+				turns?: TurnUsage[];
+				pricing?: SessionPricing;
+				assessments?: PracticeAssessment[];
+			};
 			if (Array.isArray(record.turns)) setTurns(record.turns);
 			setPricing(record.pricing);
+			setAssessments((prev) => adoptAssessments(prev, record.assessments));
 		} catch {
 			// transient blip: stats stay on the last known figures
 		}
@@ -1198,6 +1222,7 @@ export function Chat({
 		>
 		<JobsContext.Provider value={jobs}>
 		<HeldResultsContext.Provider value={heldResults}>
+		<AssessmentsContext.Provider value={assessments}>
 		{/* The session surface: the transcript column (header + scroller) and
 		    the plan-tree panel as full-height SIBLINGS — the panel spans top to
 		    bottom exactly like the left sidebar, and the header (name + phase
@@ -1324,6 +1349,8 @@ export function Chat({
 					)}
 				</TopBar>
 
+				{/* Outside the log: the start and end of a reply, said once (M27). */}
+				<ReplyAnnouncer busy={busy} step={streamingToolStep(messages)} />
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
 				<div ref={sessionFindScopeRef} className="relative flex min-h-0 flex-1">
 				<Conversation className="h-full min-w-0 flex-1" initial="instant" contextRef={scrollContextRef}>
@@ -1368,6 +1395,8 @@ export function Chat({
 										switch (part.type) {
 											case "data-graph-context":
 												return <GraphContextCard key={pi} data={part.data as GraphContextData} />;
+											case "data-goal-context":
+												return <GoalContextCard key={pi} data={part.data as LearningGoal} />;
 											case "data-compaction":
 												return <CompactionMomentDivider key={pi} data={part.data as CompactionDividerData} />;
 											case "data-compaction-cut":
@@ -1449,7 +1478,13 @@ export function Chat({
 												</div>
 											</div>
 									) : (
-									<Message from="assistant" className="max-w-full">
+									<Message
+										from="assistant"
+										className="max-w-full"
+										// The reply being streamed: assistive tech holds the log's
+										// updates to it until it's whole (M27).
+										aria-busy={busy && mi === messages.length - 1 ? true : undefined}
+									>
 									<MessageContent className="w-full">
 											{m.parts.map((part, pi) => {
 												const isLastPart = mi === messages.length - 1 && pi === m.parts.length - 1;
@@ -1715,6 +1750,7 @@ export function Chat({
 				</div>
 			</div>
 		</div>
+		</AssessmentsContext.Provider>
 		</HeldResultsContext.Provider>
 		</JobsContext.Provider>
 		</SessionMermaidContext.Provider>
@@ -1844,6 +1880,22 @@ export function probeArrivalExpanded(isAtBottom: boolean): boolean {
  */
 export function shouldStampGeometryMute(nextH: number, prevH: number, pending: boolean): boolean {
 	return pending && nextH > prevH + 1;
+}
+
+/**
+ * The answer check's adoption (M24): the record's assessments log keyed
+ * by conclude call. Keeps `prev` when no entry was added or replaced, so
+ * the frequent record syncs don't re-render every conclude card. Pure for
+ * tests.
+ */
+export function adoptAssessments(
+	prev: Readonly<Record<string, PracticeAssessment>>,
+	list: readonly PracticeAssessment[] | undefined,
+): Readonly<Record<string, PracticeAssessment>> {
+	const next = assessmentsByConclude(list);
+	const keys = Object.keys(next);
+	const same = keys.length === Object.keys(prev).length && keys.every((k) => prev[k]?.at === next[k]?.at);
+	return same ? prev : next;
 }
 
 function DockOverlay({
@@ -2151,7 +2203,7 @@ function DockOverlay({
 		intentTimerRef.current = setTimeout(() => {
 			expandIntentRef.current = false;
 		}, 2000);
-		return Promise.resolve(scrollToBottom()).finally(() => {
+		return Promise.resolve(scrollToBottom(motionReduced() ? "instant" : undefined)).finally(() => {
 			clearTimeout(intentTimerRef.current);
 			expandIntentRef.current = false;
 		});
@@ -2168,8 +2220,10 @@ function DockOverlay({
 	// invitation or collapsed by scroll — Enter is never dead: it opens
 	// the check. A typing surface or a focused button owns its own Enter (the
 	// reading-thinking field opens from INSIDE when the check is closed;
-	// a focused button activates natively) — this listener claims only
-	// the dead case: plain focus with Enter doing nothing.
+	// a focused button activates natively), and so do a link or <summary>
+	// reached with Tab and anything inside an open dialog or menu
+	// (keepsNativeEnter) — this listener claims only the dead case: plain
+	// focus with Enter doing nothing.
 	useEffect(() => {
 		if (!pending || expanded || asking) return;
 		const onKeyDown = (e: KeyboardEvent) => {
@@ -2181,7 +2235,8 @@ function DockOverlay({
 				((t.tagName === "INPUT" && (t as HTMLInputElement).type !== "range") ||
 				t.tagName === "TEXTAREA" ||
 				t.isContentEditable ||
-				t.closest("button"))
+				t.closest("button") ||
+				keepsNativeEnter(t))
 			)
 				return;
 			e.preventDefault();
@@ -2216,7 +2271,7 @@ function DockOverlay({
 				// at-bottom auto-expand would pop the form over the teaching.
 				if (requiresRevealRef.current && !revealedRef.current) return;
 				setExpanded(true);
-				void scrollToBottom();
+				void scrollToBottom(motionReduced() ? "instant" : undefined);
 			}
 		};
 		el.addEventListener("scroll", onScroll, { passive: true });
@@ -2252,6 +2307,7 @@ function DockOverlay({
 	useIsoLayoutEffect(() => {
 		if (prevExpandedForFadeRef.current === expanded) return;
 		prevExpandedForFadeRef.current = expanded;
+		if (motionReduced()) return;
 		contentRef.current?.animate(
 			[{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "translateY(0)" }],
 			{ duration: 160, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
@@ -2288,7 +2344,7 @@ function DockOverlay({
 		// Variant change → re-reserve. Growth applies instantly; a drop (the
 		// fold, or question → composer) is filtered by the offer policy.
 		measureBlock();
-		if (p && Math.abs(p.height - h) > 1) {
+		if (p && Math.abs(p.height - h) > 1 && !motionReduced()) {
 			el.animate([{ height: `${p.height}px` }, { height: `${h}px` }], {
 				duration: 120,
 				easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",

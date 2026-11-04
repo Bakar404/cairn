@@ -25,7 +25,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { after, describe, it } from "node:test";
-import { createFauxCore, fauxAssistantMessage, fauxToolCall, type FauxResponseStep, type ToolCall, type Usage } from "@earendil-works/pi-ai";
+import { createFauxCore, fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, type FauxResponseStep, type ToolCall, type Usage } from "@earendil-works/pi-ai";
 import type { PiEngine } from "../src/agent/models.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
 import { newPlanBlockMessage } from "../src/core/native-messages.ts";
@@ -55,6 +55,10 @@ import {
 	NOTES_PREAMBLE,
 	EXTRACTOR_INSTRUCTIONS,
 	NOTES_EXTRACTOR_INSTRUCTIONS,
+	PDF_PREAMBLE,
+	CHANGE_PREAMBLE,
+	NOTES_QUOTE_RULE,
+	importExtractorInstructions,
 } from "../src/agent/subagents/extraction.ts";
 import { getGraph, simplifyChains } from "../src/core/graph.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError, providerKeyMissing, type ModelSlotName } from "../src/core/settings.ts";
@@ -1652,6 +1656,157 @@ describe("the notes front door (importNotes — format-agnostic)", () => {
 	});
 });
 
+// ── checked quotes (M25) ─────────────────────────────────────────────────────
+
+describe("checked quotes on imports (M25)", () => {
+	const PDF_TEXT = [
+		"--- Page 1 ---",
+		"Editors differ in how they treat keys.",
+		"",
+		"--- Page 2 ---",
+		"Vim always starts in Normal mode \u2014 keys are commands, not text.",
+	].join("\n");
+
+	const quoted = (quotes: Array<string | null | undefined>, extra: Record<string, unknown> = {}) => ({
+		propositions: quotes.map((quote, i) => ({
+			id: `p${i + 1}`,
+			name: `Quoted ${i + 1}`,
+			statement: `Quoted proposition number ${i + 1}.`,
+			aliases: [],
+			...(quote !== undefined ? { quote } : {}),
+			...extra,
+		})),
+		chains: [],
+	});
+
+	it("keeps a matching quote with its page, drops a wrong one, and never fails the import", async () => {
+		const ledgers = memoryLedgers();
+		let systemPrompt = "";
+		let view = "";
+		const pipeline = createExtractionPipeline({
+			chatStore,
+			graphStore: ledgers,
+			extractor: fauxEngine([
+				(context) => {
+					systemPrompt = capturedSystemPrompt(context);
+					view = capturedView(context);
+					return fauxAssistantMessage(
+						[
+							fauxToolCall(
+								"submit_findings",
+								// The model claims a page itself: ignored, the import derives it.
+								quoted(["Vim always starts in normal mode - keys are commands", "Emacs is a better editor than Vim"], {
+									page: 9,
+								}) as unknown as ToolCall["arguments"],
+								{ id: "findings-call" },
+							),
+						],
+						{ stopReason: "toolUse" },
+					);
+				},
+			]),
+			auditor: submitModel("submit_review", { links: [] }),
+		});
+		const stats = await pipeline.importNotes({ filePath: "/papers/vim.pdf", text: PDF_TEXT, kind: "pdf" });
+		assert.deepEqual(stats, { nodes: 2, chains: 0 });
+
+		const source = ledgers.readSources()[0]!;
+		assert.equal(source.kind, "pdf");
+		assert.ok(systemPrompt.startsWith(PDF_PREAMBLE), "the extractor is told it reads a PDF");
+		assert.match(view, /^SOURCE \(a PDF document\): \/papers\/vim\.pdf/);
+
+		const byName = new Map(ledgers.readNodes().map((n) => [n.name, n]));
+		assert.deepEqual(byName.get("Quoted 1")!.provenance, [
+			{ chatId: source.id, messageId: "", quote: "Vim always starts in Normal mode \u2014 keys are commands", page: 2 },
+		]);
+		assert.deepEqual(byName.get("Quoted 2")!.provenance, [{ chatId: source.id, messageId: "" }], "a wrong quote is dropped");
+	});
+
+	it("tolerates a null quote and places a quote in a later chunk on the right page", async () => {
+		const ledgers = memoryLedgers();
+		const text = Array.from({ length: 6 }, (_, i) => `--- Page ${i + 1} ---\nPage ${i + 1} says: ${"filler ".repeat(12)}`).join("\n");
+		let calls = 0;
+		const pipeline = createExtractionPipeline({
+			chatStore,
+			graphStore: ledgers,
+			engineFor: (role) =>
+				role === "extractor"
+					? fauxEngine([
+							() => {
+								calls++;
+								const submit = calls === 1 ? quoted([null]) : quoted([`Page ${calls + 3} says: filler filler`]);
+								return fauxAssistantMessage(
+									[fauxToolCall("submit_findings", submit as unknown as ToolCall["arguments"], { id: `findings-${calls}` })],
+									{ stopReason: "toolUse" },
+								);
+							},
+						])
+					: submitModel("submit_review", { links: [] }),
+			getChunkTokens: () => 40,
+		});
+		await pipeline.importNotes({ filePath: "/papers/long.pdf", text, kind: "pdf" });
+		assert.ok(calls >= 2, `expected several chunks, got ${calls}`);
+		const points = ledgers.readNodes().flatMap((n) => n.provenance);
+		assert.equal(points.filter((pt) => pt.quote === undefined).length >= 1, true, "the null quote merged without one");
+		for (const pt of points.filter((p) => p.quote !== undefined)) {
+			assert.equal(pt.page, Number(/^Page (\d+)/.exec(pt.quote!)![1]), `the quote "${pt.quote}" sits on its own page`);
+		}
+	});
+
+	it("a plain notes import carries no kind and the notes preamble", async () => {
+		const ledgers = memoryLedgers();
+		let systemPrompt = "";
+		const pipeline = createExtractionPipeline({
+			chatStore,
+			graphStore: ledgers,
+			extractor: fauxEngine([
+				(context) => {
+					systemPrompt = capturedSystemPrompt(context);
+					return fauxAssistantMessage(
+						[fauxToolCall("submit_findings", NOTES_FINDINGS as unknown as ToolCall["arguments"], { id: "findings-call" })],
+						{ stopReason: "toolUse" },
+					);
+				},
+			]),
+			auditor: submitModel("submit_review", NOTES_VERDICT),
+		});
+		await pipeline.importNotes({ filePath: "/vault/learn vim.md", text: NOTES_TEXT });
+		assert.equal(ledgers.readSources()[0]!.kind, undefined, "the notes default is never written");
+		assert.equal(systemPrompt, NOTES_EXTRACTOR_INSTRUCTIONS);
+	});
+
+	it("a session extractor's stray quote never reaches provenance (only imports check quotes)", async () => {
+		const { chatId } = fixtureChat();
+		const ledgers = memoryLedgers();
+		const withQuotes = {
+			...FINDINGS,
+			propositions: FINDINGS.propositions.map((p) => ({ ...p, quote: "The derivative measures how fast a function changes" })),
+		};
+		const pipeline = createExtractionPipeline({
+			chatStore,
+			graphStore: ledgers,
+			extractor: submitModel("submit_findings", withQuotes),
+			auditor: submitModel("submit_review", { links: [] }),
+		});
+		await pipeline.runExtraction(chatId);
+		const points = ledgers.readNodes().flatMap((n) => n.provenance);
+		assert.ok(points.length > 0);
+		assert.ok(points.every((pt) => pt.quote === undefined && pt.page === undefined));
+	});
+
+	it("the import prompts share the core and the quote rule, and name what they read", () => {
+		for (const kind of ["notes", "pdf", "change"] as const) {
+			const prompt = importExtractorInstructions(kind);
+			assert.ok(prompt.includes(EXTRACTION_CORE));
+			assert.ok(prompt.endsWith(NOTES_QUOTE_RULE));
+			assert.ok(!prompt.includes("messageId"));
+		}
+		assert.ok(importExtractorInstructions("pdf").startsWith(PDF_PREAMBLE));
+		assert.ok(importExtractorInstructions("change").startsWith(CHANGE_PREAMBLE));
+		assert.equal(importExtractorInstructions("notes"), NOTES_EXTRACTOR_INSTRUCTIONS);
+	});
+});
+
 // ── the chunked pipeline (extraction coverage — vision-extraction-coverage.md) ──
 
 /** Pull the pipeline's prompt view out of a model call: the pipeline sends
@@ -1661,6 +1816,12 @@ function capturedView(context: unknown): string {
 	const messages = (context as { messages?: { role: string; content: string }[] }).messages ?? [];
 	const last = [...messages].reverse().find((m) => m.role === "user");
 	return typeof last?.content === "string" ? last.content : "";
+}
+
+/** The system prompt a model call ran under (pi keeps it in the transcript). */
+function capturedSystemPrompt(context: unknown): string {
+	const messages = (context as { messages?: unknown[] }).messages ?? [];
+	return getCurrentSystemPrompt(messages as Parameters<typeof getCurrentSystemPrompt>[0]);
 }
 
 /** An extractor step that submits FINDINGS, optionally capturing its view.
