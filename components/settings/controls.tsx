@@ -5,8 +5,10 @@
  * (render tests pin the sections' markup).
  *
  * The dependency graying (owner, 2026-09-20) follows the graph viewer's
- * render-panel convention: the WHOLE row dims (opacity-40, label and
- * control together) and the control itself locks — the row owns the dim.
+ * render-panel convention: the row owns the dim and the control itself
+ * locks. Only the control fades (opacity-40). The label mutes and the hint
+ * keeps its color, so the text stays at readable contrast: the hint is
+ * often what tells you how to turn the control back on.
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -66,17 +68,18 @@ export function SettingsRow({
 	hint?: ReactNode;
 	children: React.ReactNode;
 	testid?: string;
-	/** Dependency graying, graph-view style: the whole row dims when the
-	 *  control is inert (parent off, no file yet, …). */
+	/** Dependency graying, graph-view style, for a control that is inert
+	 *  (parent off, no file yet, …): the control fades and the label
+	 *  mutes. The text never fades below readable contrast. */
 	dimmed?: boolean;
 }) {
 	return (
-		<div data-testid={testid} className={cn("flex items-center justify-between gap-4 py-1", dimmed && "opacity-40")}>
+		<div data-testid={testid} className="flex items-center justify-between gap-4 py-1">
 			<span className="min-w-0">
-				<span className="block font-prose text-(length:--lh-prose-size)">{label}</span>
+				<span className={cn("block font-prose text-(length:--lh-prose-size)", dimmed && "text-muted-foreground")}>{label}</span>
 				{hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
 			</span>
-			{children}
+			{dimmed ? <span className="flex shrink-0 opacity-40">{children}</span> : children}
 		</div>
 	);
 }
