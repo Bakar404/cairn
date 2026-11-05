@@ -68,6 +68,37 @@ test("all methods fail closed for desktop missing/wrong secret; API-only matcher
 	}
 });
 
+test("every mode refuses API writes from another site; reads, the app's own writes and header-less calls pass", () => {
+	const originalMarker = process.env.LH_DESKTOP_SERVER;
+	const originalSecret = process.env.LH_DESKTOP_API_SECRET;
+	const host = "127.0.0.1:3000";
+	const send = (method: string, headers: Record<string, string>) =>
+		proxy(new NextRequest(`http://${host}/api/chat`, { method, headers: { host, ...headers } }));
+	const passes = (response: Response) => response.headers.get("x-middleware-next") === "1";
+	try {
+		delete process.env.LH_DESKTOP_SERVER;
+		delete process.env.LH_DESKTOP_API_SECRET;
+		for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+			for (const site of ["cross-site", "same-site"]) assert.equal(send(method, { "sec-fetch-site": site }).status, 403, `${method} ${site}`);
+			for (const site of ["same-origin", "none"]) assert(passes(send(method, { "sec-fetch-site": site })), `${method} ${site}`);
+		}
+		// Without Sec-Fetch-Site, Origin must name this server.
+		for (const origin of ["https://thirdparty.invalid", "http://127.0.0.1:3001", "null"]) assert.equal(send("POST", { origin }).status, 403, origin);
+		assert(passes(send("POST", { origin: `http://${host}` })));
+		assert(passes(send("POST", { origin: "https://cairn.example", "x-forwarded-host": "cairn.example" })), "behind a proxy");
+		assert(passes(send("POST", { origin: "https://cairn.example", "x-forwarded-host": "cairn.example, internal.invalid" })), "behind a chain of proxies");
+		assert.equal(send("POST", { origin: "https://cairn.example", "x-forwarded-host": "internal.invalid, cairn.example" }).status, 403, "only the first forwarded host counts");
+		assert(passes(send("POST", {})), "the server's own calls and curl send neither header");
+		for (const method of ["GET", "HEAD", "OPTIONS"]) assert(passes(send(method, { "sec-fetch-site": "cross-site" })), method);
+		process.env.LH_DESKTOP_SERVER = "1";
+		process.env.LH_DESKTOP_API_SECRET = secret;
+		assert.equal(send("POST", { [HEADER]: secret, "sec-fetch-site": "cross-site" }).status, 403, "the desktop capability doesn't lift the guard");
+		assert(passes(send("POST", { [HEADER]: secret, "sec-fetch-site": "same-origin" })));
+	} finally {
+		if (originalMarker === undefined) delete process.env.LH_DESKTOP_SERVER; else process.env.LH_DESKTOP_SERVER = originalMarker;
+		if (originalSecret === undefined) delete process.env.LH_DESKTOP_API_SECRET; else process.env.LH_DESKTOP_API_SECRET = originalSecret;
+	}
+});
 test("desktop IPC requires the trusted main frame, and the browser service never inherits the desktop secret", () => {
 	const { contents, mainFrame, win } = fixture();
 	const BrowserWindow = { fromWebContents: (value: unknown) => value === contents ? win : null };
