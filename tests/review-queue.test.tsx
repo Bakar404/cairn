@@ -202,6 +202,9 @@ describe("the rating map", () => {
 			["solvedWithHints", "R3", "again"],
 			["solvedWithHints", "R4", "again"],
 			["solvedWithHints", "R5", "again"],
+			// Solved, yet recorded at a giveaway rung: the rung wins.
+			["solved", "R3", "again"],
+			["solved", "R5", "again"],
 			// No rung recorded: a clean solve is Good, a hinted one Hard.
 			["solved", null, "good"],
 			["solved", undefined, "good"],

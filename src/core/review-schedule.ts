@@ -76,13 +76,19 @@ function rungRating(rung: unknown, hinted: boolean): ReviewRating {
 }
 
 /**
- * One retrieval's rating. Solved with no hint, or at R0–R1, is Good; R2 is
- * Hard; R3–R5 is Again; moved on or surrendered is Again. When the answer
+ * One retrieval's rating. A credited solve is rated by its hint rung: R0–R1
+ * is Good, R2 is Hard, R3–R5 is Again; with no rung, a clean solve is Good
+ * and a hinted one Hard. Moved on or surrendered is Again. When the answer
  * check (M24) disagrees with a credited outcome the rating drops, to Hard
  * for a partial answer and to Again for a wrong or missing one; the check
  * never raises a rating. A careless miss is a slip, not a gap: never worse
- * than Hard. Null when the retrieval doesn't count: a dismissed problem,
- * or an outcome this build doesn't know.
+ * than Hard, and that floor applies last, after the check. Null when the
+ * retrieval doesn't count: a dismissed problem, or an outcome this build
+ * doesn't know.
+ *
+ * verified/ proves this rule for every input with Verus, and CI fails when
+ * this function and the proved code rate any input class differently
+ * (verified/README.md).
  */
 export function reviewRating(
 	facts: ConcludeFacts,

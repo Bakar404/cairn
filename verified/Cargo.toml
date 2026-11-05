@@ -1,0 +1,26 @@
+[package]
+name = "cairn-verified"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Cairn's review rating, proved with Verus and built to WebAssembly."
+license = "AGPL-3.0-only"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Pinned to the Verus release that proves src/lib.rs (0.2026.11.02.8bf68ee).
+# A plain cargo build erases every spec and proof, so the WASM carries only
+# the executable code Verus checked.
+[dependencies]
+vstd = "=0.0.0-2026-11-01-0251"
+verus_builtin = "=0.0.0-2026-11-01-0251"
+verus_builtin_macros = "=0.0.0-2026-11-01-0251"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[workspace]
