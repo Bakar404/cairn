@@ -1,9 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { desktopAPIAuthorized } from "./src/server/desktop-access.ts";
+import { crossSiteRefusal } from "./src/server/same-origin.ts";
 
 /** Applies to every API method, including SSE and spending/settings routes.
  * No public callback or worker bypass: internal jobs call server functions,
- * and any legitimate self-HTTP request must carry the private capability. */
+ * and any legitimate self-HTTP request must carry the private capability.
+ * In every mode, writes from another site are refused (same-origin.ts). */
 export function proxy(request: NextRequest) {
 	if (!desktopAPIAuthorized(request.headers)) {
 		return NextResponse.json(
@@ -11,7 +13,7 @@ export function proxy(request: NextRequest) {
 			{ status: 403, headers: { "Cache-Control": "no-store" } },
 		);
 	}
-	return NextResponse.next();
+	return crossSiteRefusal(request) ?? NextResponse.next();
 }
 
 export const config = { matcher: "/api/:path*" };

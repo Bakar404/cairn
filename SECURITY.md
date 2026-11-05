@@ -16,7 +16,7 @@ Only the [latest release](https://github.com/Bakar404/cairn/releases/latest) and
 
 In scope, for example:
 
-- The local server and its API. Cairn listens only on `127.0.0.1`. Anything that lets another machine, another user on the same computer or a website you visit reach it or act through it is in scope.
+- The local server and its API. Cairn listens only on `127.0.0.1`, and `proxy.ts` refuses API writes that come from another site. Anything that lets another machine, another user on the same computer or a website you visit reach it or act through it is in scope.
 - The desktop app: its access check on the local API (`proxy.ts`), the Electron preload bridge and the update channel.
 - Your GitHub sign-in. Cairn should never write a Copilot credential to disk, a log or the browser.
 - Anything that lets someone else spend your Copilot usage.

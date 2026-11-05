@@ -4,6 +4,14 @@ All notable changes to Cairn are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- **Health check.** `GET /api/health` answers `{ "ok": true }`, for hosts and containers that restart a server when it stops answering.
+
+### Security
+
+- **Writes from other sites are refused.** The server now refuses any API write (POST, PUT, PATCH or DELETE) that the browser marks as coming from another site, or whose `Origin` names another host. Before, most write routes, such as starting a chat, would act on a form or plain-text request that a website you visited sent to your local server, and an interactive demo in its sandboxed frame could do the same. Reads and Cairn's own requests are unaffected.
+
 ## [0.5.0] - 2026-11-04
 
 This release adds the review queue, learning goals, the answer check, learning from code changes and PDFs, doctrine evals and accessibility settings. The installers pass automated checks on macOS, Windows and Linux but still haven't had a full hands-on pass on each system. Please [report problems](https://github.com/Bakar404/cairn/issues).

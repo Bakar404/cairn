@@ -36,7 +36,7 @@ npx tsx --env-file=.env.local scripts/backfill-graph.ts       # wipe + re-extrac
 npx tsx --env-file=.env.local scripts/replay-layout.ts        # re-derive layout from the ledgers
 ```
 
-`dev`, `start` and `desktop:dev` listen on `127.0.0.1` only, like the desktop app's own server. In the browser version the API has no access check (`proxy.ts` checks a secret only for the desktop app), so it must not be reachable from the network. To open it to other machines anyway, run `npx next dev -H 0.0.0.0` yourself.
+`dev`, `start` and `desktop:dev` listen on `127.0.0.1` only, like the desktop app's own server. In the browser version the API has no access check (`proxy.ts` checks a secret only for the desktop app), so it must not be reachable from the network. To open it to other machines anyway, run `npx next dev -H 0.0.0.0` yourself. In every mode, `proxy.ts` refuses an API write (POST, PUT, PATCH or DELETE) that a browser marks as coming from another site, so a website you visit can't act through your local server. `GET /api/health` answers `{ "ok": true }` for a host's health check.
 
 For Windows/Linux packages and the three-OS CI/release flow, see [`desktop-release.md`](desktop-release.md). Native renderer binaries are traced per platform, so release builds run on the target OS, not as cross-builds from macOS.
 
