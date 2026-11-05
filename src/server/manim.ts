@@ -8,14 +8,24 @@ import type { MediaRef } from "../core/contracts.ts";
 import {
 	MANIM_DOWNLOAD_SIZE,
 	MANIM_IMAGE,
+	MANIM_MAX_OUTPUT_BYTES,
+	MANIM_RENDER_TIMEOUT_MS,
 	MEDIA_FILE_RE,
 	type ManimRenderer,
+	type ManimRenderMode,
 	type ManimRenderRequest,
 	type ManimRenderResult,
 	type ManimState,
 	type ManimStatus,
 } from "../core/manim.ts";
 import { FIGURE } from "../core/figure-theme.ts";
+import {
+	azureManimConfigFromEnv,
+	createAzureJobManimRenderer,
+	unavailableManimRenderer,
+	type AzureManimDeps,
+	type AzureManimKit,
+} from "./manim-azure.ts";
 
 /**
  * THE MANIM ADAPTER (M13): core/manim.ts's ManimRenderer, driving the
@@ -37,6 +47,10 @@ import { FIGURE } from "../core/figure-theme.ts";
  * instance): the docker binary, a 30 s status cache, the background pull,
  * and a 2-slot render pool. Under NODE_ENV=test nothing spawns — status
  * says no-docker and render refuses.
+ *
+ * HOSTED: CAIRN_MANIM_BACKEND=azure-job swaps in manim-azure.ts, which
+ * runs the same image as an Azure Container Apps job. The runner, the
+ * bundle, the frames, media saving and the render slots are shared.
  */
 
 /** Chat and job ids as the stores mint them; checked before either one
@@ -46,12 +60,6 @@ const STATUS_TTL_MS = 30_000;
 const PROBE_TIMEOUT_MS = 15_000;
 const PULL_TIMEOUT_MS = 60 * 60_000;
 const RENDER_SLOTS = 2;
-const MAX_RENDER_OUTPUT = 96 * 1024 * 1024;
-const RENDER_TIMEOUT_MS: Record<ManimRenderRequest["mode"], number> = {
-	preview: 120_000,
-	final: 300_000,
-	still: 120_000,
-};
 const TAIL_CHARS = 64 * 1024;
 
 const REASON = {
@@ -641,6 +649,33 @@ function collect(req: ManimRenderRequest, files: Map<string, Buffer>, result: Re
 	return out;
 }
 
+/** The JSON bundle the runner reads: the runner, the palette module and
+ *  the scene. */
+function renderBundle(mode: ManimRenderMode, code: string): string {
+	return asciiJson({ mode, files: { "cairn_run.py": RUN_PY, "cairn_style.py": STYLE_PY, "scene.py": code } });
+}
+
+/** The runner's framed stdout as the mode's result, saving what the chat
+ *  keeps; null when it holds no result line (the runner died first). */
+function finishRun(req: ManimRenderRequest, stdout: Buffer): ManimRenderResult | null {
+	const { files, result } = parseFrames(stdout);
+	if (!result) return null;
+	if (result.ok !== true) {
+		const error = typeof result.error === "string" && result.error.trim() ? result.error : "The render failed without saying why.";
+		return { ok: false, error };
+	}
+	try {
+		return collect(req, files, result);
+	} catch (err) {
+		return { ok: false, error: `Cairn couldn't save the render: ${errorMessage(err)}` };
+	}
+}
+
+function saveDescriptions(chatId: string, jobId: string, vtt: string): MediaRef {
+	if (!ID_RE.test(chatId) || !ID_RE.test(jobId)) throw new Error("the chat or job id is invalid");
+	return saveMedia(chatId, `${jobId}.vtt`, Buffer.from(vtt, "utf8"), "text/vtt");
+}
+
 async function renderInDocker(req: ManimRenderRequest): Promise<ManimRenderResult> {
 	const bin = await dockerBin();
 	if (!bin) {
@@ -651,15 +686,12 @@ async function renderInDocker(req: ManimRenderRequest): Promise<ManimRenderResul
 		};
 	}
 	const name = `cairn-manim-${req.jobId.slice(0, 40)}-${randomUUID().slice(0, 8)}`;
-	const timeoutMs = RENDER_TIMEOUT_MS[req.mode];
+	const timeoutMs = MANIM_RENDER_TIMEOUT_MS[req.mode];
 	const run = await exec(bin, runArgs(name, await dockerCpus(bin)), {
 		timeoutMs,
 		signal: req.abortSignal,
-		input: asciiJson({
-			mode: req.mode,
-			files: { "cairn_run.py": RUN_PY, "cairn_style.py": STYLE_PY, "scene.py": req.code },
-		}),
-		maxStdoutBytes: MAX_RENDER_OUTPUT,
+		input: renderBundle(req.mode, req.code),
+		maxStdoutBytes: MANIM_MAX_OUTPUT_BYTES,
 	});
 	if (run.timedOut || run.aborted || run.overflow) await removeContainer(bin, name);
 	if (run.aborted || req.abortSignal?.aborted) throw abortError();
@@ -672,20 +704,10 @@ async function renderInDocker(req: ManimRenderRequest): Promise<ManimRenderResul
 	if (run.overflow) {
 		return {
 			ok: false,
-			error: `The render produced more than ${MAX_RENDER_OUTPUT / 1024 / 1024} MB and was stopped. Make the animation shorter or simpler.`,
+			error: `The render produced more than ${MANIM_MAX_OUTPUT_BYTES / 1024 / 1024} MB and was stopped. Make the animation shorter or simpler.`,
 		};
 	}
-	const { files, result } = parseFrames(run.stdout);
-	if (!result) return { ok: false, error: describeRunFailure(run) };
-	if (result.ok !== true) {
-		const error = typeof result.error === "string" && result.error.trim() ? result.error : "The render failed without saying why.";
-		return { ok: false, error };
-	}
-	try {
-		return collect(req, files, result);
-	} catch (err) {
-		return { ok: false, error: `Cairn couldn't save the render: ${errorMessage(err)}` };
-	}
+	return finishRun(req, run.stdout) ?? { ok: false, error: describeRunFailure(run) };
 }
 
 // ─── Chat media ────────────────────────────────────────────────────────────
@@ -808,15 +830,42 @@ export function createDockerManimRenderer(): ManimRenderer {
 			if (req.abortSignal?.aborted) throw abortError();
 			return withRenderSlot(req.abortSignal, () => renderInDocker(req));
 		},
-		saveDescriptions(chatId, jobId, vtt) {
-			if (!ID_RE.test(chatId) || !ID_RE.test(jobId)) throw new Error("the chat or job id is invalid");
-			return saveMedia(chatId, `${jobId}.vtt`, Buffer.from(vtt, "utf8"), "text/vtt");
-		},
+		saveDescriptions,
 	};
 }
 
+/** What the Azure adapter shares with this one. Its methods reach RUN_PY
+ *  and STYLE_PY only when a render runs, after the module has loaded. */
+const AZURE_KIT: AzureManimKit = {
+	bundle: renderBundle,
+	finish: finishRun,
+	withSlot: withRenderSlot,
+	saveDescriptions,
+};
+
+/** The renderer CAIRN_MANIM_BACKEND asks for: docker (the default) or
+ *  azure-job. A setting that can't work gives a renderer that says why. */
+export function selectManimRenderer(
+	env: Readonly<Record<string, string | undefined>> = process.env,
+	deps: Partial<AzureManimDeps> = {},
+): ManimRenderer {
+	const backend = env.CAIRN_MANIM_BACKEND?.trim().toLowerCase() ?? "";
+	if (backend === "" || backend === "docker") return createDockerManimRenderer();
+	if (backend !== "azure-job") {
+		return unavailableManimRenderer(
+			"CAIRN_MANIM_BACKEND must be docker or azure-job. Fix the setting, then restart Cairn.",
+			AZURE_KIT,
+		);
+	}
+	try {
+		return createAzureJobManimRenderer(azureManimConfigFromEnv(env), AZURE_KIT, { ...deps, env });
+	} catch (err) {
+		return unavailableManimRenderer(`Animations are set to render in Azure, but ${errorMessage(err)}`, AZURE_KIT);
+	}
+}
+
 /** The process's renderer (its state is process-wide, on globalThis). */
-export const manimRenderer: ManimRenderer = createDockerManimRenderer();
+export const manimRenderer: ManimRenderer = selectManimRenderer();
 
 // ─── The container side ────────────────────────────────────────────────────
 // Python, embedded verbatim (String.raw: no backticks, no dollar-brace).

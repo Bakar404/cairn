@@ -423,7 +423,7 @@ flowchart LR
         CP["GitHub Copilot (SDK runtime child of the server; gh / Copilot CLI sign-in or COPILOT_GITHUB_TOKEN) — models + hosted web search"]
         WEBT["web pages · Jina Reader fallback (the researcher's web_fetch)"]
         CHROME["system Chrome (headless: demo verify · SVG render)"]
-        DOCKER["Docker (optional): Manim renders — stdin/stdout, no network, no mounts"]
+        DOCKER["Docker (optional): Manim renders — stdin/stdout, no network, no mounts<br/>(a copy hosted in Azure: a Container Apps job instead, §8.2)"]
         WORKIQ["Work IQ CLI (optional, off by default): MCP over stdio, ask only — the learner's own Microsoft 365 sign-in"]
         LEARN["Microsoft Learn MCP server (on by default): docs search, fetch and code samples — public HTTPS, no sign-in"]
         REPOS["local repositories, read-only: goal scans read manifests · git reads commit ranges"]
@@ -463,6 +463,10 @@ Slots or sessions pinned to any other provider are refused before dispatch with 
 Animations and Manim stills render on the learner's computer in Docker, from the pinned image `manimcommunity/manim:v0.22.0`. The port is `src/core/manim.ts` (`ManimRenderer`: `status`, `install`, `render`, and `saveDescriptions`, which writes an animation's descriptions track beside its video without touching Docker); the adapter is `src/server/manim.ts`, which drives the `docker` CLI. The renderer is optional: without Docker, or before the one-time image download (about 500 MB), the `animation` tool is simply not offered and the visual-maker draws SVG only. Settings → Providers → Animations reads `GET /api/manim` and starts the download with `POST /api/manim`; nothing downloads until the learner asks.
 
 Each render is a fresh `docker run --rm -i` that takes one JSON bundle (runner, palette module, scene) on stdin and returns the MP4 or PNG on stdout. The container gets no bind mounts and no network, a read-only root with a 1 GB `/tmp`, all capabilities dropped, `no-new-privileges`, 2 GB of memory, a 256-process limit and at most 2 CPUs. Every render has a time limit, and aborting a job kills its container. Model-written Python therefore never sees the host filesystem or the network. Under `NODE_ENV=test` the adapter starts no processes; tests inject a fake `ManimRenderer`.
+
+**A copy hosted in Azure** has no Docker engine to drive, so `CAIRN_MANIM_BACKEND=azure-job` selects a second adapter, `src/server/manim-azure.ts`. Each render is one execution of an Azure Container Apps job that runs the same pinned image (from the deployment's own registry) and the same runner. `selectManimRenderer` in `src/server/manim.ts` picks the adapter at startup and hands it the shared parts: the bundle, the frame parser with media saving, and the render slots. Blob Storage replaces stdin and stdout. Cairn uploads the bundle, then starts an execution whose environment holds two single-blob user delegation SAS URLs: one reads the bundle, the other creates and writes one output blob. In the container, a small Python supervisor runs the runner under the render's time and size limits and uploads one `CAIRN-RUN` line (exit code, timeout, overflow, the end of stderr) followed by the runner's framed stdout. Cairn polls the execution, reads the output, and deletes both blobs, and stops an execution that outlives its deadline or its job's abort. Cairn signs in to Azure as its own managed identity, with no keys: an ARM token reads, starts and stops the job, and a Storage token moves the blobs and gets the delegation key that signs the SAS URLs.
+
+The sandbox is the deployment's part. The job's subnet should deny the internet, so a scene reaches only Azure platform endpoints, and the job's own identity should be able to pull the image and nothing else, with no token for it inside the container. The SAS URLs are then the only credentials a scene can find, each for one blob and a few minutes. A lifecycle rule on the blob container should delete anything a failed render leaves behind. A render that starts a cold job can take a minute or more longer. A missing or invalid setting makes the renderer report Unavailable, with the reason, in Settings → Providers → Animations, and the `animation` tool stays off.
 
 ### 8.3 Work IQ boundary
 
@@ -522,7 +526,7 @@ The three routes that act on the learner's behalf, `POST /api/goals/repo`, `POST
 - Two portless settings adapters re-exported through the server barrel; `observability.ts` imports `chatStore` directly. The "only `stores.ts` imports adapters" rule is documentation-only.
 - `scripts/` and `electron/` are lint-exempt; scripts act as extra composition roots (and backfills are, by design, extra graph writers); `tests/` imports freely across layers.
 - Small conventional-only sync points: `SIDEBAR_AUTOCLOSE` mirrored in `electron/main.cjs` ↔ `components/sidebar.tsx`; IPC channel names mirrored by comment; the jobs dir path hardcoded in the adapter rather than `config.ts`.
-- Rendered media is written by the Manim adapter (`src/server/manim.ts`), not by a `src/store` adapter: the bytes come straight off the renderer's stdout into `data/media/<chatId>/`, and `src/server/chats.ts` deletes that folder with the chat.
+- Rendered media is written by the Manim adapter (`src/server/manim.ts`), not by a `src/store` adapter: the bytes come straight off the renderer's stdout (hosted, its output blob) into `data/media/<chatId>/`, and `src/server/chats.ts` deletes that folder with the chat.
 
 ---
 
@@ -600,7 +604,7 @@ Every place the architecture is designed to be cut — the "one file" a future c
 | Push events | `src/core/events.ts` (bus) + `src/server/events-stream.ts` (SSE seam) + `components/server-events.tsx` (the window's EventSource) | change notification, end to end |
 | Agent construction (tests) | `handleChatRequest(req, buildAgent?)` | scripted engines, no refactor |
 | Sub-agent verification | `sub-agents/headless.ts` (`headlessOverride`) | demo/SVG verification, no Chrome |
-| Animation renderer | `src/core/manim.ts` (`ManimRenderer` port) + `src/server/manim.ts` (Docker adapter) | where Manim scenes render; tests inject a fake |
+| Animation renderer | `src/core/manim.ts` (`ManimRenderer` port) + `src/server/manim.ts` (Docker adapter, and `selectManimRenderer`) + `src/server/manim-azure.ts` (Azure Container Apps job adapter, `CAIRN_MANIM_BACKEND=azure-job`) | where Manim scenes render; tests inject a fake renderer, or a fake Azure through `selectManimRenderer`'s dependencies |
 | Work IQ | `src/core/workiq.ts` (`WorkIqClient` port) + `src/server/workiq.ts` (stdio MCP adapter) | how Work IQ is asked; tests inject a fake or run a fake MCP server |
 | Microsoft Learn | `src/core/learn-docs.ts` (`LearnDocsClient` port) + `src/server/learn-docs.ts` (HTTP MCP adapter) | how Learn is searched and read; tests inject a fake client or a fake `fetch` |
 | Code-change reading | `src/server/code-change.ts` (`CodeChangeRunners`) | how git, the GitHub CLI and the REST API are reached; tests swap the runners |

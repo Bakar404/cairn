@@ -3,8 +3,10 @@
  * Settings › Providers › Animations (M13): the Manim renderer. Animations
  * and Manim stills render inside Docker, so this row says what's missing —
  * Docker, its engine, or the one-time image download — and offers the next
- * step. The tutor gets the animation tool only while this reads ready
- * (Settings › Agent can still switch the tool off).
+ * step. A hosted copy renders in an Azure Container Apps job instead; the
+ * row then reads Ready or Unavailable, with the reason. The tutor gets the
+ * animation tool only while this reads ready (Settings › Agent can still
+ * switch the tool off).
  *
  * API: GET /api/manim[?fresh=1] → ManimStatus; POST /api/manim starts the
  * download, then the row polls until the state settles.
