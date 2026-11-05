@@ -4,8 +4,10 @@ import type { AnimationBeat, MediaRef } from "./contracts.ts";
  * The Manim renderer PORT (M13). Manim Community Edition runs inside a
  * pinned Docker image, so a learner's machine needs Docker and nothing
  * else — no Python, LaTeX, or ffmpeg. The adapter (src/server/manim.ts)
- * drives the docker CLI; tests inject a fake. Browser-safe: types and
- * pure helpers only (the Settings panel reads ManimStatus).
+ * drives the docker CLI; a hosted copy runs the same image as an Azure
+ * Container Apps job instead (src/server/manim-azure.ts); tests inject a
+ * fake. Browser-safe: types and pure helpers only (the Settings panel
+ * reads ManimStatus).
  */
 
 /** The compressed image download, for the Settings panel's wording. */
@@ -18,6 +20,16 @@ export const MANIM_IMAGE = "manimcommunity/manim:v0.22.0";
 /** The longest animation the maker may deliver, in seconds. */
 export const MANIM_MAX_SECONDS = 60;
 
+/** How long one render may run before it is stopped, by mode. */
+export const MANIM_RENDER_TIMEOUT_MS: Readonly<Record<ManimRenderMode, number>> = {
+	preview: 120_000,
+	final: 300_000,
+	still: 120_000,
+};
+
+/** The most a render may return (the runner's framed output), in bytes. */
+export const MANIM_MAX_OUTPUT_BYTES = 96 * 1024 * 1024;
+
 export type ManimState =
 	/** The docker CLI is not installed. */
 	| "no-docker"
@@ -29,6 +41,9 @@ export type ManimState =
 	| "installing"
 	/** The last pull failed — `reason` says why. */
 	| "install-failed"
+	/** A hosted renderer (an Azure Container Apps job) can't be reached or
+	 *  isn't set up; `reason` says why. There is nothing to install. */
+	| "unavailable"
 	| "ready";
 
 export interface ManimStatus {
@@ -74,10 +89,12 @@ export interface ManimRenderResult {
 export interface ManimRenderer {
 	/** Synchronous and cached: true when the last status check said ready. */
 	ready(): boolean;
-	/** Probe Docker and the image (cached for about 30 s; `fresh` skips
-	 *  the cache — the Settings panel's "Check again"). */
+	/** Probe the renderer: Docker and the image, or the Azure job. Cached
+	 *  for about 30 s; `fresh` skips the cache (the Settings panel's
+	 *  "Check again"). */
 	status(fresh?: boolean): Promise<ManimStatus>;
-	/** Start pulling the image in the background. Idempotent. */
+	/** Start pulling the image in the background. Idempotent. A hosted
+	 *  renderer has nothing to pull and just checks again. */
 	install(): Promise<ManimStatus>;
 	/** Render one scene. Scene errors and timeouts resolve with ok: false;
 	 *  it throws only when abortSignal fires. */

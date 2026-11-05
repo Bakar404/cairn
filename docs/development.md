@@ -49,8 +49,15 @@ Secrets and machine-specific paths only. Model choice and thinking budgets are t
 |---|---|
 | `COPILOT_GITHUB_TOKEN` | optional — a GitHub token for Copilot; without it the Copilot SDK uses the GitHub CLI / Copilot CLI sign-in |
 | `CHROME_PATH` | optional system Chrome fallback for demo verification; the app's own browser helper is primary (nothing is downloaded) |
+| `CAIRN_MANIM_BACKEND` | optional: where animations render, `docker` (the default) or `azure-job` (a copy hosted in Azure; see below) |
+| `CAIRN_MANIM_JOB_ID` | with `azure-job`: the Container Apps job's resource ID |
+| `CAIRN_MANIM_STORAGE_ACCOUNT` | with `azure-job`: the storage account that carries render bundles and output |
+| `CAIRN_MANIM_CONTAINER` | with `azure-job`, optional: the blob container (default `renders`) |
+| `CAIRN_MANIM_CLIENT_ID` | with `azure-job`, optional: the client ID of the user-assigned managed identity Cairn runs as; unset means the system-assigned one |
 
 The packaged desktop app takes tool keys from `userData/auth.json` (mode 0600, read/written directly by the server via `LH_AUTH_FILE`). PDFs render natively with pdfjs/Skia; SVGs use resvg. Manim animations and stills need Docker (Docker Desktop, or Docker Engine on Linux) and no environment variable: the adapter uses `docker` on PATH, then Docker Desktop's standard install location.
+
+A copy hosted in Azure App Service renders them in an Azure Container Apps job instead ([architecture §8.2](architecture.md#82-manim-renderer-boundary)). Set `CAIRN_MANIM_BACKEND=azure-job` and the job and storage variables above, and give the app's managed identity these roles: Container Apps Jobs Operator on the job, Storage Blob Data Contributor on the blob container, and Storage Blob Delegator on the storage account. The job's first container must run the image in `MANIM_IMAGE` (`src/core/manim.ts`), from any registry; Cairn starts each execution with that container's name, image, CPU and memory, and reports a different image as Unavailable. Settings → Providers → Animations then reads Ready, or Unavailable with the reason.
 
 ### GitHub Copilot connection
 

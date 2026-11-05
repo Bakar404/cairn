@@ -7,6 +7,7 @@ All notable changes to Cairn are recorded here. The format follows [Keep a Chang
 ### Added
 
 - **Health check.** `GET /api/health` answers `{ "ok": true }`, for hosts and containers that restart a server when it stops answering.
+- **Animations in a copy hosted in Azure.** With `CAIRN_MANIM_BACKEND=azure-job`, Cairn renders animations and Manim stills in an Azure Container Apps job instead of Docker, with the same pinned image and runner. Each render is one job execution that reads its scene from, and writes its result to, Blob Storage through single-blob links that expire within minutes. Cairn signs in to Azure as its managed identity, with no keys. Settings → Providers → Animations shows Ready, or Unavailable with what to fix. The desktop app and `npm run dev` keep using Docker. See [development](docs/development.md#environment-envlocal).
 - **A proof of the review rating.** [`verified/`](verified/README.md) holds a [Verus](https://github.com/verus-lang/verus) proof that the rule turning a practice outcome into a review rating meets its written spec for every input, and a test that the app's rule rates every input class the same as the proved code. A new Proof job in CI runs both.
 
 ### Security
