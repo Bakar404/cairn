@@ -580,7 +580,7 @@ All deterministic, no network: engines are injected (pi-ai's **faux provider** �
 4. **Render tests** — transcript, cards, docks, composer, sidebar, coverage, stats, practice surfaces (creation dialog both modes, chain table incl. the shared-TopBar + lines-law pins, list, exam states) via React server-side rendering (`renderToStaticMarkup`), no DOM library.
 5. **Doctrine evals** — `npm run evals` grades the recorded practice transcripts in `evals/transcripts/` against the tutor's laws with the deterministic graders in `src/core/doctrine-graders.ts`: no model, no network. Recording new transcripts (`--live`) runs real models against synthetic learners, so it is opt-in, and in CI it runs only in the separate Live evals workflow (on demand, weekly, and on pushes to `main` that change the prompts; [development](development.md#doctrine-evals)).
 
-Gates on every change: `tsc` clean, all tests, `eslint` clean, `npm run evals` clean, `next build` clean.
+Gates on every change: `tsc` clean, all tests, `eslint` clean, `npm run evals` clean, `next build` clean, and the review-rating proof (`node verified/check.mjs`: Verus proves `reviewRating`'s rule for every input, and a differential test holds the TypeScript to it; [verified/](../verified/README.md)).
 
 ---
 

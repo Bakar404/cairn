@@ -24,3 +24,6 @@ xai-credentials.json*
 test-results/
 playwright-report/
 blob-report/
+
+# The proof's build output and receipt (node verified/check.mjs)
+verified/target/

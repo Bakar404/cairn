@@ -32,9 +32,10 @@ Also:
 - Add a line under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) for anything a user would notice.
 - For UI changes, follow [docs/design.md](docs/design.md) and attach screenshots in light and dark mode. Run the [accessibility checks](docs/development.md#accessibility-checks) too: `npm run test:a11y`, after a production build.
 - Update the docs your change affects.
+- If you change how a practice outcome is rated (`reviewRating`), change its proof with it: see [verified/README.md](verified/README.md#changing-the-rule).
 - Never commit tokens, your `data/` folder or personal learning content.
 
-CI runs the checks above, a standalone build on macOS, Windows and Linux, the accessibility checks, CodeQL, an offline check of the links between docs and a lint of the workflows.
+CI runs the checks above, a standalone build on macOS, Windows and Linux, the accessibility checks, the proof of the review rating, CodeQL, an offline check of the links between docs and a lint of the workflows.
 
 ## Releases
 

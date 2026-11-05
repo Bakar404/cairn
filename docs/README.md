@@ -8,7 +8,8 @@ Many of these documents come from [LearnHarness](https://github.com/amosblomqvis
 
 | Document | What it covers |
 | --- | --- |
-| [development.md](development.md) | Setup, commands, environment variables, the project layout, the desktop shell, and the tests, accessibility checks and doctrine evals |
+| [development.md](development.md) | Setup, commands, environment variables, the project layout, the desktop shell, and the tests, accessibility checks, doctrine evals and proof |
+| [../verified/README.md](../verified/README.md) | The review-rating proof: what Verus proves, what's trusted and how each trusted piece is checked, and how to change the rule |
 | [desktop-release.md](desktop-release.md) | The macOS, Windows and Linux installers, signing, CI and how to cut a release |
 | [design.md](design.md) | The design system: palette, light and dark modes, accessibility mode, and how demos, diagrams and figures follow it |
 | [keyboard.md](keyboard.md) | Keyboard shortcuts |

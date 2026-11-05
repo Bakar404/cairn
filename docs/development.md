@@ -26,6 +26,7 @@ npm run typecheck    # tsc --noEmit, for the app and then for e2e/
 npm run test:a11y    # accessibility checks against the production build (build first; see Testing)
 npm run evals        # grade the recorded tutor transcripts in evals/transcripts (no model, no network)
 npm run evals -- --live --model claude-haiku-4.5   # play the synthetic learners against a real tutor; spends Copilot requests (see Testing)
+node verified/check.mjs  # prove the review rating with Verus; needs Rust and Verus (see Testing)
 
 npm run desktop:dev    # next dev + Electron shell pointed at it
 npm run desktop:dist   # local macOS arm64 build (signed/notarized when APPLE_* env is set)
@@ -206,6 +207,7 @@ All deterministic, no LLM, no network (engines are injected — pi-ai's faux pro
 5. **Golden fixtures** (`tests/fixtures/golden-data/`) — a REAL data dir (real records produced by the app, never hand-edited), copied to a temp dir and read through the production paths via the `LH_DATA_DIR` seam. Pins that real data parses, flattens to a legal LLM wire, derives the graph end-to-end, covers every custom-marker kind, and that reads never write. **The fixture law:** an intentional on-disk format change updates the fixtures in the same commit — see the fixture README.
 6. **Accessibility checks** (`npm run test:a11y`, separate from `npm test`) — Playwright and axe-core in Chromium against the production build, on a copy of the golden fixtures. See below.
 7. **Doctrine evals** (`npm run evals`, separate from `npm test`; CI runs it right after) — grades the recorded practice transcripts in `evals/transcripts/` against the tutor's laws. No model, no network. See below.
+8. **The proof** (`node verified/check.mjs`, separate from `npm test`; CI's Proof job runs it) — Verus proves the review rating against its spec for every input, and a differential test checks that the app's `reviewRating` rates every input class the same way. Needs Rust and Verus. See below.
 
 ### Accessibility checks
 
@@ -255,6 +257,14 @@ npm run evals -- --live --model claude-haiku-4.5 --rubric --out <folder>
 - **The Live evals workflow** (`.github/workflows/evals-live.yml`) runs live mode on demand (choose the model; default `claude-haiku-4.5`), every Monday, and on pushes to `main` that change the prompts. It needs a `COPILOT_GITHUB_TOKEN` repository secret with Copilot access and only prints a notice without one. The sessions are kept as the `eval-sessions` artifact for 14 days.
 - **Limits.** The leak and hint graders compare word 4-grams with the committed solution: they catch a tutor that recites it, not one that paraphrases it, and a short correction ("it's 12, not 13") slips under them. The answer-check grader catches some of those. A pass is evidence, not proof.
 - **Long runs.** A live run takes a few minutes per model. Keep the computer awake: sleep, including Windows Modern Standby, freezes a session mid-turn.
+
+### The proof
+
+`reviewRating` (`src/core/review-schedule.ts`) turns each practice outcome into a review rating. [`verified/`](../verified/README.md) states the rule as a spec in [Verus](https://github.com/verus-lang/verus) and proves a Rust copy meets it for every input. `node verified/check.mjs` runs five steps, and every one must pass: the proof, a mutation check (one planted bug per clause, each rejected on its clause), a WebAssembly build of the proved code, the tests, and a negative control. The tests compare the app's `reviewRating` with the WebAssembly on all 630 input classes (D) and check that FSRS never gives a lower rating a later review (T1 and T2).
+
+- **Setup.** Rust 1.99.1 with the wasm32 target, and the Verus release pinned in `.github/workflows/ci.yml`, with `VERUS` set to its binary. [`verified/README.md`](../verified/README.md) has the commands.
+- **Changing the rule.** Change the doc comment, the spec in `verified/src/lib.rs` and `reviewRating` together. The Proof job fails while the TypeScript and the proved code rate any input class differently. `tests/review-queue.test.tsx` keeps its rating-map examples, which run in `npm test` without Rust.
+- **Output.** `verified/target/receipt.json` has every count, the tool versions and the hashes of what was checked; the logs are in `verified/target/logs/`. In CI the receipt is also the job summary.
 
 ## Lineage
 

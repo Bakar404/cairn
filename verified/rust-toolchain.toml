@@ -1,0 +1,6 @@
+# The Rust that Verus 0.2026.11.02.8bf68ee is built against. check.mjs
+# runs Verus and cargo on this channel; bump it only with Verus.
+[toolchain]
+channel = "1.99.1"
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
