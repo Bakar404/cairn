@@ -199,7 +199,7 @@ describe("workflow action versions", () => {
 		it(`${filename} uses supported Action runtimes without changing the app's Node 26`, () => {
 			const workflow = yaml.load(readFileSync(new URL(`../.github/workflows/${filename}`, import.meta.url), "utf8"));
 			const expected = ["actions/checkout@v7", "actions/setup-node@v7"];
-			if (filename === "ci.yml") expected.push("lycheeverse/lychee-action@v2");
+			if (filename === "ci.yml") expected.push("actions/upload-artifact@v7", "lycheeverse/lychee-action@v2");
 			if (filename === "release.yml") {
 				expected.push("actions/attest@v4", "actions/github-script@v9", "actions/upload-artifact@v7", "maxim-lobanov/setup-xcode@v1");
 			}
