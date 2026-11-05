@@ -116,6 +116,7 @@ The review pill on the home screen counts the ideas due for practice, such as **
 A tutor has to grade you fairly and get its facts right. Cairn checks both, and says where the checks stop. The answer check, the doctrine evals and checked quotes are new in 0.5.0.
 
 - **A second opinion on every practice verdict.** After a practice problem ends, a second model grades your final answer against the worked solution, without seeing the tutor's verdict. When the two disagree, the problem's card says **Answer check disagrees.** and gives the reason, and the disagreement can only make your review schedule stricter, never looser. Switch it in **Settings → Agent → Answer check**.
+- **The review rating is proved.** The rule that turns a practice outcome into a review rating is checked by [Verus](https://github.com/verus-lang/verus) against a written spec, for every input: the answer check can only lower a rating, and a careless slip is never rated below Hard. CI fails if the code drifts from the spec ([how it works](verified/README.md)). The review dates come from FSRS, which is tested, not proved.
 - **Teaching rules that are tested.** The practice tutor follows written laws, such as one problem at a time, a worked solution committed before the problem is posed and hidden until the end, and one hint per request. `npm run evals` grades recorded practice sessions against eight of them, with no model and no network, and CI runs it on every change:
 
   ```text
@@ -139,7 +140,7 @@ A tutor has to grade you fairly and get its facts right. Cairn checks both, and 
 - **Quotes that are really there.** A passage on an idea's card was found word for word in what you imported. A quote that isn't there is dropped, not shown.
 - **Official documentation.** Research reads Microsoft Learn alongside the web, and a certification goal comes from the exam's own study guide.
 - **Your files stay yours.** Chats, the knowledge graph and settings are plain files on your computer. [Your data](#your-data) lists everything that leaves it, and where it goes.
-- **Open, checked builds.** The code is open source under AGPL-3.0. Every change runs typecheck, tests, lint, the doctrine evals and the accessibility checks in [CI](.github/workflows/ci.yml), and [CodeQL](.github/workflows/codeql.yml) scans the code. Each installer has a [build-provenance attestation](#checking-a-download). Cairn listens only on `127.0.0.1`, and it refuses requests from other sites to read your folders, a study guide or a code change.
+- **Open, checked builds.** The code is open source under AGPL-3.0. Every change runs typecheck, tests, lint, the doctrine evals, the accessibility checks and the review-rating proof in [CI](.github/workflows/ci.yml), and [CodeQL](.github/workflows/codeql.yml) scans the code. Each installer has a [build-provenance attestation](#checking-a-download). Cairn listens only on `127.0.0.1`, and it refuses requests from other sites to read your folders, a study guide or a code change.
 
 ### Known limits
 

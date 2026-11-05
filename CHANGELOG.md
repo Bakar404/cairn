@@ -7,6 +7,7 @@ All notable changes to Cairn are recorded here. The format follows [Keep a Chang
 ### Added
 
 - **Health check.** `GET /api/health` answers `{ "ok": true }`, for hosts and containers that restart a server when it stops answering.
+- **A proof of the review rating.** [`verified/`](verified/README.md) holds a [Verus](https://github.com/verus-lang/verus) proof that the rule turning a practice outcome into a review rating meets its written spec for every input, and a test that the app's rule rates every input class the same as the proved code. A new Proof job in CI runs both.
 
 ### Security
 
