@@ -22,15 +22,8 @@ import {
 	type UsageStepLike,
 	type VisualResult,
 	type VisualToolInput,
-	type WorkContextToolInput,
 } from "../../core/contracts.ts";
 import { cleanBeats, descriptionsVtt, type ManimRenderer } from "../../core/manim.ts";
-import {
-	cleanWorkTopic,
-	parseWorkContextTopics,
-	workContextQuestion,
-	type WorkIqClient,
-} from "../../core/workiq.ts";
 import { registerJobAbort, unregisterJobAbort } from "./aborts.ts";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -76,17 +69,7 @@ export const pdfModelOverride: { current?: PiEngine } = {};
 export const animationModelOverride: { current?: PiEngine } = {};
 
 /** The dispatch-time tool input (from src/agent/tools/jobs.ts schemas). */
-type JobToolInput =
-	| ResearchToolInput
-	| DemoToolInput
-	| VisualToolInput
-	| PdfToolInput
-	| AnimationToolInput
-	| WorkContextToolInput;
-
-/** The kinds that run a model loop. work_context (M10) runs none: it asks
- *  Work IQ one question and parses the answer. */
-type ModelJobKind = Exclude<JobKind, "work_context">;
+type JobToolInput = ResearchToolInput | DemoToolInput | VisualToolInput | PdfToolInput | AnimationToolInput;
 
 export interface JobRunnerDeps {
 	chatStore: ChatStore;
@@ -120,9 +103,6 @@ export interface JobRunnerDeps {
 	 *  may draw Manim stills with it. Absent = animations fail honestly and
 	 *  visuals stay SVG-only. */
 	manim?: ManimRenderer;
-	/** Work IQ (M10), read fresh per job: null while it's switched off in
-	 *  Settings — work_context jobs then fail honestly. */
-	workIq?: () => WorkIqClient | null;
 	/** Microsoft Learn (M21), read fresh per research job: null while it's
 	 *  switched off in Settings — the researcher then runs on the web alone. */
 	learnDocs?: () => LearnDocsClient | null;
@@ -152,7 +132,7 @@ interface LoopContext {
 
 /** The kind→role table (model slots wave, 2026-09-20): which ModelRole's
  * engine each sub-agent kind runs — the engineFor injection key. */
-const KIND_ROLE: Record<ModelJobKind, ModelRole> = {
+const KIND_ROLE: Record<JobKind, ModelRole> = {
 	research: "researcher",
 	demo: "demoBuilder",
 	visual: "visualMaker",
@@ -203,7 +183,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	 *  tests swap scripted engines without touching deps), then the injected
 	 *  settings-resolved engineFor. undefined = the BYOK chain came up
 	 *  empty (owner, 2026-09-22) — runJob refuses below, honestly. */
-	function pickEngine(kind: ModelJobKind): PiEngine | undefined {
+	function pickEngine(kind: JobKind): PiEngine | undefined {
 		const testOverride: Record<string, { current?: PiEngine } | undefined> = {
 			researcher: researchModelOverride,
 			demoBuilder: demoModelOverride,
@@ -215,7 +195,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	}
 
 	const KIND_RUNNERS: Record<
-		ModelJobKind,
+		JobKind,
 		(jobId: string, engine: PiEngine, input: JobToolInput | undefined, loop: LoopContext) => Promise<void>
 	> = {
 		research: (jobId, engine, input, loop) => runResearchJob(jobId, engine, input, loop),
@@ -232,11 +212,6 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			return;
 		}
 		if (job.status !== "running") return; // already finished / re-run after crash recovery
-		// Work IQ (M10) runs no model: no engine, no key gate, no usage.
-		if (job.kind === "work_context") {
-			await runWorkContextJob(jobId, input);
-			return;
-		}
 		const run = KIND_RUNNERS[job.kind];
 		if (!run) {
 			console.error(`[job ${jobId}] unknown kind: ${job.kind}`);
@@ -529,36 +504,6 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			const reason = err instanceof Error ? err.message : String(err);
 			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
 			await finishJob(jobId, { svg: "", notes: `FAILED: ${reason}` });
-		}
-	}
-
-	// ─── work context (M10: Work IQ) ─────────────────────────────────────────
-
-	/** One Work IQ question, a deterministic parse, a steer. Failures steer
-	 *  too, so the prober learns no topics are coming and probes as usual. */
-	async function runWorkContextJob(jobId: string, passedInput: JobToolInput | undefined): Promise<void> {
-		const ctx = jobContext(jobId);
-		if (!ctx) return;
-		const input = resolveInput(ctx.job, passedInput) as WorkContextToolInput | undefined;
-		const topic = cleanWorkTopic(typeof input?.topic === "string" ? input.topic : "");
-		const question = topic ? workContextQuestion(topic) : "";
-		const controller = new AbortController();
-		registerJobAbort(jobId, controller);
-		try {
-			if (!topic) throw new Error("no topic was given");
-			const client = deps.workIq?.() ?? null;
-			if (!client) throw new Error("Work IQ is switched off in Settings");
-			jobStore.updateJob(jobId, { activity: "asking Work IQ" });
-			const answer = await client.ask({ question, abortSignal: controller.signal });
-			if (controller.signal.aborted) return;
-			await finishJob(jobId, { topic, question, topics: parseWorkContextTopics(answer) });
-		} catch (err) {
-			if (controller.signal.aborted) return;
-			const reason = err instanceof Error ? err.message : String(err);
-			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
-			await finishJob(jobId, { topic, question, topics: [], failure: reason });
-		} finally {
-			unregisterJobAbort(jobId);
 		}
 	}
 

@@ -1,6 +1,6 @@
 # Contributing to Cairn
 
-Thanks for helping. Cairn is a fork of [LearnHarness](https://github.com/amosblomqvist/learnharness), which supplies the teaching method and most of the app. If your change isn't specific to Cairn, consider proposing it upstream too. Cairn-specific areas include Copilot, Work IQ, OneDrive, animations and the release pipeline.
+Thanks for helping. Cairn is a fork of [LearnHarness](https://github.com/amosblomqvist/learnharness), which supplies the teaching method and most of the app. If your change isn't specific to Cairn, consider proposing it upstream too. Cairn-specific areas include Copilot, OneDrive, animations and the release pipeline.
 
 ## Set up
 

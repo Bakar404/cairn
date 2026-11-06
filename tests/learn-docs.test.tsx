@@ -1150,7 +1150,7 @@ describe("the Microsoft Learn switch in Settings", () => {
 		assert.equal(learnDocsEnabled(resolveSettings(null)), true, "on by default");
 	});
 
-	it("the Agent section's row follows Work IQ, is on by default, and writes its own key", () => {
+	it("the Agent section's row is on by default and writes its own key", () => {
 		const render = (agent: AgentSettings | undefined) =>
 			renderToStaticMarkup(
 				<AgentSection
@@ -1169,15 +1169,14 @@ describe("the Microsoft Learn switch in Settings", () => {
 			return html.slice(html.lastIndexOf("<", at), html.indexOf(">", at) + 1);
 		};
 		const html = render(undefined);
-		assert.ok(html.indexOf('data-testid="work-iq-row"') < html.indexOf('data-testid="learn-docs-row"'));
 		// (the apostrophe in "Microsoft's" HTML-escapes — match up to it)
 		assert.ok(html.includes("Lets research cite Microsoft"));
 		assert.ok(toggle(html).includes('aria-checked="true"'), "absent = on");
 		assert.ok(toggle(render({ learnDocs: {} })).includes('aria-checked="true"'));
 		assert.ok(toggle(render({ learnDocs: { enabled: false } })).includes('aria-checked="false"'), "stored off renders off");
 		assert.deepEqual(composeLearnDocs(undefined, false), { learnDocs: { enabled: false } });
-		assert.deepEqual(composeLearnDocs({ workIq: { enabled: true }, tools: { demo: false } }, true), {
-			workIq: { enabled: true },
+		assert.deepEqual(composeLearnDocs({ graphTools: { enabled: true }, tools: { demo: false } }, true), {
+			graphTools: { enabled: true },
 			tools: { demo: false },
 			learnDocs: { enabled: true },
 		});

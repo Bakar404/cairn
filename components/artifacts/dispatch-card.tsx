@@ -30,7 +30,6 @@ const KIND_LABEL: Record<JobKind, string> = {
 	visual: "Figure agent",
 	pdf: "PDF reader",
 	animation: "Animation agent",
-	work_context: "Work IQ",
 };
 
 export function DispatchCard({
@@ -41,7 +40,7 @@ export function DispatchCard({
 	toolCallId: string;
 	kind: JobKind;
 	/** The kind's artifact, for a result the learner holds. Teacher-facing
-	 *  kinds (research, pdf, Work IQ) omit it. */
+	 *  kinds (research, pdf) omit it. */
 	renderHeld?: (result: unknown) => ReactNode;
 }) {
 	const jobs = useContext(JobsContext);

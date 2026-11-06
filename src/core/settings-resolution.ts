@@ -77,9 +77,6 @@ export interface EffectiveSettings {
 		/** Prober graph tools (wave 7): passthrough delta as stored —
 		 * absent/undefined enabled = ON; consumers use graphToolsEnabled. */
 		graphTools: { enabled?: boolean };
-		/** Work IQ (M10): passthrough delta as stored — absent/undefined
-		 * enabled = OFF; consumers use workIqEnabled. */
-		workIq: { enabled?: boolean };
 		/** Microsoft Learn (M21): passthrough delta as stored —
 		 * absent/undefined enabled = ON; consumers use learnDocsEnabled. */
 		learnDocs: { enabled?: boolean };
@@ -185,7 +182,6 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			tools: agent.tools ?? {},
 			prompts: agent.prompts ?? {},
 			graphTools: agent.graphTools ?? {},
-			workIq: agent.workIq ?? {},
 			learnDocs: agent.learnDocs ?? {},
 			assessor: agent.assessor ?? {},
 		},
@@ -257,12 +253,6 @@ export function graphToolsEnabled(effective: {
 	agent: { graphTools: { enabled?: boolean } };
 }): boolean {
 	return effective.graph.enabled && (effective.agent.graphTools.enabled ?? true);
-}
-
-/** The Work IQ gate (M10): opt-in, so only an explicit true opens it —
- *  the prober's work_context tool and the runner's client both read it. */
-export function workIqEnabled(effective: { agent: { workIq: { enabled?: boolean } } }): boolean {
-	return effective.agent.workIq.enabled === true;
 }
 
 /** The Microsoft Learn gate (M21): on unless switched off — the researcher's

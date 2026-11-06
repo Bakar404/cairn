@@ -21,9 +21,6 @@ export * from "./storage.ts";
 // The Manim renderer (M13): Docker status + install for Settings, and the
 // chat media files the animation/visual makers save.
 export * from "./manim.ts";
-// Work IQ (M10): the stdio MCP adapter the job runner asks through, and the
-// Settings connection test.
-export * from "./workiq.ts";
 // Microsoft Learn (M21): the HTTP MCP adapter the researcher and the Goals
 // picker read Microsoft's documentation through.
 export * from "./learn-docs.ts";

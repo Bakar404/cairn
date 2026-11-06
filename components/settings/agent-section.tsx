@@ -31,10 +31,8 @@
  * animation joined with M13 (it also needs the Manim renderer, installed
  * from Providers). Absent key = enabled in the schema; the UI writes an
  * explicit boolean per tool (simpler to reason about, sanitize-equivalent).
- * Work IQ (M10) is a separate row with its own key (agent.workIq) and the
- * opposite default: absent = off, because it reads the learner's work.
- * Microsoft Learn (M21) is another own-key row (agent.learnDocs), absent =
- * on: it reads Microsoft's public documentation for the researcher.
+ * Microsoft Learn (M21) is a separate row with its own key (agent.learnDocs),
+ * absent = on: it reads Microsoft's public documentation for the researcher.
  * The answer check (M24) is one more (agent.assessor), absent = on: a
  * second model grades each concluded practice problem.
  *
@@ -139,13 +137,6 @@ export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics
  *  explicit-off record stays visible as stored. Pure — exported for tests. */
 export function composeGraphTools(agent: AgentSettings | undefined, on: boolean): AgentSettings {
 	return { ...agent, graphTools: { enabled: on } };
-}
-
-/** Compose the Work IQ switch (M10): its own key, like graph tools — but
- *  absent = OFF (it reads the learner's work data, so it's opt-in). Pure —
- *  exported for tests. */
-export function composeWorkIq(agent: AgentSettings | undefined, on: boolean): AgentSettings {
-	return { ...agent, workIq: { enabled: on } };
 }
 
 /** Compose the Microsoft Learn switch (M21): its own key, absent = ON (it
@@ -700,20 +691,6 @@ export function AgentSection({
 						</SettingsRow>
 					);
 				})()}
-				{/* Work IQ (M10): a prober capability like graph tools, so it sits
-				    beside them. Opt-in: absent = off. The setup and the
-				    connection test live in Providers › Work IQ. */}
-				<SettingsRow
-					label="Work IQ"
-					hint="Lets the tutor ask Work IQ what your work already covers. Set it up in Providers."
-					testid="work-iq-row"
-				>
-					<Toggle
-						checked={agent?.workIq?.enabled === true}
-						label="work iq"
-						onChange={(on) => onSectionChange(composeWorkIq(agent, on))}
-					/>
-				</SettingsRow>
 				{/* Microsoft Learn (M21): a researcher capability with its own key,
 				    on unless switched off. No setup — the service is public. */}
 				<SettingsRow
