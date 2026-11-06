@@ -109,7 +109,7 @@ The review pill on the home screen counts the ideas due for practice, such as **
 
 - Every model call and web search runs on your Copilot plan through the official [GitHub Copilot SDK](https://github.com/github/copilot-sdk). There are no model keys, and Cairn runs no servers of its own and includes no analytics.
 - Three model slots: **Strong**, the main model for your sessions; **Cheap**, for the assistants that research, build demos and grade your work; and **Vision**, for the assistants that draw and read PDFs.
-- Optional extras: short animated explanations with [Manim](https://www.manim.community/), rendered on your computer in Docker; [Work IQ](https://github.com/microsoft/work-iq), which suggests where to start from your Microsoft 365 work (off by default); and keeping your library in your work OneDrive.
+- Optional extras: short animated explanations with [Manim](https://www.manim.community/), rendered on your computer in Docker, and keeping your library in your work OneDrive.
 
 ## Why you can trust it
 
@@ -148,7 +148,6 @@ A tutor has to grade you fairly and get its facts right. Cairn checks both, and 
 - **A small tutor model can be too generous.** In a live run with Claude Haiku 4.5 as the tutor, the scripted overconfident learner answered both problems wrongly and the tutor called both solved. The answer check marked both partial and the evals flagged the mismatch, but in the app the tutor's verdict stands: the disagreement only makes the review schedule stricter. Only passing sessions are recorded, because CI fails on any break, so that run is described here instead. For practice you can rely on, choose a strong model for the **Strong** slot in **Settings → Agent**.
 - **The answer check is a model too.** It can be wrong, so it never overrules the tutor. It's best effort: it's skipped when it's switched off or no cheap model is set up, and it isn't retried when the model fails.
 - **PDFs need a text layer.** Cairn doesn't run OCR, so a scanned page adds nothing.
-- **Work IQ topics are only a starting guess**, and never count as things you know.
 - **The installers aren't signed** by a trusted publisher yet, and the macOS app isn't notarized, so your system warns you the first time you open Cairn. [Download](#download) explains what to do.
 
 ## How it works
@@ -203,7 +202,6 @@ flowchart LR
 - For the [desktop app](#download): a Mac with Apple Silicon, or a Windows or Linux PC with an x64 processor. To [run from source](#run-from-source) instead: **Node.js 22.12 or newer** (or 20.19+).
 - No separate sign-in tool: Cairn has its own **Sign in with GitHub**. A [GitHub CLI](https://cli.github.com) sign-in (`gh auth login`) or a token in `COPILOT_GITHUB_TOKEN` works too.
 - *Optional, for animations:* [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine on Linux), running Linux containers. Cairn downloads the Manim renderer, about 500 MB, only when you choose **Install renderer** in **Settings → Providers → Animations**.
-- *Optional, for Work IQ:* a work account with a **Microsoft 365 Copilot** license. You accept the Work IQ license and sign in once, in a terminal (**Settings → Providers → Work IQ** lists the commands), and your Microsoft 365 admin may need to approve Work IQ for your organization once.
 - *Optional, to learn from code changes:* [Git](https://git-scm.com) for local commits, and the [GitHub CLI](https://cli.github.com) signed in with `gh auth login` for private pull requests.
 - *Optional, later for voice:* an Azure subscription, the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) and the [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
 
@@ -294,7 +292,6 @@ You can change models later in **Settings → Agent**, manage your Copilot sign-
 - A code change is read with the GitHub CLI, GitHub's API or your local git, and its text goes to the Copilot models.
 - The answer check sends the problem, its worked solution and your answers to your cheap model, without the tutor's verdict.
 - Animations render on your computer, in a Docker container with no network access and no access to your files. The renderer image comes from Docker Hub, once, when you install it.
-- Work IQ is off unless you switch it on. When it's on, the subject of a session goes to Microsoft 365 Copilot under your own sign-in, once per session, and Cairn saves only the short list of topics it returns, not its full answer. Each question may use your organization's Copilot Credits.
 - On Windows and Linux, the desktop app asks GitHub Releases for a newer version when it starts and every 24 hours, without your account or lesson data. **Settings → General → Automatic updates** turns this off. The macOS app doesn't check.
 - Cairn runs no servers of its own and includes no analytics.
 
@@ -340,10 +337,9 @@ Cairn adapts LearnHarness for people and companies that already use GitHub Copil
 | **Talk** | Dictation through Deepgram | *Planned:* dictation through **Azure Speech**, then a hands-free **voice mode** (speech-to-text → Copilot teacher → neural voice). Until then, Cairn has no built-in dictation. |
 | **Web research** | Tavily or Brave | **Available now:** **Copilot's built-in web search**, with no key. It is the only search engine. |
 | **Animations** | SVG figures and interactive demos | **Available now, optional:** short animated explanations written with [Manim](https://www.manim.community/) and rendered on your computer in Docker, plus Manim figures for typeset math. Turn it on in **Settings → Providers → Animations**. |
-| **Work context** | Not used | **Available now, optional, off by default:** before the first question, Cairn can ask [Work IQ](https://github.com/microsoft/work-iq) which parts of the subject your Microsoft 365 work (email, meetings, chats, documents) already touches, so the questions start in the right place. The topics are only a starting guess and never count as things you know. Set it up in **Settings → Providers → Work IQ**, then switch it on in **Settings → Agent**. |
 | **Azure** | Not used | *Planned, optional:* `azd up` deploys into **your own** subscription, and Cairn signs in with your `az login` (Microsoft Entra ID), so no Azure keys are stored. |
 | **Install** | Desktop downloads | **Available now:** [desktop downloads](#download) for macOS (Apple Silicon), Windows and Linux, or run from source. The macOS app isn't notarized by Apple yet, so you update it by hand. |
-| **Later** | | Opt-in suggestions for what to learn from Microsoft 365 work context (Work IQ), search over company docs (Azure AI Search), a shared team gateway |
+| **Later** | | Search over company docs (Azure AI Search), a shared team gateway |
 
 Features Cairn has added since the fork are described in [What makes Cairn different](#what-makes-cairn-different).
 
@@ -364,4 +360,4 @@ Cairn is free software under the **GNU Affero General Public License v3.0 only**
 - **Modification notice (AGPL-3.0 §5(a)):** Cairn is a modified version of LearnHarness 0.3.8 (upstream commit `3dc8847`). Modifications began on 2026-10-26, and the git history records each change.
 - If you run a modified Cairn as a network service for other people, AGPL-3.0 §13 requires you to offer them its source code.
 
-GitHub, GitHub Copilot, Microsoft, Azure and Work IQ are trademarks of their respective owners.
+GitHub, GitHub Copilot, Microsoft and Azure are trademarks of their respective owners.

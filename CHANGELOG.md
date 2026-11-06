@@ -10,6 +10,10 @@ All notable changes to Cairn are recorded here. The format follows [Keep a Chang
 - **Animations in a copy hosted in Azure.** With `CAIRN_MANIM_BACKEND=azure-job`, Cairn renders animations and Manim stills in an Azure Container Apps job instead of Docker, with the same pinned image and runner. Each render is one job execution that reads its scene from, and writes its result to, Blob Storage through single-blob links that expire within minutes. Cairn signs in to Azure as its managed identity, with no keys. Settings → Providers → Animations shows Ready, or Unavailable with what to fix. The desktop app and `npm run dev` keep using Docker. See [development](docs/development.md#environment-envlocal).
 - **A proof of the review rating.** [`verified/`](verified/README.md) holds a [Verus](https://github.com/verus-lang/verus) proof that the rule turning a practice outcome into a review rating meets its written spec for every input, and a test that the app's rule rates every input class the same as the proved code. A new Proof job in CI runs both.
 
+### Removed
+
+- **Work IQ.** The optional Work IQ lookup (Settings → Agent and Settings → Providers → Work IQ) is gone, with its `work_context` tool and `/api/workiq`. A `workIq` value already saved in settings is ignored.
+
 ### Security
 
 - **Writes from other sites are refused.** The server now refuses any API write (POST, PUT, PATCH or DELETE) that the browser marks as coming from another site, or whose `Origin` names another host. Before, most write routes, such as starting a chat, would act on a form or plain-text request that a website you visited sent to your local server, and an interactive demo in its sandboxed frame could do the same. Reads and Cairn's own requests are unaffected.
