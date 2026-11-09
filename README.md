@@ -12,6 +12,7 @@
   <a href="https://github.com/Bakar404/cairn/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Bakar404/cairn?sort=semver"></a>
   <a href="https://github.com/Bakar404/cairn/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Bakar404/cairn/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue"></a>
+  <img alt="Platforms: macOS, Windows, Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey">
 </p>
 
 <p align="center">
@@ -36,6 +37,13 @@ Aim a lesson at a Microsoft certification or at your own code, learn from a pull
 
 > [!IMPORTANT]
 > **Early release.** Every model call and web search runs on your GitHub Copilot subscription. The desktop installers are new: they pass automated checks on macOS, Windows and Linux but haven't yet had a full hands-on pass on each system. They aren't signed by a trusted publisher either, so Windows and macOS warn you the first time you open Cairn, and [Download](#download) explains what to do. Azure voice is still planned, so there's no built-in dictation.
+
+## Quick start
+
+1. With a GitHub Copilot account, download your system's installer from the [latest release](https://github.com/Bakar404/cairn/releases/latest).
+2. Install and open Cairn; follow [Download](#download) for unsigned-app warnings.
+3. Choose **Sign in with GitHub**, then **Set up your models**.
+4. Type what you want to learn, or choose **Set a goal**. See [Getting started](#getting-started) for details.
 
 ## What makes Cairn different
 
